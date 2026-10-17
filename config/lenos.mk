@@ -36,6 +36,10 @@ PRODUCT_PRODUCT_PROPERTIES += \
     ro.lenos.version=1.0.0 \
     ro.lenos.base=lineage-23.2 \
     ro.lenos.dns=dns.quad9.net \
+    # Auto-reboot-to-BFU backend: framework system service
+    # (LenosAutoRebootService, frameworks/base). Status string for the lenOS
+    # security app; the timer value lives in Settings.Global.
+    ro.lenos.security.auto_bfu=framework \
     persist.traced.enable=0 \
     persist.logd.size.radio=64K \
     persist.vendor.verbose_logging_enabled=0 \

@@ -3,6 +3,36 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-17 (third session) — framework: auto reboot to BFU
+
+* New framework patch `frameworks_base/0003-lenos-auto-reboot`: a
+  `LenosAutoRebootService` system service (started next to AlarmManager in
+  `SystemServer`) reboots a secured device back to the before-first-unlock
+  state when it has stayed locked longer than
+  `Settings.Global.lenos_auto_reboot_timeout_ms`.
+  * Countdown arms at screen off and resets on every unlock, so it measures
+    time since last use; exact `ELAPSED_REALTIME_WAKEUP` alarm with a private,
+    immutable PendingIntent; a content observer re-arms when the value
+    changes.
+  * Safety: skipped when no secure lock is set, deferred (10 min retry) while
+    a call is in progress; `0` disables; out-of-range values fall back to the
+    18h ROM default. Emergency calling keeps working after reboot.
+* `frameworks_base/0002` extended: first boot seeds
+  `lenos_auto_reboot_timeout_ms` from `def_lenos_auto_reboot_timeout_ms`
+  (stock value 0); the product RRO ships the hardened 18h value
+  (`rro/LenosSettingsProviderOverlay`).
+* `config/lenos.mk`: `ro.lenos.security.auto_bfu=framework`, so the app's
+  status card reports a real backend instead of `?`. No app change needed —
+  the BFU spinner already reads/writes the same int setting.
+* Tests: `tests/test_auto_reboot.py` (15 checks: setting-key/default equality
+  across service + provider + app + RRO, SystemServer ordering, lock/call
+  guards, alarm privacy, observer); `test_first_boot_defaults.py` extended for
+  the new seed. **12 patches, 74 tests, all green**; trees pristine
+  (`lenos-patch.py --check` ok; `frameworks/base` `services/java/` was added
+  to the workspace sparse-checkout so `SystemServer.java` is editable).
+* `docs/features.md`: new "Lock, data and recovery" section, app matrix,
+  experimental list, honest limits and verification checklist updated.
+
 ## 2026-10-17 (second session) — committed, VM driver on the patchkit
 
 * All of the previous entry committed on branch `lenos-1.0` as ten small
@@ -84,8 +114,11 @@ One entry per working session. "Verified" = seen working on a booted device
 2. Wi-Fi hostname toggle: verify end-to-end (settings value, DHCP capture).
 3. RRO enablement check (`cmd overlay list`); if an RRO is not enabled or the
    target policy rejects it, adjust the partition/priority flags.
-4. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
+4. Auto reboot to BFU: verify on device (`settings get global
+   lenos_auto_reboot_timeout_ms` = 64800000, spinner writes, prove the reboot
+   with the 10 minute choice, confirm call deferral).
+5. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
-5. Framework work that is still out of the series: duress credential backend,
-   auto reboot to BFU, sensor permission, Secure Paste, QS-tile unlock gating,
-   delayed allow buttons, LTE-only toggle, vold FBE filename padding.
+6. Framework work still out of the series: duress credential backend, sensor
+   permission, Secure Paste, QS-tile unlock gating, delayed allow buttons,
+   LTE-only toggle, vold FBE filename padding.

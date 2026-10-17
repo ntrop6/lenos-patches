@@ -36,6 +36,8 @@ class TestFirstBootDefaults(LenosPatchTest):
             "R.string.def_lenos_private_dns_specifier",
             "R.string.def_lenos_ntp_server",
             "R.integer.def_lenos_captive_portal_mode",
+            "LENOS_AUTO_REBOOT_TIMEOUT_MS",
+            "R.integer.def_lenos_auto_reboot_timeout_ms",
         )
 
     def test_wifi_key_matches_the_wifi_module_constant(self):
@@ -61,6 +63,8 @@ class TestFirstBootDefaults(LenosPatchTest):
             '<string name="def_lenos_private_dns_mode" translatable="false">opportunistic</string>',
             '<string name="def_lenos_ntp_server" translatable="false">time.android.com</string>',
             '<integer name="def_lenos_captive_portal_mode">1</integer>',
+            # 0 = no auto reboot (stock behaviour); the lenOS RRO ships 18h.
+            '<integer name="def_lenos_auto_reboot_timeout_ms">0</integer>',
         )
 
     def test_defaults_are_loaded_on_first_boot_only(self):

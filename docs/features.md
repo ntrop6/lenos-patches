@@ -19,6 +19,7 @@ setting afterwards; lenOS never rewrites a user change.
 | `private_dns_specifier` | `dns.quad9.net` | Quad9 DoT |
 | `NTP_SERVER` | `pool.ntp.org` | no Google time service (framework fallback lives in `rro/LenosFrameworksOverlay`) |
 | `captive_portal_mode` | `1` | prompt — never silently logged-in to portals |
+| `lenos_auto_reboot_timeout_ms` | `64800000` | reboot to before-first-unlock after 18h locked (see "Lock, data and recovery") |
 
 Other first-boot hardening from the same overlay: Bluetooth off, no Wi-Fi
 wakeup scanning, no "open networks available" notifications, location off,
@@ -47,22 +48,28 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 | SUPL / AGPS network assistance off | `device_nothing_asteroids/0003` | no location data to a SUPL server; slower GPS first fix (trade-off, documented) |
 | Modem/radio logging and snapshot props off | `config/lenos.mk` | `persist.vendor.radio.*` logging off, small radio log buffer, `persist.traced.enable=0` |
 
+## Lock, data and recovery
+
+| Feature | Where | Notes |
+|---|---|---|
+| Auto reboot to before-first-unlock (BFU) | `frameworks_base/0003` + first-boot default | `LenosAutoRebootService` reboots a secured device that stayed locked for 18h: the FBE keys leave memory and stay out until the next unlock. Timer arms at screen off, resets on every unlock; `Settings.Global.lenos_auto_reboot_timeout_ms` (0 = off, 10min–3 days) with UI in the lenOS app; reboot deferred while a call is in progress; skipped without a secure lock |
+
 ## Apps and UI
 
 | Item | Status |
 |---|---|
 | Minimal app set | `Gallery2` stripped via `LENOS_STRIP_PACKAGES` (`vendor_lineage/0001`), AudioFX off (`TARGET_EXCLUDES_AUDIOFX`), MP3/Music app (`Twelve`) kept for now |
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
-| `LenosSecurity` app | ships with: Wi-Fi DHCP hostname toggle, PIN-scramble state, duress/BFU UI (experimental, see below), status card |
+| `LenosSecurity` app | ships with: Wi-Fi DHCP hostname toggle, PIN-scramble state, auto-BFU timer (framework service), duress UI (experimental, see below), status card |
 
 ## Experimental (UI present, backend not in the 1.0 series)
 
 These ship **disabled in effect** and must not be relied on until their
 backends land in the patch series:
 
-* **Duress PIN/password** and **automatic reboot-to-BFU**: the app's LockBridge
-  UI is from the earlier 1.0.0-shizuku work; the framework/init support is not
-  part of the current series. The app shows missing backends as `?`.
+* **Duress PIN/password**: the app's LockBridge UI is from the earlier
+  1.0.0-shizuku work; the LockSettingsService backend is not part of the
+  current series. The app shows the duress backend as `?`.
 * Anything not listed above (sensors permission, Secure Paste, QS-tile unlock
   gating, delayed allow buttons, LTE-only toggle, vold FBE filename padding,
   safe recovery, signed OTA/updater, reproducible builds, custom AVB key) is
@@ -90,6 +97,11 @@ backends land in the patch series:
 * **Location is off by default** (mode 0). Emergency calls still take the
   network E911 path; on-device GNSS/aGPS is off until the user enables
   location. Carrier/network location is unaffected by this default.
+* **Auto reboot to BFU interrupts connectivity until the next unlock.** When
+  the 18h timer fires, the device reboots; telephony/notifications stay off
+  until the user unlocks again (emergency calls work at BFU). It is skipped
+  while a call is in progress and on devices without a secure lock. The app
+  offers off / 10 minutes … 3 days.
 * **Jelly (WebView-based browser) still ships.** It is the Lineage default and
   gets WebView security updates from the system; replacing it with Cromite and
   updating WebView are separate work items.
@@ -98,4 +110,5 @@ backends land in the patch series:
 
 See `build.md`. At minimum: `cmd overlay list --user 0` shows all three lenOS
 RROs enabled, `settings list global | grep -E "private_dns|ntp|captive"` shows
-the seeded values, and the Wi-Fi hostname toggle changes the persisted setting.
+the seeded values, `settings get global lenos_auto_reboot_timeout_ms` shows
+`64800000`, and the Wi-Fi hostname toggle changes the persisted setting.

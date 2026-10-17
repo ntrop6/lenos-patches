@@ -38,4 +38,9 @@
     <string name="def_lenos_ntp_server" translatable="false">pool.ntp.org</string>
     <!-- Captive portal: prompt (0 = ignore, 1 = prompt, 2 = avoid). -->
     <integer name="def_lenos_captive_portal_mode">1</integer>
+
+    <!-- Lock and data protection -------------------------------------- -->
+    <!-- Reboot to the before-first-unlock state when the device has stayed
+         locked for 18 hours (0 = off; see LenosAutoRebootService). -->
+    <integer name="def_lenos_auto_reboot_timeout_ms">64800000</integer>
 </resources>

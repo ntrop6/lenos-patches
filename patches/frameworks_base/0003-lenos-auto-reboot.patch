@@ -1,0 +1,253 @@
+diff --git a/services/core/java/com/android/server/LenosAutoRebootService.java b/services/core/java/com/android/server/LenosAutoRebootService.java
+new file mode 100644
+index 00000000..3432b3c5
+--- /dev/null
++++ b/services/core/java/com/android/server/LenosAutoRebootService.java
+@@ -0,0 +1,229 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server;
++
++import android.app.AlarmManager;
++import android.app.KeyguardManager;
++import android.app.PendingIntent;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.database.ContentObserver;
++import android.os.PowerManager;
++import android.os.SystemClock;
++import android.provider.Settings;
++import android.telecom.TelecomManager;
++import android.util.Slog;
++
++import com.android.internal.os.BackgroundThread;
++
++/**
++ * lenOS: reboots the device back into the before-first-unlock (BFU) state when
++ * it has stayed locked longer than the configured timeout.
++ *
++ * <p>After a reboot and until the first successful unlock, the file-based
++ * encryption keys are not in memory, so a stolen or seized device that has been
++ * idle for a while cannot be forced to give up the user credential. The timer
++ * is armed every time the screen turns off and re-armed with the full timeout
++ * on every successful unlock, so it always measures time since the device was
++ * last used.
++ *
++ * <p>The timeout is read from {@link Settings.Global#getUriFor} for
++ * {@link #SETTING_AUTO_REBOOT_TIMEOUT_MS} (int milliseconds):
++ * <ul>
++ *     <li>{@code 0} disables the timer;</li>
++ *     <li>values outside {@code [10 minutes, 3 days]} fall back to the 18 hour
++ *     ROM default (the app only offers values inside that range);</li>
++ *     <li>the lenOS security app is the user interface for this setting.</li>
++ * </ul>
++ *
++ * <p>The reboot is skipped when no secure lock is set (a reboot would not evict
++ * anything) and deferred while a call is in progress (only possible for
++ * emergency calls placed from the lock screen). Emergency calling keeps working
++ * after reboot: the emergency dialer is available before the first unlock.
++ */
++public final class LenosAutoRebootService extends SystemService {
++    private static final String TAG = "LenosAutoReboot";
++
++    /**
++     * {@link Settings.Global} key: int number of milliseconds the device may
++     * stay locked before it is rebooted into the before-first-unlock state.
++     * Seeded on first boot by {@code DatabaseHelper}, written by the lenOS
++     * security app.
++     */
++    public static final String SETTING_AUTO_REBOOT_TIMEOUT_MS =
++            "lenos_auto_reboot_timeout_ms";
++
++    /** 18 hours: protective value used until the user stores something else. */
++    private static final int DEFAULT_TIMEOUT_MS = 64_800_000;
++
++    /** Smallest and largest accepted timeouts (match the app's choices). */
++    private static final int MIN_TIMEOUT_MS = 600_000;      // 10 minutes
++    private static final int MAX_TIMEOUT_MS = 259_200_000;  // 3 days
++
++    /** Retry delay when the timer fires while a call is in progress. */
++    private static final long IN_CALL_RETRY_MS = 10 * 60 * 1000;
++
++    private static final String ACTION_AUTO_REBOOT =
++            "com.android.server.lenos.action.AUTO_REBOOT";
++    private static final String REBOOT_REASON = "lenos-auto-reboot";
++    private static final int REQUEST_CODE_AUTO_REBOOT = 0;
++
++    private final Context mContext;
++    private final AlarmManager mAlarmManager;
++
++    public LenosAutoRebootService(Context context) {
++        super(context);
++        mContext = context;
++        mAlarmManager = context.getSystemService(AlarmManager.class);
++    }
++
++    @Override
++    public void onStart() {
++        // Nothing to publish; the service only schedules a reboot timer.
++    }
++
++    @Override
++    public void onBootPhase(int phase) {
++        if (phase != PHASE_SYSTEM_SERVICES_READY) {
++            return;
++        }
++        final IntentFilter filter = new IntentFilter();
++        filter.addAction(Intent.ACTION_SCREEN_OFF);
++        filter.addAction(Intent.ACTION_USER_PRESENT);
++        filter.addAction(ACTION_AUTO_REBOOT);
++        mContext.registerReceiver(mReceiver, filter);
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor(SETTING_AUTO_REBOOT_TIMEOUT_MS),
++                false /* notifyForDescendants */, mSettingsObserver);
++    }
++
++    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            final String action = intent.getAction();
++            if (action == null) {
++                return;
++            }
++            switch (action) {
++                case Intent.ACTION_SCREEN_OFF:
++                    // Locking (and, with it, key eviction until the next
++                    // unlock) starts at screen off; arm the countdown here.
++                    armTimer();
++                    break;
++                case Intent.ACTION_USER_PRESENT:
++                    // Unlocked: the credentials are in memory again and only a
++                    // fresh lock starts the next countdown.
++                    disarmTimer();
++                    break;
++                case ACTION_AUTO_REBOOT:
++                    handleTimeout();
++                    break;
++                default:
++                    break;
++            }
++        }
++    };
++
++    private final ContentObserver mSettingsObserver = new ContentObserver(
++            BackgroundThread.getHandler()) {
++        @Override
++        public void onChange(boolean selfChange) {
++            // Re-evaluate the timer with the new value; armTimer() disarms it
++            // when the timeout is 0 or the device is not secured.
++            armTimer();
++        }
++    };
++
++    private void armTimer() {
++        final int timeoutMs = getTimeoutMs();
++        if (timeoutMs <= 0 || !isDeviceSecure()) {
++            cancelAlarm();
++            return;
++        }
++        final long triggerAtElapsed = SystemClock.elapsedRealtime() + timeoutMs;
++        Slog.d(TAG, "Arming auto-reboot timer: " + timeoutMs + " ms from now");
++        mAlarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
++                triggerAtElapsed, getAlarmPendingIntent());
++    }
++
++    private void disarmTimer() {
++        Slog.d(TAG, "Disarming auto-reboot timer");
++        cancelAlarm();
++    }
++
++    private void cancelAlarm() {
++        mAlarmManager.cancel(getAlarmPendingIntent());
++    }
++
++    private void handleTimeout() {
++        if (!isSecureLockEngaged()) {
++            // Unlocked since the alarm was set (or the lock was removed);
++            // there is nothing to protect right now.
++            return;
++        }
++        if (isInCall()) {
++            Slog.i(TAG, "Auto-reboot deferred: call in progress");
++            mAlarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
++                    SystemClock.elapsedRealtime() + IN_CALL_RETRY_MS, getAlarmPendingIntent());
++            return;
++        }
++        Slog.i(TAG, "Device locked beyond timeout; rebooting to before-first-unlock");
++        final PowerManager powerManager = mContext.getSystemService(PowerManager.class);
++        if (powerManager != null) {
++            powerManager.reboot(REBOOT_REASON);
++        }
++    }
++
++    private int getTimeoutMs() {
++        final int value = Settings.Global.getInt(mContext.getContentResolver(),
++                SETTING_AUTO_REBOOT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
++        if (value == 0) {
++            return 0;
++        }
++        if (value < MIN_TIMEOUT_MS || value > MAX_TIMEOUT_MS) {
++            Slog.w(TAG, "Out-of-range auto-reboot timeout " + value
++                    + " ms; falling back to " + DEFAULT_TIMEOUT_MS + " ms");
++            return DEFAULT_TIMEOUT_MS;
++        }
++        return value;
++    }
++
++    private boolean isDeviceSecure() {
++        final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);
++        return keyguard != null && keyguard.isDeviceSecure();
++    }
++
++    private boolean isSecureLockEngaged() {
++        final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);
++        return keyguard != null && keyguard.isDeviceSecure() && keyguard.isKeyguardLocked();
++    }
++
++    private boolean isInCall() {
++        final TelecomManager telecom = mContext.getSystemService(TelecomManager.class);
++        return telecom != null && telecom.isInCall();
++    }
++
++    private PendingIntent getAlarmPendingIntent() {
++        return PendingIntent.getBroadcast(mContext, REQUEST_CODE_AUTO_REBOOT,
++                new Intent(ACTION_AUTO_REBOOT)
++                        .setPackage(mContext.getPackageName())
++                        .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
++                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
++    }
++}
+diff --git a/services/java/com/android/server/SystemServer.java b/services/java/com/android/server/SystemServer.java
+index a184d6a7..bf251406 100644
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -1707,6 +1707,13 @@ public final class SystemServer implements Dumpable {
+             mSystemServiceManager.startService(AlarmManagerService.class);
+             t.traceEnd();
+ 
++            t.traceBegin("StartLenosAutoRebootService");
++            // lenOS: reboot to the before-first-unlock state when the device
++            // stays locked longer than Settings.Global
++            // lenos_auto_reboot_timeout_ms (0 disables; 18h default).
++            mSystemServiceManager.startService(LenosAutoRebootService.class);
++            t.traceEnd();
++
+             t.traceBegin("StartInputManagerService");
+             inputManager = mSystemServiceManager.startService(
+                     InputManagerService.Lifecycle.class).getService();
