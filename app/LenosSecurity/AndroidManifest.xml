@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.lenos.security"
-    android:versionCode="3"
-    android:versionName="1.0.0-shizuku">
+    android:versionCode="4"
+    android:versionName="1.0.0">
 
     <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="36" />
 
@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
+    <!-- Wi-Fi privacy controls (DHCP hostname restriction); also declared in
+         config/privapp-permissions-org.lenos.security.xml. -->
+    <uses-permission android:name="android.permission.NETWORK_SETTINGS" />
 
     <application
         android:name=".CrashApp"
