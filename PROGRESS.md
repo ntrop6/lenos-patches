@@ -3,6 +3,31 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-17 (second session) — committed, VM driver on the patchkit
+
+* All of the previous entry committed on branch `lenos-1.0` as ten small
+  commits (baseline `223b79f` → `ea130a7`): pycache/.gitignore, patch
+  reorganization, RROs, config, app, tools, tests, docs, `--reset`, VM driver.
+* `tools/lenos-patch.py --reset`: returns the series' projects to the pinned
+  revision. Restores tracked files, deletes files the series created (plain
+  `git checkout` leaves those behind, after which `--check` can never pass),
+  prints what it discards, refuses to delete a tracked file, and verifies the
+  result. Covered by `tests/test_patchkit_reset.py` (4 tests).
+* `lenos-1.0-shizuku.sh`: `apply` replaces the old `hardwire` step
+  (`hardwire` kept as alias). Flow: wizard reset → patchkit `--reset` → verify
+  pinned → install build inputs (`config/`, `app/`, `rro/`) into
+  `$SRC/vendor/lenos` → `--check`/`--apply`/`--status` → series markers; dies
+  on any missing patch. `doctor` now checks the patchkit (not `hardwire.py`);
+  flash-plan/lock-gates expect `ro.lenos.version=1.0.0`.
+* VM driver validated end-to-end on a scratch copy of the five patched
+  projects with stub wizard/keys/avbroot: clean apply, dirt warning + discard,
+  created-file removal, repeated reset→apply cycles, hard stop on drift.
+* **11 patches, 59 tests, all green**; workspace trees pristine
+  (`lenos-patch.py --check` ok).
+* Note: this laptop's `gcloud` config points at a non-existent project
+  (`project-10f47b24-…`), so the VM was not reachable this session — the
+  driver is ready to scp (see `docs/build.md` section 2).
+
 ## 2026-10-17 — product config, RROs, Wi-Fi DHCP hostname
 
 * `config/lenos.mk` rewritten: ships `LenosSecurity` + three input RROs, the
@@ -51,8 +76,11 @@ One entry per working session. "Verified" = seen working on a booted device
 
 ## Next (in order)
 
-1. First build of this series on the VM (see `docs/build.md`), then the
-   verification checklist on the flashed device; record results here.
+1. VM build: fix the laptop's `gcloud` project/access, scp
+   `vendor/lenos` + `lenos-1.0-shizuku.sh` (see `docs/build.md` section 2),
+   run `./lenos-1.0-shizuku.sh apply` then `build` on the VM (8–17h), then
+   flash the zip **only with explicit approval**; run the verification
+   checklist on the booted device and record results here.
 2. Wi-Fi hostname toggle: verify end-to-end (settings value, DHCP capture).
 3. RRO enablement check (`cmd overlay list`); if an RRO is not enabled or the
    target policy rejects it, adjust the partition/priority flags.
