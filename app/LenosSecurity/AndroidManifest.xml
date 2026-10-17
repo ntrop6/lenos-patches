@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.lenos.security"
+    android:versionCode="3"
+    android:versionName="1.0.0-shizuku">
+
+    <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="36" />
+
+    <!-- signature|privileged|development: platform signature satisfies it if the
+         APK is signed with the ROM's platform key. All writes still fall back to
+         root (su) when the direct path is denied, so this is belt-and-suspenders. -->
+    <uses-permission android:name="android.permission.ACCESS_KEYGUARD_SECURE_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
+
+    <application
+        android:name=".CrashApp"
+        android:label="@string/app_name"
+        android:icon="@drawable/logo"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:excludeFromRecents="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="org.lenos.security.SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

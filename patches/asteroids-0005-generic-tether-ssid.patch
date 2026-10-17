@@ -1,0 +1,37 @@
+From 6e0786037252a107305134d1497d47dcf8dacdb0 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Date: Sat, 29 Aug 2026 12:45:45 +0000
+Subject: [PATCH] =?UTF-8?q?asteroids:=20OPTIONAL=20=E2=80=94=20generic=20d?=
+ =?UTF-8?q?efault=20tether=20SSID=20(drop=20model=20identifier)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+wifi_tether_configure_ssid_default: 'Nothing Phone (3a)' -> 'AndroidAP'
+
+The default hotspot SSID broadcasts the device model to anyone scanning for
+Wi-Fi while tethering is enabled. A generic name (AOSP default) removes that
+identifier. Users can still rename it to anything.
+
+Revert by restoring the 'Nothing Phone (3a)' string.
+---
+ rro_overlays/AsteroidsWifiOverlay/res/values/config.xml | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml b/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
+index 1ae212b..717c2b7 100644
+--- a/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
++++ b/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
+@@ -39,5 +39,8 @@
+     <bool name="config_wifiSoftapIeee80211beSupported">false</bool>
+ 
+     <!-- Do not translate. Default access point SSID used for tethering -->
+-    <string translatable="false" name="wifi_tether_configure_ssid_default">Nothing Phone (3a)</string>
++    <!-- lenOS (OPTIONAL privacy): generic default tether SSID so enabling hotspot does
++         not broadcast the device model ("Nothing Phone (3a)"). AOSP default is "AndroidAP".
++         Revert by restoring the Nothing string. -->
++    <string translatable="false" name="wifi_tether_configure_ssid_default">AndroidAP</string>
+ </resources>
+-- 
+2.47.3
+

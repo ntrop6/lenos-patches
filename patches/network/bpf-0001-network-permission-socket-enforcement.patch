@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Subject: [PATCH] Connectivity bpf: enforce NETWORK permission in inet_create socket hook
+
+Adds BPF_PERMISSION_NETWORK (1 << 5) and requires both INTERNET and NETWORK
+bits before allowing AF_INET/AF_INET6 socket creation. This is the kernel-level
+enforcement that makes the NETWORK permission (GrapheneOS second layer) actually
+block sockets — the part a userspace firewall cannot do.
+
+The default for a uid not present in uid_permission_map changes from
+BPF_PERMISSION_INTERNET to (INTERNET | NETWORK), so the permission is
+default-granted (normal|instant) and only bites when explicitly revoked.
+
+Bit must match NetworkPermissions.TRAFFIC_PERMISSION_NETWORK (Java, 1 << 5).
+
+HARD DEPENDENCY: this is the BPF half; it is only meaningful together with
+fwb-0001 (permission declaration), connectivity-0001 (ConnectivityService
+check), connectivity-0002 (bit + grant). Applying this ALONE with a stale
+userspace would default-grant NETWORK (harmless) but not revoke it (incomplete).
+
+NOT compiled/verified here (no Android build environment).
+---
+diff --git a/bpf/progs/netd.h b/bpf/progs/netd.h
+--- a/bpf/progs/netd.h
++++ b/bpf/progs/netd.h
+@@ -200,6 +200,9 @@
+ enum BpfPermissionMatch : uint8_t {
+     BPF_PERMISSION_INTERNET = 1 << 2,
+     BPF_PERMISSION_UPDATE_DEVICE_STATS = 1 << 3,
++    // lenOS: NETWORK permission (second, revocable layer over INTERNET).
++    // Must match NetworkPermissions.TRAFFIC_PERMISSION_NETWORK (Java).
++    BPF_PERMISSION_NETWORK = 1 << 5,
+ };
+ // In production we use two identical stats maps to record per uid stats and
+ // do swap and clean based on the configuration specified here. The statsMapType
+diff --git a/bpf/progs/netd.c b/bpf/progs/netd.c
+--- a/bpf/progs/netd.c
++++ b/bpf/progs/netd.c
+@@ -784,8 +784,9 @@
+      */
+     uint32_t appId = uid % AID_USER_OFFSET;  // == PER_USER_RANGE == 100000
+     uint8_t* permissions = bpf_uid_permission_map_lookup_elem(&appId);
+-    // if UID not in map, then default to just INTERNET permission.
+-    return permissions ? *permissions : BPF_PERMISSION_INTERNET;
++    // if UID not in map, then default to INTERNET + NETWORK (NETWORK is
++    // default-granted and revocable; see NetworkPermissions.java).
++    return permissions ? *permissions : (BPF_PERMISSION_INTERNET | BPF_PERMISSION_NETWORK);
+ }
+ 
+ static __always_inline inline int inet_socket_create(struct bpf_sock* sk,
+@@ -795,7 +796,10 @@
+         if (v) v->cookie = bpf_get_sk_cookie(sk);
+     }
+     uint64_t uid = bpf_get_current_uid_gid() & 0xffffffff;
+-    if (get_app_permissions(uid) & BPF_PERMISSION_INTERNET) {
++    const uint8_t perms = get_app_permissions(uid);
++    // lenOS NETWORK permission: require BOTH INTERNET and NETWORK bits. Revoking
++    // NETWORK (while INTERNET stays) blocks socket creation -> app has no network.
++    if ((perms & BPF_PERMISSION_INTERNET) && (perms & BPF_PERMISSION_NETWORK)) {
+         return bpf_owner_firewall_match(uid) == PASS ? BPF_ALLOW : BPF_DISALLOW;
+     } else {
+         return BPF_DISALLOW;

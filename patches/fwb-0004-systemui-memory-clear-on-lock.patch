@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Subject: [PATCH] SystemUI: trigger GC on keyguard lock (memory-clear-on-lock)
+
+This is the SystemUI half of the memory-clear-on-lock feature (GrapheneOS
+release 2024020500: "run full compacting garbage collection ... in SystemUI
+and system_server after locking"). The system_server half is fwb-0002
+(KeyguardStateMonitor).
+
+When KeyguardViewMediator transitions to showing=true (the keyguard locks),
+request a concurrent GC in the SystemUI process so freed pages holding
+PIN/password-derived secrets are returned to the kernel and zeroed by the
+GKI base's init-on-alloc page zeroing.
+
+Uses VMRuntime.requestConcurrentGC() (public API, Android 12+). The
+full-compacting variant GrapheneOS describes uses a hidden ART API we do not
+call; requestConcurrentGC is the safe, verifiable approximation.
+
+Pairs with: fwb-0002 (system_server), and requires the kernel init-on-alloc
+zeroing that the sm7635 GKI base already enables (lenos_standard.config).
+---
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java b/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
+@@ -113,6 +113,8 @@
+ import androidx.annotation.Nullable;
+ import androidx.annotation.VisibleForTesting;
+ 
++import dalvik.system.VMRuntime;
++
+ import com.android.app.animation.Interpolators;
+ import com.android.app.tracing.coroutines.TrackTracer;
+ import com.android.internal.jank.InteractionJankMonitor;
+@@ -4249,9 +4251,21 @@
+         final boolean notifyDefaultDisplayCallbacks = showing != mShowing || forceCallbacks;
+         final boolean updateActivityLockScreenState = showing != mShowing
+                 || aodShowing != mAodShowing || forceCallbacks;
++        final boolean wasShowing = mShowing;
+         mShowing = showing;
+         mAodShowing = aodShowing;
+ 
++        if (showing && !wasShowing) {
++            // lenOS: purge PIN/password-derived data from SystemUI memory when the
++            // keyguard shows (device locks). Combined with the GKI base's init-on-alloc
++            // page zeroing, a GC returns freed pages to the kernel and zeroes them.
++            // This is the SystemUI half of GrapheneOS release 2024020500 (full GC in
++            // system_server AND SystemUI on lock); the system_server half is
++            // KeyguardStateMonitor (fwb-0002). requestConcurrentGC() is public API
++            // since Android 12.
++            VMRuntime.getRuntime().requestConcurrentGC();
++        }
++
+         if (updateActivityLockScreenState) {
+             updateActivityLockScreenState(showing, aodShowing, reason);
+         }

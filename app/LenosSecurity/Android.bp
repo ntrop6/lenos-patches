@@ -1,0 +1,11 @@
+android_app {
+    name: "LenosSecurity",
+    srcs: ["src/**/*.java"],
+    resource_dirs: ["res"],
+    manifest: "AndroidManifest.xml",
+    platform_apis: true,
+    privileged: true,
+    certificate: "platform",
+    product_specific: false,
+    sdk_version: "current",
+}

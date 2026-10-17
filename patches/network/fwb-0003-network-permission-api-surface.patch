@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Subject: [PATCH] frameworks/base: add android.Manifest.permission.NETWORK to API surface
+
+Adds the NETWORK permission constant to core/api/current.txt (android.Manifest
+$permission class). REQUIRED for fwb-0001 (permission declaration) to compile:
+PermissionMonitor.java in the Connectivity module does
+`import static android.Manifest.permission.NETWORK`, and the build's API check
+fails if a new public constant appears without a current.txt entry.
+
+Alphabetically placed between NEARBY_WIFI_DEVICES and NFC, matching how the
+other Manifest.permission constants are ordered.
+
+Without this entry, the build fails with an "API changed; run update-api"
+error. With it, android.Manifest.permission.NETWORK is a public SDK constant.
+---
+diff --git a/core/api/current.txt b/core/api/current.txt
+--- a/core/api/current.txt
++++ b/core/api/current.txt
+@@ -241,6 +241,7 @@
+     field public static final String MOUNT_FORMAT_FILESYSTEMS = "android.permission.MOUNT_FORMAT_FILESYSTEMS";
+     field public static final String MOUNT_UNMOUNT_FILESYSTEMS = "android.permission.MOUNT_UNMOUNT_FILESYSTEMS";
+     field public static final String NEARBY_WIFI_DEVICES = "android.permission.NEARBY_WIFI_DEVICES";
++    field public static final String NETWORK = "android.permission.NETWORK";
+     field public static final String NFC = "android.permission.NFC";
+     field public static final String NFC_PREFERRED_PAYMENT_INFO = "android.permission.NFC_PREFERRED_PAYMENT_INFO";
+     field public static final String NFC_TRANSACTION_EVENT = "android.permission.NFC_TRANSACTION_EVENT";
+diff --git a/core/api/lint-baseline.txt b/core/api/lint-baseline.txt
+--- a/core/api/lint-baseline.txt
++++ b/core/api/lint-baseline.txt
+@@ -1726,3 +1726,5 @@
+     New API must be flagged with @FlaggedApi: method android.view.inputmethod.InlineSuggestionsRequest.Builder.setClientSupported(boolean)
+ UnflaggedApi: android.view.inputmethod.InlineSuggestionsRequest.Builder#setServiceSupported(boolean):
+     New API must be flagged with @FlaggedApi: method android.view.inputmethod.InlineSuggestionsRequest.Builder.setServiceSupported(boolean)
++UnflaggedApi: android.Manifest.permission#NETWORK:
++    New API must be flagged with @FlaggedApi: field android.Manifest.permission.NETWORK

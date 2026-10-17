@@ -1,0 +1,89 @@
+From 40565ee0758a566b57c5bbde9949792c775679e8 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Date: Sun, 30 Aug 2026 02:31:25 +0000
+Subject: [PATCH] Connectivity: add TRAFFIC_PERMISSION_NETWORK bit +
+ default-grant + naming
+
+NetworkPermissions.TRAFFIC_PERMISSION_NETWORK = 1 << 5 (must match
+BPF_PERMISSION_NETWORK in bpf/progs/netd.h).
+
+PermissionMonitor default-grants the bit alongside INTERNET (no app declares
+the new android.permission.NETWORK, so it is coupled to INTERNET at grant
+time; future revocation clears it via a separate setNetPermForUids path).
+
+BpfNetMaps PERMISSION_LIST names it 'PERMISSION_NETWORK' for dumpsys.
+
+Complements connectivity-0001 (ConnectivityService check) and bpf-0001
+(BPF inet_create enforcement).
+---
+ service/src/com/android/server/BpfNetMaps.java           | 4 +++-
+ .../android/server/connectivity/NetworkPermissions.java  | 9 +++++++++
+ .../android/server/connectivity/PermissionMonitor.java   | 5 +++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/service/src/com/android/server/BpfNetMaps.java b/service/src/com/android/server/BpfNetMaps.java
+index a968193..0eeb7fc 100644
+--- a/service/src/com/android/server/BpfNetMaps.java
++++ b/service/src/com/android/server/BpfNetMaps.java
+@@ -46,6 +46,7 @@ import static android.system.OsConstants.EOPNOTSUPP;
+ import static com.android.server.ConnectivityStatsLog.NETWORK_BPF_MAP_INFO;
+ import static com.android.server.connectivity.NetworkPermissions.PERMISSION_NONE;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_INTERNET;
++import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_NETWORK;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_UNINSTALLED;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_UPDATE_DEVICE_STATS;
+ 
+@@ -144,7 +145,8 @@ public class BpfNetMaps {
+ 
+     private static final List<Pair<Integer, String>> PERMISSION_LIST = Arrays.asList(
+             Pair.create(TRAFFIC_PERMISSION_INTERNET, "PERMISSION_INTERNET"),
+-            Pair.create(TRAFFIC_PERMISSION_UPDATE_DEVICE_STATS, "PERMISSION_UPDATE_DEVICE_STATS")
++            Pair.create(TRAFFIC_PERMISSION_UPDATE_DEVICE_STATS, "PERMISSION_UPDATE_DEVICE_STATS"),
++            Pair.create(TRAFFIC_PERMISSION_NETWORK, "PERMISSION_NETWORK")
+     );
+     private final InterfaceTracker mInterfaceTracker;
+ 
+diff --git a/service/src/com/android/server/connectivity/NetworkPermissions.java b/service/src/com/android/server/connectivity/NetworkPermissions.java
+index 9543d8f..7ef0798 100644
+--- a/service/src/com/android/server/connectivity/NetworkPermissions.java
++++ b/service/src/com/android/server/connectivity/NetworkPermissions.java
+@@ -72,4 +72,13 @@ public class NetworkPermissions {
+      * to connect to localhost. For non SdkSandbox UIDs this bit is a no-op.
+      */
+     public static final int TRAFFIC_PERMISSION_SDKSANDBOX_LOCALHOST = 16;
++
++    /**
++     * TRAFFIC_PERMISSION_NETWORK is a second, revocable layer on top of INTERNET
++     * (GrapheneOS NETWORK permission). Default-granted at install, revocable
++     * per-app/per-profile. Enforced in the BPF inet_create hook (netd.c) and in
++     * ConnectivityService.hasNetworkPermission(). Must match BPF_PERMISSION_NETWORK
++     * in packages/modules/Connectivity/bpf/progs/netd.h.
++     */
++    public static final int TRAFFIC_PERMISSION_NETWORK = 1 << 5;
+ }
+diff --git a/service/src/com/android/server/connectivity/PermissionMonitor.java b/service/src/com/android/server/connectivity/PermissionMonitor.java
+index fa301d2..e5062e6 100755
+--- a/service/src/com/android/server/connectivity/PermissionMonitor.java
++++ b/service/src/com/android/server/connectivity/PermissionMonitor.java
+@@ -37,6 +37,7 @@ import static com.android.server.connectivity.NetworkPermissions.PERMISSION_NETW
+ import static com.android.server.connectivity.NetworkPermissions.PERMISSION_NONE;
+ import static com.android.server.connectivity.NetworkPermissions.PERMISSION_SYSTEM;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_INTERNET;
++import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_NETWORK;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_UNINSTALLED;
+ import static com.android.server.connectivity.NetworkPermissions.TRAFFIC_PERMISSION_UPDATE_DEVICE_STATS;
+ 
+@@ -1037,6 +1038,10 @@ public class PermissionMonitor {
+             if (requestedPermissions[i].equals(INTERNET)
+                     && ((requestedPermissionsFlags[i] & REQUESTED_PERMISSION_GRANTED) != 0)) {
+                 permissions |= TRAFFIC_PERMISSION_INTERNET;
++                // lenOS NETWORK permission: default-granted alongside INTERNET
++                // (no app declares the new android.permission.NETWORK). Revocation
++                // clears this bit via a separate setNetPermForUids path later.
++                permissions |= TRAFFIC_PERMISSION_NETWORK;
+             }
+             if (requestedPermissions[i].equals(UPDATE_DEVICE_STATS)
+                     && ((requestedPermissionsFlags[i] & REQUESTED_PERMISSION_GRANTED) != 0)) {
+-- 
+2.47.3
+

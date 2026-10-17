@@ -1,0 +1,43 @@
+From 349300e11f0736dca8a931a9a5bae77868b92d15 Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Date: Sat, 29 Aug 2026 12:26:30 +0000
+Subject: [PATCH] asteroids: disable 2G (GSM) in default network mode to block
+ IMSI-catcher downgrade
+
+ro.telephony.default_network 26 -> 28: drops GSM (2G) while keeping
+NR (5G) + LTE (4G) + WCDMA (3G).
+
+26 = NETWORK_MODE_NR_LTE_GSM_WCDMA (2G-capable)
+28 = NETWORK_MODE_NR_LTE_WCDMA (no GSM)
+
+Rationale: GSM has no network-to-phone authentication, so a fake base
+station (IMSI catcher / Stingray) can force a downgrade and intercept
+calls/SMS and track the IMSI. Removing GSM from the default mode removes
+the downgrade target.
+
+Tradeoff: no service in 2G-only coverage areas (some regions keep 2G
+alive until ~2030); emergency calls there may be affected.
+
+Verified against lineage-23.2 RILConstants.java:
+  NETWORK_MODE_NR_LTE_GSM_WCDMA = 26, NETWORK_MODE_NR_LTE_WCDMA = 28.
+---
+ system_ext.prop | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/system_ext.prop b/system_ext.prop
+index b96d772..8dba3e9 100644
+--- a/system_ext.prop
++++ b/system_ext.prop
+@@ -44,5 +44,8 @@ ro.vendor.qti.va_aosp.support=1
+ 
+ # Telephony
+ ril.subscription.types=NV,RUIM
+-ro.telephony.default_network=26,26
++# lenOS: drop GSM (2G) from the default network mode to prevent IMSI-catcher
++# downgrade attacks. 26 = NR+LTE+GSM+WCDMA (2G-capable); 28 = NR+LTE+WCDMA (no GSM).
++# Tradeoff: no service in 2G-only areas; emergency calls there may be affected.
++ro.telephony.default_network=28,28
+ telephony.lteOnCdmaDevice=1
+-- 
+2.47.3
+

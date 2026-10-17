@@ -1,0 +1,52 @@
+From 4b94920ddd69d381b46fe194ac54ec8408c69afe Mon Sep 17 00:00:00 2001
+From: lenOS hardening <hardening@lenos.invalid>
+Date: Sat, 29 Aug 2026 12:45:27 +0000
+Subject: [PATCH] =?UTF-8?q?asteroids:=20connectivity=20privacy=20=E2=80=94?=
+ =?UTF-8?q?=20NTP=20to=20Cloudflare,=20default=20DNS=20to=20Quad9?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+config_ntpServers: ntp://time.android.com -> ntp://time.cloudflare.com
+config_default_dns_server: 8.8.8.8 (Google) -> 9.9.9.9 (Quad9)
+
+Verified against lineage-23.2 frameworks/base config.xml (exact resource
+names + defaults). These are safe RRO overrides of the same type/format as
+the AOSP defaults.
+
+Privacy: Android phones time.android.com for SNTP and uses Google 8.8.8.8 as
+the default DNS probe. Cloudflare's 'time' service and Quad9 (9.9.9.9,
+malware-filtering, no-log) are privacy-respecting alternatives.
+
+Tradeoff: a network observer sees Cloudflare/Quad9 instead of Google — fine
+for a privacy posture, but if you prefer to blend in with the Android crowd,
+revert this commit (or pair with a VPN).
+
+No impact on root (ReSukiSU) or lenOS hardening. Runtime-revertible is not
+possible for NTP/DNS (build-time resources); revert = git revert <this>.
+---
+ .../FrameworksResTarget_Vendor/res/values/config.xml   | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/rro_overlays/FrameworksResTarget_Vendor/res/values/config.xml b/rro_overlays/FrameworksResTarget_Vendor/res/values/config.xml
+index e0515f6..a8e246c 100644
+--- a/rro_overlays/FrameworksResTarget_Vendor/res/values/config.xml
++++ b/rro_overlays/FrameworksResTarget_Vendor/res/values/config.xml
+@@ -62,4 +62,14 @@
+      <!-- Whether WM DisplayContent supports high performance transitions
+          (lower-end devices may want to disable) -->
+     <bool name="config_deviceSupportsHighPerfTransitions">false</bool>
++
++    <!-- lenOS connectivity privacy: stop phoning Google for time sync and the
++         default DNS probe. These are safe RRO overrides (same protocol/format as
++         AOSP defaults); revert by removing this block.
++         config_ntpServers: ntp://time.android.com -> ntp://time.cloudflare.com
++         config_default_dns_server: 8.8.8.8 (Google) -> 9.9.9.9 (Quad9, malware-filtering) -->
++    <string-array translatable="false" name="config_ntpServers">
++        <item>ntp://time.cloudflare.com</item>
++    </string-array>
++    <string name="config_default_dns_server" translatable="false">9.9.9.9</string>
+ </resources>
+-- 
+2.47.3
+
