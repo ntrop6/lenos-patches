@@ -1,0 +1,115 @@
+diff --git a/packages/SystemUI/res/values/strings.xml b/packages/SystemUI/res/values/strings.xml
+index 20075caa..16d085b7 100644
+--- a/packages/SystemUI/res/values/strings.xml
++++ b/packages/SystemUI/res/values/strings.xml
+@@ -4582,4 +4582,8 @@
+ 
+     <!-- Description for the Ambient Cue accessibility action label for expanding. [CHAR LIMIT=NONE] -->
+     <string name="ambient_cue_expand_action">expand</string>
++
++    <!-- lenOS: shown when a quick settings tile is used while the device is
++         locked. All tiles except flashlight and camera toggle require unlock. -->
++    <string name="lenos_qs_unlock_required">Unlock the device to use quick settings</string>
+ </resources>
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java b/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
+index 68d1f8c1..50c1a645 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
+@@ -32,6 +32,7 @@ import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+ import android.annotation.CallSuper;
+ import android.annotation.NonNull;
+ import android.annotation.SuppressLint;
++import android.app.KeyguardManager;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.graphics.drawable.Drawable;
+@@ -43,6 +44,7 @@ import android.text.format.DateUtils;
+ import android.util.ArraySet;
+ import android.util.Log;
+ import android.util.SparseArray;
++import android.widget.Toast;
+ 
+ import androidx.annotation.Nullable;
+ import androidx.lifecycle.Lifecycle;
+@@ -70,9 +72,13 @@ import com.android.systemui.qs.QSHost;
+ import com.android.systemui.qs.QsEventLogger;
+ import com.android.systemui.qs.SideLabelTileLayout;
+ import com.android.systemui.qs.logging.QSLogger;
++import com.android.systemui.qs.tiles.CameraToggleTile;
++import com.android.systemui.qs.tiles.FlashlightTile;
++import com.android.systemui.res.R;
+ 
+ import java.io.PrintWriter;
+ import java.util.Objects;
++import java.util.Set;
+ import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -441,6 +447,31 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
+                 animationController);
+     }
+ 
++    /**
++     * lenOS: tiles that stay usable while the device shows a secure lock
++     * screen. They neither touch radios/data nor reveal private state and
++     * remain useful in an emergency (e.g. the flashlight).
++     */
++    private static final Set<String> LENOS_LOCKED_ALLOWED_TILES =
++            Set.of(FlashlightTile.TILE_SPEC, CameraToggleTile.TILE_SPEC);
++
++    /**
++     * lenOS: every other tile action requires an unlocked device, so that a
++     * locked device cannot be used to silently toggle radios or connectivity
++     * (for example turning on airplane mode to break remote tracking/wipe).
++     */
++    private boolean requiresUnlock() {
++        if (mTileSpec != null && LENOS_LOCKED_ALLOWED_TILES.contains(mTileSpec)) {
++            return false;
++        }
++        final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);
++        return keyguard != null && keyguard.isDeviceSecure() && keyguard.isKeyguardLocked();
++    }
++
++    private void showUnlockRequired() {
++        Toast.makeText(mContext, R.string.lenos_qs_unlock_required, Toast.LENGTH_SHORT).show();
++    }
++
+     /**
+      * Returns an intent to be launched when the tile is long pressed.
+      *
+@@ -629,18 +660,31 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
+                         Intent intent = RestrictedLockUtils.getShowAdminSupportDetailsIntent(
+                                 mEnforcedAdmin);
+                         mActivityStarter.postStartActivityDismissingKeyguard(intent, 0);
++                    } else if (requiresUnlock()) {
++                        // lenOS: quick settings stay inert until unlocked.
++                        showUnlockRequired();
+                     } else {
+                         mQSLogger.logHandleClick(mTileSpec, msg.arg1);
+                         handleClick((Expandable) msg.obj);
+                     }
+                 } else if (msg.what == SECONDARY_CLICK) {
+                     name = "handleSecondaryClick";
+-                    mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);
+-                    handleSecondaryClick((Expandable) msg.obj);
++                    if (requiresUnlock()) {
++                        // lenOS: quick settings stay inert until unlocked.
++                        showUnlockRequired();
++                    } else {
++                        mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);
++                        handleSecondaryClick((Expandable) msg.obj);
++                    }
+                 } else if (msg.what == LONG_CLICK) {
+                     name = "handleLongClick";
+-                    mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);
+-                    handleLongClick((Expandable) msg.obj);
++                    if (requiresUnlock()) {
++                        // lenOS: quick settings stay inert until unlocked.
++                        showUnlockRequired();
++                    } else {
++                        mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);
++                        handleLongClick((Expandable) msg.obj);
++                    }
+                 } else if (msg.what == REFRESH_STATE) {
+                     name = "handleRefreshState";
+                     handleRefreshState(msg.obj);

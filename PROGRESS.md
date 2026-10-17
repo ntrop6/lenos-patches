@@ -3,7 +3,7 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
-## 2026-10-17 (third session) — framework: auto reboot to BFU
+## 2026-10-17 (third session) — framework: auto reboot to BFU + QS unlock gating
 
 * New framework patch `frameworks_base/0003-lenos-auto-reboot`: a
   `LenosAutoRebootService` system service (started next to AlarmManager in
@@ -24,10 +24,17 @@ One entry per working session. "Verified" = seen working on a booted device
 * `config/lenos.mk`: `ro.lenos.security.auto_bfu=framework`, so the app's
   status card reports a real backend instead of `?`. No app change needed —
   the BFU spinner already reads/writes the same int setting.
+* New framework patch `frameworks_base/0004-lenos-qs-unlock-gating`: while a
+  secure lock screen is up, `QSTileImpl` blocks primary/secondary/long clicks
+  on every tile and shows an "Unlock the device to use quick settings" toast;
+  a locked device can no longer toggle radios (airplane mode as an anti-theft
+  hole). Flashlight and camera-toggle tiles stay usable; policy-disabled tiles
+  still open the admin dialog first; metrics only log allowed clicks.
 * Tests: `tests/test_auto_reboot.py` (15 checks: setting-key/default equality
   across service + provider + app + RRO, SystemServer ordering, lock/call
   guards, alarm privacy, observer); `test_first_boot_defaults.py` extended for
-  the new seed. **12 patches, 74 tests, all green**; trees pristine
+  the new seed; `tests/test_qs_unlock_gating.py` (9 checks). **13 patches,
+  83 tests, all green**; trees pristine
   (`lenos-patch.py --check` ok; `frameworks/base` `services/java/` was added
   to the workspace sparse-checkout so `SystemServer.java` is editable).
 * `docs/features.md`: new "Lock, data and recovery" section, app matrix,
@@ -117,8 +124,10 @@ One entry per working session. "Verified" = seen working on a booted device
 4. Auto reboot to BFU: verify on device (`settings get global
    lenos_auto_reboot_timeout_ms` = 64800000, spinner writes, prove the reboot
    with the 10 minute choice, confirm call deferral).
-5. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
+5. Quick settings gating: verify on the lock screen (tile tap → toast, no
+   state change; flashlight works; unlocked device unaffected).
+6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
-6. Framework work still out of the series: duress credential backend, sensor
-   permission, Secure Paste, QS-tile unlock gating, delayed allow buttons,
-   LTE-only toggle, vold FBE filename padding.
+7. Framework work still out of the series: duress credential backend, sensor
+   permission, Secure Paste, delayed allow buttons, LTE-only toggle, 2nd PIN,
+   vold FBE filename padding (QS-tile gating done in this session).

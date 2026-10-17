@@ -53,6 +53,7 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 | Feature | Where | Notes |
 |---|---|---|
 | Auto reboot to before-first-unlock (BFU) | `frameworks_base/0003` + first-boot default | `LenosAutoRebootService` reboots a secured device that stayed locked for 18h: the FBE keys leave memory and stay out until the next unlock. Timer arms at screen off, resets on every unlock; `Settings.Global.lenos_auto_reboot_timeout_ms` (0 = off, 10min–3 days) with UI in the lenOS app; reboot deferred while a call is in progress; skipped without a secure lock |
+| Quick settings require unlock | `frameworks_base/0004` | while a secure lock screen is up, tapping/long-pressing any QS tile only shows "Unlock the device to use quick settings" — a locked device cannot toggle radios/connectivity (e.g. airplane mode to break remote tracking). Flashlight and camera-toggle tiles stay usable |
 
 ## Apps and UI
 
@@ -70,9 +71,9 @@ backends land in the patch series:
 * **Duress PIN/password**: the app's LockBridge UI is from the earlier
   1.0.0-shizuku work; the LockSettingsService backend is not part of the
   current series. The app shows the duress backend as `?`.
-* Anything not listed above (sensors permission, Secure Paste, QS-tile unlock
-  gating, delayed allow buttons, LTE-only toggle, vold FBE filename padding,
-  safe recovery, signed OTA/updater, reproducible builds, custom AVB key) is
+* Anything not listed above (sensors permission, Secure Paste, delayed allow
+  buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding, safe recovery,
+  signed OTA/updater, reproducible builds, custom AVB key) is
   **not implemented yet**.
 
 ## Honest limits
@@ -102,6 +103,10 @@ backends land in the patch series:
   until the user unlocks again (emergency calls work at BFU). It is skipped
   while a call is in progress and on devices without a secure lock. The app
   offers off / 10 minutes … 3 days.
+* **Quick settings gating has two deliberate exceptions** (flashlight and
+  camera toggle) and is not user-configurable in 1.0; on devices without a
+  secure lock it does nothing. The toast is the only feedback — no unlock
+  prompt is forced.
 * **Jelly (WebView-based browser) still ships.** It is the Lineage default and
   gets WebView security updates from the system; replacing it with Cromite and
   updating WebView are separate work items.
@@ -111,4 +116,6 @@ backends land in the patch series:
 See `build.md`. At minimum: `cmd overlay list --user 0` shows all three lenOS
 RROs enabled, `settings list global | grep -E "private_dns|ntp|captive"` shows
 the seeded values, `settings get global lenos_auto_reboot_timeout_ms` shows
-`64800000`, and the Wi-Fi hostname toggle changes the persisted setting.
+`64800000`, the Wi-Fi hostname toggle changes the persisted setting, and on the
+lock screen a tile tap (e.g. airplane mode) shows the "Unlock the device to use
+quick settings" toast while the flashlight tile keeps working.
