@@ -1,0 +1,929 @@
+diff --git a/core/java/android/ext/settings/BoolSetting.java b/core/java/android/ext/settings/BoolSetting.java
+new file mode 100644
+index 00000000..006f404c
+--- /dev/null
++++ b/core/java/android/ext/settings/BoolSetting.java
+@@ -0,0 +1,88 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++
++import java.util.function.Function;
++
++/** @hide */
++@SystemApi
++public class BoolSetting extends Setting<BoolSetting> {
++    private boolean defaultValue;
++    private volatile Function<Context, Boolean> defaultValueSupplier;
++
++    public BoolSetting(@NonNull Scope scope, @NonNull String key, boolean defaultValue) {
++        super(scope, key);
++        this.defaultValue = defaultValue;
++    }
++
++    public BoolSetting(@NonNull Scope scope, @NonNull String key, @NonNull Function<Context, Boolean> defaultValue) {
++        super(scope, key);
++        defaultValueSupplier = defaultValue;
++    }
++
++    public final boolean get(@NonNull Context ctx) {
++        return get(ctx, ctx.getUserId());
++    }
++
++    // use only if this is a per-user setting and the context is not a per-user one
++    public final boolean get(@NonNull Context ctx, int userId) {
++        String valueStr = getRaw(ctx, userId);
++
++        if (valueStr == null) {
++            return getDefaultValue(ctx);
++        }
++
++        if (valueStr.equals("true")) {
++            return true;
++        }
++
++        if (valueStr.equals("false")) {
++            return false;
++        }
++
++        try {
++            int valueInt = Integer.parseInt(valueStr);
++            if (valueInt == 1) {
++                return true;
++            } else if (valueInt == 0) {
++                return false;
++            }
++        } catch (NumberFormatException e) {
++            e.printStackTrace();
++        }
++
++        return getDefaultValue(ctx);
++    }
++
++    public final boolean put(@NonNull Context ctx, boolean val) {
++        return putRaw(ctx, val ? "1" : "0");
++    }
++
++    private boolean getDefaultValue(Context ctx) {
++        Function<Context, Boolean> supplier = defaultValueSupplier;
++        if (supplier != null) {
++            defaultValue = supplier.apply(ctx).booleanValue();
++            defaultValueSupplier = null;
++        }
++        return defaultValue;
++    }
++}
+diff --git a/core/java/android/ext/settings/BoolSysProperty.java b/core/java/android/ext/settings/BoolSysProperty.java
+new file mode 100644
+index 00000000..eb0e41e0
+--- /dev/null
++++ b/core/java/android/ext/settings/BoolSysProperty.java
+@@ -0,0 +1,48 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++import android.os.UserHandle;
++
++import java.util.function.Function;
++
++/** @hide */
++@SystemApi
++public class BoolSysProperty extends BoolSetting {
++
++    public BoolSysProperty(@NonNull String key, boolean defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    public BoolSysProperty(@NonNull String key, @NonNull Function<Context, Boolean> defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    public boolean get() {
++        //noinspection DataFlowIssue
++        return super.get(null, UserHandle.USER_SYSTEM);
++    }
++
++    public boolean put(boolean val) {
++        //noinspection DataFlowIssue
++        return super.put(null, val);
++    }
++}
+diff --git a/core/java/android/ext/settings/ExtSettings.java b/core/java/android/ext/settings/ExtSettings.java
+new file mode 100644
+index 00000000..bf47b35d
+--- /dev/null
++++ b/core/java/android/ext/settings/ExtSettings.java
+@@ -0,0 +1,137 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.BoolRes;
++import android.annotation.IntegerRes;
++import android.annotation.StringRes;
++import android.content.Context;
++import android.provider.Settings;
++
++import com.android.internal.R;
++
++import java.util.concurrent.TimeUnit;
++import java.util.function.Function;
++import java.util.function.ToIntFunction;
++
++/**
++ * Note that android.provider.Settings setting names should be defined in the corresponding classes,
++ * since the readability of settings is determined by using Java reflection on members of that class.
++ *
++ * @see android.provider.Settings#getPublicSettingsForClass
++ * @hide
++ */
++public class ExtSettings {
++
++    public static final BoolSysProperty EXEC_SPAWNING = new BoolSysProperty(
++            "persist.security.exec_spawn", true);
++
++    public static final BoolSetting ALLOW_KEYGUARD_CAMERA = new BoolSetting(
++            Setting.Scope.SYSTEM_PROPERTY, "persist.keyguard.camera", true);
++
++    public static final BoolSetting AUTO_GRANT_OTHER_SENSORS_PERMISSION = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.AUTO_GRANT_OTHER_SENSORS_PERMISSION, true);
++
++    public static final IntSetting AUTO_REBOOT_TIMEOUT = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.AUTO_REBOOT_TIMEOUT,
++            // default value: 18 hours
++            (int) TimeUnit.HOURS.toMillis(18));
++
++    public static final BoolSetting SCREENSHOT_TIMESTAMP_EXIF = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.SCREENSHOT_TIMESTAMP_EXIF, false);
++
++    public static final BoolSetting SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_PIN_LAYOUT_PRIMARY, false);
++    public static final BoolSetting SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_SECONDARY = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_PIN_LAYOUT_SECONDARY, false);
++
++    public static final BoolSetting SCRAMBLE_SIM_PIN_LAYOUT = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_SIM_PIN_LAYOUT,
++            // inherit lockscreen PIN setting by default
++            SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY::get);
++
++    public static final BoolSysProperty ALLOW_GOOGLE_APPS_SPECIAL_ACCESS_TO_ACCELERATORS = new BoolSysProperty(
++            // also accessed in native code, in frameworks/native/cmds/servicemanager/Access.cpp
++            "persist.sys.allow_google_apps_special_access_to_accelerators", true);
++
++    // The amount of time in milliseconds before a disconnected Wi-Fi adapter is turned off
++    public static final IntSetting WIFI_AUTO_OFF = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.WIFI_AUTO_OFF, 0 /* off by default */);
++
++    // The amount of time in milliseconds before a disconnected Bluetooth adapter is turned off
++    public static final IntSetting BLUETOOTH_AUTO_OFF = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.BLUETOOTH_AUTO_OFF, 0 /* off by default */);
++
++    // The amount of time in milliseconds before a Nfc adapter is turned off
++    public static final IntSetting NFC_AUTO_OFF = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.NFC_AUTO_OFF, 0 /* off by default */);
++
++    public static final BoolSysProperty ALLOW_NATIVE_DEBUG_BY_DEFAULT = new BoolSysProperty(
++            "persist.native_debug", defaultBool(R.bool.setting_default_allow_native_debugging));
++
++    // AppCompatConfig specifies which hardening features are compatible/incompatible with a
++    // specific app.
++    // This setting controls whether incompatible hardening features would be disabled by default
++    // for that app. In both cases, user will still be able to enable/disable them manually.
++    //
++    // Note that hardening features that are marked as compatible are enabled unconditionally by
++    // default, regardless of this setting.
++    public static final BoolSetting ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG,
++            defaultBool(R.bool.setting_default_allow_disabling_hardening_via_app_compat_config));
++
++    public static final BoolSetting RESTRICT_MEMORY_DYN_CODE_LOADING_BY_DEFAULT = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.RESTRICT_MEMORY_DYN_CODE_LOADING_BY_DEFAULT,
++            defaultBool(R.bool.setting_default_restrict_memory_dyn_code_loading));
++
++    public static final BoolSetting RESTRICT_STORAGE_DYN_CODE_LOADING_BY_DEFAULT = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.RESTRICT_STORAGE_DYN_CODE_LOADING_BY_DEFAULT,
++            defaultBool(R.bool.setting_default_restrict_storage_dyn_code_loading));
++
++    public static final BoolSetting RESTRICT_WEBVIEW_DYN_CODE_LOADING_BY_DEFAULT = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.RESTRICT_WEBVIEW_DYN_CODE_LOADING_BY_DEFAULT,
++            defaultBool(R.bool.setting_default_restrict_webview_dyn_code_loading));
++
++    public static final BoolSetting FORCE_APP_MEMTAG_BY_DEFAULT = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.FORCE_APP_MEMTAG_BY_DEFAULT,
++            defaultBool(R.bool.setting_default_force_app_memtag));
++
++    public static final BoolSetting SHOW_SYSTEM_PROCESS_CRASH_NOTIFICATIONS = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.SHOW_SYSTEM_PROCESS_CRASH_NOTIFICATIONS, false);
++
++    public static final BoolSetting DISALLOW_DELAYED_LOCKING_ON_USER_STOP = new BoolSetting(
++            Setting.Scope.PER_USER, Settings.Secure.DISALLOW_DELAYED_LOCKING_ON_USER_STOP, false);
++
++    public static final BoolSetting ALLOW_CLIPBOARD_READ_BY_DEFAULT = new BoolSetting(
++            Setting.Scope.GLOBAL, Settings.Global.ALLOW_CLIPBOARD_READ_BY_DEFAULT,
++            defaultBool(R.bool.setting_default_allow_clipboard_read));
++
++    private ExtSettings() {}
++
++    public static Function<Context, Boolean> defaultBool(@BoolRes int res) {
++        return ctx -> ctx.getResources().getBoolean(res);
++    }
++
++    public static ToIntFunction<Context> defaultInt(@IntegerRes int res) {
++        return ctx -> ctx.getResources().getInteger(res);
++    }
++
++    public static Function<Context, String> defaultString(@StringRes int res) {
++        return ctx -> ctx.getString(res);
++    }
++}
+diff --git a/core/java/android/ext/settings/IntSetting.java b/core/java/android/ext/settings/IntSetting.java
+new file mode 100644
+index 00000000..b027ba4b
+--- /dev/null
++++ b/core/java/android/ext/settings/IntSetting.java
+@@ -0,0 +1,123 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.Nullable;
++import android.annotation.SystemApi;
++import android.content.Context;
++
++import java.util.function.ToIntFunction;
++
++/** @hide */
++@SystemApi
++public class IntSetting extends Setting<IntSetting> {
++    private int defaultValue;
++    private volatile ToIntFunction<Context> defaultValueSupplier;
++
++    @Nullable private final int[] validValues;
++
++    private IntSetting(@NonNull Scope scope, @NonNull String key, @Nullable int[] validValues) {
++        super(scope, key);
++        this.validValues = validValues;
++    }
++
++    public IntSetting(@NonNull Scope scope, @NonNull String key, int defaultValue) {
++        this(scope, key, (int[]) null);
++        setDefaultValue(defaultValue);
++    }
++
++    public IntSetting(@NonNull Scope scope, @NonNull String key, int defaultValue, @NonNull int... validValues) {
++        this(scope, key, validValues);
++        setDefaultValue(defaultValue);
++    }
++
++    public IntSetting(@NonNull Scope scope, @NonNull String key, @NonNull ToIntFunction<Context> defaultValue) {
++        this(scope, key, (int[]) null);
++        defaultValueSupplier = defaultValue;
++    }
++
++    public IntSetting(@NonNull Scope scope, @NonNull String key, @NonNull ToIntFunction<Context> defaultValue,
++                      @NonNull int... validValues) {
++        this(scope, key, validValues);
++        defaultValueSupplier = defaultValue;
++    }
++
++    public boolean validateValue(int val) {
++        if (validValues == null) {
++            return true;
++        }
++        // don't do sort() + bsearch() of validValues array, it's expected to have a small number of entries
++        for (int validValue : validValues) {
++            if (val == validValue) {
++                return true;
++            }
++        }
++        return false;
++    }
++
++    public final int get(@NonNull Context ctx) {
++        return get(ctx, ctx.getUserId());
++    }
++
++    // use only if this is a per-user setting and the context is not a per-user one
++    public final int get(@NonNull Context ctx, int userId) {
++        String valueStr = getRaw(ctx, userId);
++
++        if (valueStr == null) {
++            return getDefaultValue(ctx);
++        }
++
++        int value;
++        try {
++            value = Integer.parseInt(valueStr);
++        } catch (NumberFormatException e) {
++            e.printStackTrace();
++            return getDefaultValue(ctx);
++        }
++
++        if (!validateValue(value)) {
++            return getDefaultValue(ctx);
++        }
++
++        return value;
++    }
++
++    public final boolean put(@NonNull Context ctx, int val) {
++        if (!validateValue(val)) {
++            throw new IllegalArgumentException(Integer.toString(val));
++        }
++        return putRaw(ctx, Integer.toString(val));
++    }
++
++    private void setDefaultValue(int val) {
++        if (!validateValue(val)) {
++            throw new IllegalStateException("invalid default value " + val);
++        }
++        defaultValue = val;
++    }
++
++    private int getDefaultValue(Context ctx) {
++        ToIntFunction<Context> supplier = defaultValueSupplier;
++        if (supplier != null) {
++            setDefaultValue(supplier.applyAsInt(ctx));
++            defaultValueSupplier = null;
++        }
++        return defaultValue;
++    }
++}
+diff --git a/core/java/android/ext/settings/IntSysProperty.java b/core/java/android/ext/settings/IntSysProperty.java
+new file mode 100644
+index 00000000..ce1ccb6b
+--- /dev/null
++++ b/core/java/android/ext/settings/IntSysProperty.java
+@@ -0,0 +1,56 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++import android.os.UserHandle;
++
++import java.util.function.ToIntFunction;
++
++/** @hide */
++@SystemApi
++public class IntSysProperty extends IntSetting {
++
++    public IntSysProperty(@NonNull String key, int defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    public IntSysProperty(@NonNull String key, int defaultValue, @NonNull int... validValues) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue, validValues);
++    }
++
++    public IntSysProperty(@NonNull String key, @NonNull ToIntFunction<Context> defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    public IntSysProperty(@NonNull String key, @NonNull ToIntFunction<Context> defaultValue, @NonNull int... validValues) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue, validValues);
++    }
++
++    public int get() {
++        //noinspection DataFlowIssue
++        return super.get(null, UserHandle.USER_SYSTEM);
++    }
++
++    public boolean put(int val) {
++        //noinspection DataFlowIssue
++        return super.put(null, val);
++    }
++}
+diff --git a/core/java/android/ext/settings/Setting.java b/core/java/android/ext/settings/Setting.java
+new file mode 100644
+index 00000000..17c8a121
+--- /dev/null
++++ b/core/java/android/ext/settings/Setting.java
+@@ -0,0 +1,191 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.Nullable;
++import android.annotation.SuppressLint;
++import android.annotation.SystemApi;
++import android.content.Context;
++import android.database.ContentObserver;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.SystemProperties;
++import android.provider.Settings;
++import android.util.Log;
++
++import java.util.function.Consumer;
++
++/** @hide */
++@SystemApi
++public abstract class Setting<SelfType extends Setting> {
++
++    @SuppressLint("Enum")
++    public enum Scope {
++        SYSTEM_PROPERTY, // android.os.SystemProperties, doesn't support state observers
++        GLOBAL, // android.provider.Settings.Global
++        PER_USER, // android.provider.Settings.Secure
++    }
++
++    private final Scope scope;
++    private final String key;
++
++    /** @hide */
++    protected Setting(Scope scope, String key) {
++        this.scope = scope;
++        this.key = key;
++    }
++
++    @NonNull
++    public final String getKey() {
++        return key;
++    }
++
++    @NonNull
++    public final Scope getScope() {
++        return scope;
++    }
++
++    /** @hide */
++    @Nullable
++    protected final String getRaw(Context ctx, int userId) {
++        try {
++            switch (scope) {
++                case SYSTEM_PROPERTY: {
++                    String s = SystemProperties.get(key);
++                    if (s.isEmpty()) {
++                        return null;
++                    }
++                    return s;
++                }
++                case GLOBAL:
++                    return Settings.Global.getString(ctx.getContentResolver(), key);
++                case PER_USER:
++                    return Settings.Secure.getStringForUser(ctx.getContentResolver(), key, userId);
++            }
++        } catch (Throwable e) {
++            Log.e("ExtSettings", "key: " + key, e);
++            if (Settings.isInSystemServer()) {
++                // should never happen under normal circumstances, but if it does,
++                // don't crash the system_server
++                return null;
++            }
++
++            throw e;
++        }
++
++        // "switch (scope)" above should be exhaustive
++        throw new IllegalStateException();
++    }
++
++    /** @hide */
++    protected final boolean putRaw(Context ctx, String val) {
++        switch (scope) {
++            case SYSTEM_PROPERTY: {
++                try {
++                    SystemProperties.set(key, val);
++                    return true;
++                } catch (RuntimeException e) {
++                    e.printStackTrace();
++                    if (e instanceof IllegalArgumentException) {
++                        // see doc
++                        throw e;
++                    }
++                    return false;
++                }
++            }
++            case GLOBAL:
++                return Settings.Global.putString(ctx.getContentResolver(), key, val);
++            case PER_USER:
++                return Settings.Secure.putString(ctx.getContentResolver(), key, val);
++            default:
++                throw new IllegalStateException();
++        }
++    }
++
++    public final boolean canObserveState() {
++        return scope != Scope.SYSTEM_PROPERTY;
++    }
++
++    // pass the return value to unregisterObserver() to remove the observer
++    @NonNull
++    public final Object registerObserver(@NonNull Context ctx, @NonNull Handler handler, @NonNull Consumer<SelfType> callback) {
++        return registerObserver(ctx, ctx.getUserId(), handler, callback);
++    }
++
++    @NonNull
++    public final Object registerObserver(@NonNull Context ctx, int userId, @NonNull Handler handler, @NonNull Consumer<SelfType> callback) {
++        if (scope == Scope.SYSTEM_PROPERTY) {
++            // SystemProperties.addChangeCallback() doesn't work unless the change is actually
++            // reported elsewhere in the same process with SystemProperties.callChangeCallbacks()
++            // or with its native equivalent (report_sysprop_change()).
++            // Leave the code in place in case this changes in the future.
++            if (false) {
++                Runnable observer = new Runnable() {
++                    private volatile String prev = SystemProperties.get(getKey());
++
++                    @Override
++                    public void run() {
++                        String value = SystemProperties.get(getKey());
++                        // change callback is dispatched whenever any change to system props occurs
++                        if (!prev.equals(value)) {
++                            prev = value;
++                            handler.post(() -> callback.accept((SelfType) Setting.this));
++                        }
++                    }
++                };
++                SystemProperties.addChangeCallback(observer);
++                return observer;
++            }
++            throw new UnsupportedOperationException("observing sysprop state is not supported");
++        }
++
++        Uri uri;
++        switch (scope) {
++            case GLOBAL:
++                uri = Settings.Global.getUriFor(key);
++                break;
++            case PER_USER:
++                uri = Settings.Secure.getUriFor(key);
++                break;
++            default:
++                throw new IllegalStateException();
++        }
++
++        ContentObserver observer = new ContentObserver(handler) {
++            @Override
++            public void onChange(boolean selfChange) {
++                callback.accept((SelfType) Setting.this);
++            }
++        };
++        ctx.getContentResolver().registerContentObserver(uri, false, observer, userId);
++
++        return observer;
++    }
++
++    public final void unregisterObserver(@NonNull Context ctx, @NonNull Object observer) {
++        if (scope == Scope.SYSTEM_PROPERTY) {
++            if (false) { // see comment in registerObserverInner
++                SystemProperties.removeChangeCallback((Runnable) observer);
++            }
++            throw new UnsupportedOperationException("observing sysprop state is not supported");
++        } else {
++            ctx.getContentResolver().unregisterContentObserver((ContentObserver) observer);
++        }
++    }
++}
+diff --git a/core/java/android/ext/settings/StringSetting.java b/core/java/android/ext/settings/StringSetting.java
+new file mode 100644
+index 00000000..3554396d
+--- /dev/null
++++ b/core/java/android/ext/settings/StringSetting.java
+@@ -0,0 +1,84 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++
++import java.util.function.Function;
++
++/** @hide */
++@SystemApi
++public class StringSetting extends Setting<StringSetting> {
++    private String defaultValue;
++    private volatile Function<Context, String> defaultValueSupplier;
++
++    public StringSetting(@NonNull Scope scope, @NonNull String key, @NonNull String defaultValue) {
++        super(scope, key);
++        setDefaultValue(defaultValue);
++    }
++
++    public StringSetting(@NonNull Scope scope, @NonNull String key, @NonNull Function<Context, String> defaultValue) {
++        super(scope, key);
++        this.defaultValueSupplier = defaultValue;
++    }
++
++    public boolean validateValue(@NonNull String val) {
++        return true;
++    }
++
++    @NonNull
++    public final String get(@NonNull Context ctx) {
++        return get(ctx, ctx.getUserId());
++    }
++
++    @NonNull
++    // use only if this is a per-user setting and the context does not specify the userId
++    public final String get(@NonNull Context ctx, int userId) {
++        String s = getRaw(ctx, userId);
++        if (s == null || !validateValue(s)) {
++            return getDefaultValue(ctx);
++        }
++        return s;
++    }
++
++    public final boolean put(@NonNull Context ctx, @NonNull String val) {
++        if (!validateValue(val)) {
++            throw new IllegalStateException("invalid value " + val);
++        }
++        return putRaw(ctx, val);
++    }
++
++    private void setDefaultValue(@NonNull String val) {
++        if (!validateValue(val)) {
++            throw new IllegalStateException("invalid default value " + val);
++        }
++        defaultValue = val;
++    }
++
++    @NonNull
++    private String getDefaultValue(Context ctx) {
++        Function<Context, String> supplier = defaultValueSupplier;
++        if (supplier != null) {
++            setDefaultValue(supplier.apply(ctx));
++            defaultValueSupplier = null;
++        }
++        return defaultValue;
++    }
++}
+diff --git a/core/java/android/ext/settings/StringSysProperty.java b/core/java/android/ext/settings/StringSysProperty.java
+new file mode 100644
+index 00000000..773f4bc2
+--- /dev/null
++++ b/core/java/android/ext/settings/StringSysProperty.java
+@@ -0,0 +1,49 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++import android.os.UserHandle;
++
++import java.util.function.Function;
++
++/** @hide */
++@SystemApi
++public class StringSysProperty extends StringSetting {
++
++    public StringSysProperty(@NonNull String key, @NonNull String defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    public StringSysProperty(@NonNull String key, @NonNull Function<Context, String> defaultValue) {
++        super(Scope.SYSTEM_PROPERTY, key, defaultValue);
++    }
++
++    @NonNull
++    public String get() {
++        //noinspection DataFlowIssue
++        return super.get(null, UserHandle.USER_SYSTEM);
++    }
++
++    public boolean put(@NonNull String val) {
++        //noinspection DataFlowIssue
++        return super.put(null, val);
++    }
++}
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index 36e2193c..06e0b197 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -7237,6 +7237,31 @@ public final class Settings {
+      * or by calling the "put" methods that this class contains.
+      */
+     public static final class Secure extends NameValueTable {
++        // lenOS: keys consumed by android.ext.settings.ExtSettings (ported from
++        // GrapheneOS). Names and literals match GrapheneOS's Settings.java.
++        // ExtSettings BEGIN
++
++        /** @hide */
++        public static final String AUTO_GRANT_OTHER_SENSORS_PERMISSION = "auto_grant_OTHER_SENSORS_perm";
++
++        /** @hide */
++        public static final String SCREENSHOT_TIMESTAMP_EXIF = "screenshot_timestamp_exif";
++
++        /** @hide */
++        public static final String SCRAMBLE_PIN_LAYOUT_PRIMARY =
++                "lockscreen_scramble_pin_layout";
++        /** @hide */
++        public static final String SCRAMBLE_PIN_LAYOUT_SECONDARY =
++                "lockscreen_scramble_pin_layout_secondary";
++
++        /** @hide */
++        public static final String SCRAMBLE_SIM_PIN_LAYOUT = "scramble_sim_pin_layout";
++
++        /** @hide */
++        public static final String DISALLOW_DELAYED_LOCKING_ON_USER_STOP = "disallow_delayed_locking_on_user_stop";
++
++        // ExtSettings END
++
+         // NOTE: If you add new settings here, be sure to add them to
+         // com.android.providers.settings.SettingsProtoDumpUtil#dumpProtoSecureSettingsLocked.
+ 
+@@ -13902,6 +13927,46 @@ public final class Settings {
+      * explicitly modify through the system UI or specialized APIs for those values.
+      */
+     public static final class Global extends NameValueTable {
++        // lenOS: keys consumed by android.ext.settings.ExtSettings (ported from
++        // GrapheneOS). Names and literals match GrapheneOS's Settings.java.
++        // ExtSettings BEGIN
++
++        /** @hide */
++        public static final String ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG =
++                "allow_automatic_pkg_hardening_config"; // historical name
++
++        /** @hide */
++        public static final String AUTO_REBOOT_TIMEOUT = "settings_reboot_after_timeout";
++
++        /** @hide */
++        public static final String WIFI_AUTO_OFF = "wifi_off_timeout";
++
++        /** @hide */
++        public static final String BLUETOOTH_AUTO_OFF = "bluetooth_off_timeout";
++
++        /** @hide */
++        public static final String NFC_AUTO_OFF = "nfc_off_timeout";
++
++        /** @hide */
++        public static final String RESTRICT_MEMORY_DYN_CODE_LOADING_BY_DEFAULT = "restrict_memory_dyn_code_exec";
++
++        /** @hide */
++        public static final String RESTRICT_STORAGE_DYN_CODE_LOADING_BY_DEFAULT = "restrict_storage_dyn_code_exec";
++
++        /** @hide */
++        public static final String RESTRICT_WEBVIEW_DYN_CODE_LOADING_BY_DEFAULT = "restrict_webview_dyn_code_exec";
++
++        /** @hide */
++        public static final String FORCE_APP_MEMTAG_BY_DEFAULT = "force_app_memtag";
++
++        /** @hide */
++        public static final String SHOW_SYSTEM_PROCESS_CRASH_NOTIFICATIONS = "show_system_process_crash_notifs";
++
++        /** @hide */
++        public static final String ALLOW_CLIPBOARD_READ_BY_DEFAULT = "allow_clipboard_read";
++
++        // ExtSettings END
++
+         // NOTE: If you add new settings here, be sure to add them to
+         // com.android.providers.settings.SettingsProtoDumpUtil#dumpProtoGlobalSettingsLocked.
+ 
+diff --git a/core/res/res/values/config_ext.xml b/core/res/res/values/config_ext.xml
+new file mode 100644
+index 00000000..98254be6
+--- /dev/null
++++ b/core/res/res/values/config_ext.xml
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  lenOS: defaults for the GrapheneOS-derived android.ext.settings framework.
++  Names and values are ported from GrapheneOS's
++  core/res/res/values/config_ext.xml so that ports of code reading these
++  defaults stay faithful to the original implementation.
++-->
++<resources>
++    <bool name="setting_default_allow_disabling_hardening_via_app_compat_config">true</bool>
++    <bool name="setting_default_allow_native_debugging">true</bool>
++    <bool name="setting_default_restrict_memory_dyn_code_loading">false</bool>
++    <bool name="setting_default_restrict_storage_dyn_code_loading">false</bool>
++    <bool name="setting_default_restrict_webview_dyn_code_loading">false</bool>
++    <bool name="setting_default_force_app_memtag">false</bool>
++    <bool name="setting_default_allow_clipboard_read">true</bool>
++</resources>
