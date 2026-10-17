@@ -10,8 +10,9 @@ Feature contract (see docs/features.md):
   correct credential is ignored.
 * Managing the pair (set/check/delete) requires the owner credential; the
   stored form is a scrypt-stretched hash, never the credential itself.
-* Ported from GrapheneOS. Limitation of this port: eSIM profile erasure
-  (EuiccWipe) is not implemented; the shell test hook
+* Ported from GrapheneOS, including the eSIM profile erasure (EuiccWipe) and
+  the suppressed carrier removal notification; the eUICC-side contract is
+  covered by test_duress_esim.py. The shell test hook
   (cmd lock_settings set-duress-credentials) supports on-device verification.
 """
 from __future__ import annotations
@@ -141,13 +142,20 @@ class TestDuressBackend(LenosPatchTest):
             "public static void deleteSecrets() {",
         )
 
-    def test_esim_erasure_is_not_part_of_the_port(self):
-        # GrapheneOS also erases eSIM profiles; ours documents the limitation.
-        # Update this test when EuiccWipe support is ported.
+    def test_wipe_includes_esim_erasure(self):
+        # Same ordering as GrapheneOS: the eUICC wipe starts first, the
+        # cryptographic erase never waits for it, power-off waits at most 3s.
         wipe = self.text(WIPE)
-        self.assertNotIn("EuiccWipeThread", wipe)
-        self.assertNotIn("import com.android.internal.telephony.euicc", wipe)
-        self.assertIn("eSIM", wipe)
+        self.assertIn("import com.android.internal.telephony.euicc.EuiccWipe;", wipe)
+        self.assertIn(
+            "EuiccWipe.run(context, EuiccCardManager.RESET_FLAG_IS_FOR_DURESS_WIPE)", wipe)
+        self.assertIn("EuiccWipeThread.start(context);", wipe)
+        self.assertIn("euiccWipeThread.await(3000);", wipe)
+        self.assertLess(wipe.index("EuiccWipeThread.start(context);"),
+                        wipe.index("RecoverySystemService.deleteSecrets();"))
+        self.assertLess(wipe.index("RecoverySystemService.deleteSecrets();"),
+                        wipe.index("euiccWipeThread.await(3000);"))
+        self.assertIn("DuressWipe.run(mLockSettingsService.getContext());", self.text(HELPER))
 
     def test_shell_command_matches_the_grapheneos_workflow(self):
         self.assert_contains(
@@ -169,13 +177,14 @@ class TestDuressProductWiring(unittest.TestCase):
         self.assertIn("ro.lenos.security.duress=framework",
                       read_vendor("config/lenos.mk"))
 
-    def test_app_still_parses_without_the_esim_promise(self):
+    def test_app_text_lists_the_esim_erasure(self):
         for name in ("MainActivity.java", "LockBridge.java", "DuressCli.java"):
             errors = java_syntax_errors(VENDOR / APP_DIR / name)
             self.assertEqual(errors, 0, f"{name}: {errors} Java parse errors")
         main = read_vendor(f"{APP_DIR}/MainActivity.java")
-        self.assertNotIn("erase eSIM", main)
         self.assertIn("deletes the keystore secrets protecting storage", main)
+        self.assertIn("erases stored eSIM profiles", main)
+        self.assertIn("erase stored eSIM profiles", main)
 
     def test_app_ui_uses_the_owner_gated_path_first(self):
         main = read_vendor(f"{APP_DIR}/MainActivity.java")

@@ -53,7 +53,7 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 |---|---|---|
 | Auto reboot to before-first-unlock (BFU) | `system_core/0001` + `frameworks_base/0003` + `frameworks_base/0006` | GrapheneOS port: init owns a `CLOCK_BOOTTIME_ALARM` timer driven through the `sys.auto_reboot_ctl` property; system_server forwards keyguard showing-state changes (timeout while locked, `on_device_unlocked` on unlock). Requests before the first unlock are ignored, a running timer is not restarted by relocking, and expiry performs a normal reboot, so the FBE keys stay out of memory until the next unlock. `Settings.Global.settings_reboot_after_timeout` (GrapheneOS key, 18h default via `android.ext.settings`, 0 = off, 10min–3 days) with UI in the lenOS app |
 | Quick settings require unlock | `frameworks_base/0004` | GrapheneOS port: every tile action (click, secondary click, long click) goes through `QSTileImpl#handleAction`. While a secure keyguard is up, non-allow-listed tiles do nothing until the user authenticates — the keyguard bouncer is shown and the action runs only after a successful unlock. A locked device cannot toggle radios/connectivity (e.g. airplane mode to break remote tracking). Allow-list as in GrapheneOS: flashlight (both variants), QR scanner, color inversion/correction, Night Light, reduce bright colors, dark theme, rotation lock, battery saver, device controls |
-| Duress PIN/password | `frameworks_base/0005` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — and powers off. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential. Limitation: GrapheneOS's eSIM profile erasure (`EuiccWipe`) is not ported |
+| Duress PIN/password | `frameworks_base/0005` + `0007`, `frameworks_opt_telephony/0001` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — erases every eSIM profile and powers off. The eUICC reset runs on a side thread with a three second budget, requires system uid and skips the carrier eSIM-removal notification. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential |
 
 ## Framework infrastructure
 
@@ -115,11 +115,12 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   GrapheneOS's, so the camera toggle is no longer a lock-screen exception.
 * **The duress wipe is destructive by design and not yet device-verified.**
   It deletes the KeyMint storage keys and Secretkeeper secrets (cryptographic
-  erase), then powers off — there is no undo. It is opt-in: nothing happens
-  until the user sets a duress PIN/password with the owner credential. eSIM
-  profiles are **not** erased (GrapheneOS erases them; this port does not).
-  The app warns "do not test on this phone"; only test when a full wipe is
-  acceptable.
+  erase), erases the eSIM profiles, then powers off — there is no undo. It is
+  opt-in: nothing happens until the user sets a duress PIN/password with the
+  owner credential. The carrier does not receive an eSIM removal
+  notification, and a missing or unresponsive eUICC can delay the power-off
+  by at most three seconds. The app warns "do not test on this phone"; only
+  test when a full wipe is acceptable.
 * **Jelly (WebView-based browser) still ships.** It is the Lineage default and
   gets WebView security updates from the system; replacing it with Cromite and
   updating WebView are separate work items.

@@ -3,6 +3,53 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
+
+Closes the last known gap of the duress backend: a duress wipe now erases the
+eSIM profiles too, exactly like GrapheneOS.
+
+* New `frameworks_base/0007-lenos-esim-duress-wipe`:
+  * `com.android.internal.telephony.euicc.EuiccWipe` (GrapheneOS file):
+    enumerates `TelephonyManager#getUiccSlotsInfo`, resets every eUICC slot
+    through `EuiccCardManager#resetMemory` with
+    `RESET_OPTION_DELETE_OPERATIONAL_PROFILES |
+    RESET_OPTION_DELETE_FIELD_LOADED_TEST_PROFILES`, waits for every callback
+    and reports success only when all resets return `RESULT_OK`.
+  * `EuiccCardManager`: @hide 5-arg `resetMemory(..., int flags)` overload +
+    `RESET_FLAG_IS_FOR_DURESS_WIPE = 1`; the public 4-arg API delegates with
+    `flags = 0`.
+  * `IEuiccCardController.aidl`: the `resetMemory` transaction carries the
+    flags argument.
+* New project `frameworks_opt_telephony/0001-lenos-esim-duress-wipe`:
+  `EuiccCardController.resetMemory` accepts the flags; only `SYSTEM_UID` may
+  use them (everyone else gets a SecurityException and the usual package
+  check), and a duress-flagged reset skips `updateEmbeddedSubscriptions()`
+  so the carrier does not receive an eSIM-removal notification while the
+  device is being wiped.
+* `frameworks_base/0005` regenerated: `DuressWipe.run(Context)` starts the
+  eSIM wipe on a side thread *before* `deleteSecrets()`, waits at most three
+  seconds, then powers off (GrapheneOS's ordering);
+  `DuressPasswordHelper` passes `mLockSettingsService.getContext()`.
+* Tests: new `test_duress_esim.py` (helper contract, flags plumbing,
+  SYSTEM_UID gate, carrier-notification suppression, wipe ordering);
+  `test_duress.py` updated (the "eSIM not ported" assertions are gone). The
+  app's duress text now tells the user eSIM profiles are erased too.
+* **18 patches, 110 tests, all green**; `--check` clean on all pristine
+  trees. Still source-complete only — no device verification yet.
+
+### Next (as of this session)
+
+1. VM build (blocked locally: fix `gcloud` project/access, then scp — see
+   `docs/build.md` section 2), flash with approval, run the checklist.
+2. On-device verification: `getprop sys.auto_reboot_ctl` while
+   locked/unlocked, lock-screen tile tap opens the bouncer, Wi-Fi hostname
+   toggle persists, `veritymode=enforcing` (unlocked), and — last, because
+   destructive — the duress wipe, including an empty profile list afterwards
+   and no carrier "profile removed" notification.
+3. Port backlog from the GrapheneOS inventory artifact (being updated):
+   sensor permission, Secure Paste, delayed allow buttons, network
+   permission, FBE filename padding, auto-off timers, screenshot EXIF strip.
+
 ## 2026-10-17 (fifth session) — GrapheneOS fidelity audit: init auto-reboot, QS gate, android.ext.settings
 
 Session goal: stop approximating where GrapheneOS has a proven design; redo

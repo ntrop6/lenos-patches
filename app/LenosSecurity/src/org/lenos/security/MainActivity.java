@@ -208,7 +208,7 @@ public class MainActivity extends Activity {
         });
 
         LinearLayout duressCol = column();
-        duressCol.addView(text("Entering either duress credential anywhere Android asks for your lock deletes the keystore secrets protecting storage and powers the device off. Storage is gone. Do not test on this phone.", 13, DANGER, false));
+        duressCol.addView(text("Entering either duress credential anywhere Android asks for your lock deletes the keystore secrets protecting storage, erases stored eSIM profiles and powers the device off. Storage is gone. Do not test on this phone.", 13, DANGER, false));
         duressCol.addView(duressStatus);
         duressCol.addView(ownerPin);
         duressCol.addView(check);
@@ -484,7 +484,7 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("Destructive credential warning")
-                .setMessage("Entering either duress credential will immediately and irreversibly make storage inaccessible and power off. Do not test on this phone.")
+                .setMessage("Entering either duress credential will immediately and irreversibly make storage inaccessible, erase stored eSIM profiles and power off. Do not test on this phone.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Proceed", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
