@@ -1,41 +1,60 @@
-# vendor/lenos — 1.0.0-shizuku
+# vendor/lenos — lenOS 1.0.0 for the Nothing Phone (3a)/(3a) Pro
 
-This is the product. `hardwire.py` writes it **into the Lineage sources**. There is no `git apply`. `patches/` is provenance only and is not used.
+lenOS is a privacy/security-hardened LineageOS 23.2 distribution for the
+Nothing Phone (3a) and (3a) Pro (codename `asteroids`). This repository is the
+product: the LineageOS source tree stays a **pristine copy of the pinned
+upstream branches**, and every lenOS change is carried by a patch file in
+`patches/<project>/` (plus a `series` file that lists the patches in order).
 
-Codename **shizuku**. Fingerprint untouched. DNS **Quad9**.
+Nothing is edited into the tree by hand. The only supported way to build lenOS
+is: pin the tree → apply the series with `tools/lenos-patch.py` → build.
 
-## What gets written into the tree
+## Layout
 
-| File | What |
+| Path | What |
 |---|---|
-| `device/nothing/asteroids/lenos.prop` + `system_ext.prop` | `ro.lenos.*=1.0.0-shizuku`, `default_network=28,28` (no 2G), empty hostname, radio/IMS/modem logs off |
-| `frameworks/base/.../config.xml` | NTP `time.grapheneos.org`, DNS probe `9.9.9.9`, GrapheneOS captive-portal 204s, nearby-sharing component blanked |
-| `SettingsProvider/DatabaseHelper.java` | first-boot: Private DNS **hostname / dns.quad9.net**, captive portal, Wi-Fi/BLE scan off, NFC off, location off |
-| `SettingsProvider/defaults.xml` | BT/Wi-Fi/wakeup off, location 0, device name `Android`, USB mass-storage off |
-| CarrierConfig `gps.supl_host` | **empty** (no `supl.google.com`) |
-| Wifi overlays | insecure enterprise **false**, tether SSID `AndroidAP` |
-| `gps.conf` / izat under device+vendor | SUPL blank, XTRA → `qualcomm.psds.grapheneos.org`, NTP `time.grapheneos.org` if those files exist |
-| `AndroidManifest` + Connectivity + `netd.c` | `android.permission.NETWORK` declared and enforced at socket create |
-| Keyguard / SystemUI | PIN scramble default on, GC on lock |
-| Settings | homepage **lenOS security** tile + duress/BFU sources |
+| `patches/<alias>/series` | Ordered patch series per upstream project (strict `git apply`, no fuzz) |
+| `tools/lenos-patch.py` | Apply/check/reverse patches; `--status` reports applied state |
+| `tools/mkpatch.sh` | Turn edits in a pinned project into a patch and restore the tree |
+| `tools/lenos_projects.py` | Project path ↔ patch directory mapping shared by the tools |
+| `tests/` | Test suite; every patch is applied in a sandbox and asserted against |
+| `config/lenos.mk` | lenOS product configuration (packages, RROs, product properties) |
+| `config/privapp-permissions-*.xml` | Privileged permission allowlist for the security app |
+| `rro/` | Input RROs: NTP fallback, SettingsProvider first-boot defaults, connectivity checks |
+| `app/LenosSecurity/` | Companion app for controls the stock Settings UI does not have |
+| `docs/features.md` | Feature matrix with status and honest limits |
+| `docs/build.md` | Build/flash/verify workflow (VM rules, verification commands) |
+| `legacy-patches/` | Earlier 1.0.0-shizuku patches, provenance only — do not apply |
+| `integrate.sh`, `lenos-1.0-shizuku.sh`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier "write into the tree" pipeline; kept for reference, **not** used anymore (its `hardwire.py` lives only in the prior-work drop `/home/otoka/lenos-drop/vendor-lenos/`) |
 
-Overlays under `vendor/lenos/overlay` are the same values as backup. The source files themselves are changed.
-
-Not invented into this compile: hardened_malloc (`repo sync` of `external/hardened_malloc`), Cromite APK, USB-HAL-on-lock, exec-spawn. RKP hostname left alone (keystore attestation, no Graphene proxy).
-
-## On the VM
-
-`reset hardening` git-resets. Hardwire **after** it.
+## Quick start
 
 ```bash
-gcloud compute scp --tunnel-through-iap --recurse vendor-lenos cesurmali76@lenos-build:~/vendor-lenos
-export LENOS_ALLOW_LOW_MEMORY=1 LENOS_BUILD_JOBS=4
-~/lenOS-2.8.1-ReSukiSU-single.sh reset hardening
-bash ~/vendor-lenos/integrate.sh "$HOME/lenos-workspace/lineage"
-grep dns.quad9.net ~/lenos-workspace/lineage/frameworks/base/packages/SettingsProvider -r | head
-grep gps.supl_host ~/lenos-workspace/lineage/device/nothing/asteroids/rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml
-~/lenOS-2.8.1-ReSukiSU-single.sh reset build
-~/lenOS-2.8.1-ReSukiSU-single.sh build --rootless --hardening full
+WS="/mnt/sda/AI WORKSPACE/lenos-workspace"                    # pinned tree
+PY=/tmp/opencode/lenv/bin/python                              # has tree-sitter
+
+# all patches against the pinned tree
+$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --status
+$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --check
+
+# test suite (needs a pristine tree for the series test)
+LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY bash vendor/lenos/tests/run-tests.sh
 ```
 
-No `repo sync`. Do not lock.
+Building: see `docs/build.md`. Flashing/locking rules are binding and live in
+`/home/otoka/lenos-drop/BUILD-FLASH-LOCK.md`.
+
+## Design rules
+
+* **Identity stays stock.** Build fingerprint, `ro.product.*` and attestation
+  behaviour are untouched; lenOS only adds `ro.lenos.*` properties.
+* **Defaults, not mandates.** Privacy hardening is applied as first-boot
+  defaults (user-changeable, never rewritten) or as documented toggles. Nothing
+  silently weakens encryption, SELinux, verified boot, emergency calling or
+  recovery.
+* **Fail closed.** Where a privacy default needs a fallback value in code
+  (e.g. the DHCP hostname restriction), the fallback is the private setting,
+  not the permissive one.
+* **No new trust anchors.** Changed endpoints (NTP, connectivity checks) must
+  not point at Google; the current choices are documented in `docs/features.md`
+  together with their costs.
