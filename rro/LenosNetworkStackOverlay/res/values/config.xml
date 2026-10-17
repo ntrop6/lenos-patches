@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: 2026 lenOS
+     SPDX-License-Identifier: Apache-2.0
+
+     Connectivity-check (captive portal detection) endpoints. Android probes
+     these URLs on every network connection; the stock values point at Google
+     infrastructure (connectivitycheck.gstatic.com / www.google.com). lenOS
+     uses the Cloudflare public generate_204 endpoint instead.
+
+     NetworkMonitor gives the config_* resources priority over both the
+     Settings.Global values (captive_portal_http_url / captive_portal_https_url)
+     and the default_* resources, so a non-empty set here removes the Google
+     fallback entirely. Keep every resource populated: an empty array falls
+     through to the Google defaults.
+-->
+<resources>
+    <string name="config_captive_portal_http_url" translatable="false">http://cp.cloudflare.com/generate_204</string>
+    <string name="config_captive_portal_https_url" translatable="false">https://cp.cloudflare.com/generate_204</string>
+
+    <string-array name="config_captive_portal_http_urls" translatable="false">
+        <item>http://cp.cloudflare.com/generate_204</item>
+    </string-array>
+    <string-array name="config_captive_portal_https_urls" translatable="false">
+        <item>https://cp.cloudflare.com/generate_204</item>
+    </string-array>
+
+    <!-- Fallback probe URL, used to tell "captive portal" apart from
+         "connectivity is broken" while the primary probes fail. -->
+    <string-array name="config_captive_portal_fallback_urls" translatable="false">
+        <item>http://cp.cloudflare.com/generate_204</item>
+    </string-array>
+</resources>

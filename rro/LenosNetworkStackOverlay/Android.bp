@@ -1,0 +1,20 @@
+//
+// SPDX-FileCopyrightText: 2026 lenOS
+// SPDX-License-Identifier: Apache-2.0
+//
+// Static runtime overlay for the NetworkStack mainline module
+// (com.android.networkstack). Replaces the Google connectivity-check
+// endpoints with the Cloudflare public generate_204 endpoint.
+//
+// Same shape as the device's mainline overlays
+// (device/nothing/asteroids/rro_overlays/AsteroidsWifiOverlay): static
+// manifest, product partition. NetworkStack declares its overlayable
+// resources (targetName "NetworkStackConfig") with the policy
+// product|system|vendor, which the product partition satisfies.
+//
+
+runtime_resource_overlay {
+    name: "LenosNetworkStackOverlay",
+    device_specific: true,
+    product_specific: true,
+}

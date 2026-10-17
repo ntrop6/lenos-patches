@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: 2026 lenOS
+     SPDX-License-Identifier: Apache-2.0
+
+     Static overlay for com.android.providers.settings. The provider does not
+     declare an overlayable subset, so the overlay must be preinstalled (it
+     is, on the product partition) and no targetName is set.
+     Priority is above the Nothing device overlays (750) so lenOS privacy
+     defaults win if a resource is ever defined by both.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.android.providers.settings.overlay.lenos">
+
+    <overlay
+        android:isStatic="true"
+        android:priority="900"
+        android:targetPackage="com.android.providers.settings" />
+
+    <application android:hasCode="false" />
+</manifest>

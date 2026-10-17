@@ -1,0 +1,15 @@
+//
+// SPDX-FileCopyrightText: 2026 lenOS
+// SPDX-License-Identifier: Apache-2.0
+//
+// Static runtime overlay for the Settings provider
+// (com.android.providers.settings). Delivers the lenOS first-boot defaults
+// that DatabaseHelper#loadGlobalSettings reads from resources; the stock
+// values stay untouched in frameworks/base.
+//
+
+runtime_resource_overlay {
+    name: "LenosSettingsProviderOverlay",
+    device_specific: true,
+    product_specific: true,
+}

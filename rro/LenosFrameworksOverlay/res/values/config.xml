@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: 2026 lenOS
+     SPDX-License-Identifier: Apache-2.0
+
+     Fallback NTP pool read by NtpTrustedTime when Settings.Global.NTP_SERVER
+     is unset. The first-boot default for that setting is the same
+     (def_lenos_ntp_server in LenosSettingsProviderOverlay), this resource only
+     covers setting deletions and other code paths that read the array.
+     Items must be in the form "ntp://<host>[:port]".
+-->
+<resources>
+    <string-array translatable="false" name="config_ntpServers">
+        <item>ntp://pool.ntp.org</item>
+    </string-array>
+</resources>

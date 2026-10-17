@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: 2026 lenOS
+     SPDX-License-Identifier: Apache-2.0
+
+     Static overlay for framework-res. framework-res does not declare an
+     overlayable subset, so the overlay must be preinstalled (it is, on the
+     product partition) and no targetName is set.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="android.overlay.lenos">
+
+    <overlay
+        android:isStatic="true"
+        android:priority="900"
+        android:targetPackage="android" />
+
+    <application android:hasCode="false" />
+</manifest>
