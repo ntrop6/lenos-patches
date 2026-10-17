@@ -3,6 +3,68 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-17 (fifth session) — GrapheneOS fidelity audit: init auto-reboot, QS gate, android.ext.settings
+
+Session goal: stop approximating where GrapheneOS has a proven design; redo
+the approximations as faithful ports and lay shared infrastructure.
+
+* New `frameworks_base/0006-lenos-ext-settings`: port of GrapheneOS's
+  `android.ext.settings` package (`Setting`/`BoolSetting`/`IntSetting`/
+  `StringSetting` plus the system-property variants) and `ExtSettings` with
+  the GrapheneOS key literals added to `Settings.Global`/`Settings.Secure`
+  and defaults in `core/res/res/values/config_ext.xml`. Entries whose
+  enforcement code is not ported yet are inert; they exist so later ports
+  drop in without redefining storage.
+* Auto reboot redone (`frameworks_base/0003` rewritten, new
+  `system_core/0001-lenos-auto-reboot-init`): `LenosAutoRebootService` is
+  gone. init owns a `CLOCK_BOOTTIME_ALARM` timer special-cased on the
+  `sys.auto_reboot_ctl` property (timeout seconds /
+  `on_device_unlocked`), ignores requests until the first unlock, never
+  restarts a running timer, clamps sub-20s durations and reboots through
+  `HandlePowerctlMessage`. `AutoReboot.java` (keyguard package) forwards
+  keyguard showing-state for the current user from `KeyguardStateMonitor`;
+  the timeout is `Settings.Global.settings_reboot_after_timeout`
+  (GrapheneOS key, 18h default via ExtSettings). The SettingsProvider seed,
+  the RRO integer and the old app key are removed; app, product prop
+  (`auto_bfu=init`), tests and docs updated. Deviations recorded in
+  `docs/features.md`: generic `system_prop` SELinux context (GrapheneOS
+  uses a dedicated `auto_reboot_ctl_prop` type — needs a
+  `system/sepolicy` project), and no call-in-progress deferral (GrapheneOS
+  parity: the timer only arms after the first unlock, so BFU is never
+  interrupted).
+* QS gating redone (`frameworks_base/0004` rewritten): the toast approach
+  is replaced by GrapheneOS's design — every tile action routes through
+  `QSTileImpl#handleAction`, tiles opt in with `isAllowedWhenLocked`
+  (default: not allowed), and a blocked action posts through
+  `postQSRunnableDismissingKeyguard`, so the keyguard bouncer is shown and
+  the action runs only after a successful unlock. `QSHost`/`QSHostAdapter`
+  expose the keyguard state; the allow-list is GrapheneOS's 11 tiles
+  (flashlight, both variants; QR scanner; color inversion/correction; Night
+  Light; reduce bright colors; dark theme; rotation lock; battery saver;
+  device controls); the camera toggle is no longer a lock-screen
+  exception.
+* Tests: `test_auto_reboot.py` and `test_qs_unlock_gating.py` rewritten
+  around the new contracts (property protocol, BFU gate, clamp, restart
+  suppression, unlock-prompt gate, allow-list, no toast leftovers);
+  `test_first_boot_defaults.py` trimmed of the removed seed.
+  **16 patches, 101 tests, all green**; `lenos-patch.py --check` ok on all
+  pristine trees.
+* Research: full GrapheneOS→lenOS portability inventory is being collected
+  as a separate artifact; duress eSIM erasure (`EuiccWipe`) remains the
+  known duress gap until that lands.
+
+### Next (as of this session)
+
+1. VM build (blocked locally: fix `gcloud` project/access, then scp — see
+   `docs/build.md` section 2), flash with approval, run the checklist.
+2. On-device verification of the redo: `getprop sys.auto_reboot_ctl` while
+   locked/unlocked, timeout value read/written by the app, lock-screen tile
+   tap opening the bouncer without a state change.
+3. Duress eSIM erasure port once the inventory artifact lands.
+4. Backlog candidates from the inventory: sensor permission, Secure Paste,
+   delayed allow buttons, LTE-only toggle, 2nd PIN, FBE filename padding,
+   Wi-Fi/BT/NFC auto-off timers, screenshot EXIF strip, network permission.
+
 ## 2026-10-17 (fourth session) — framework: duress credential backend
 
 * New framework patch `frameworks_base/0005-lenos-duress-credentials`: a port

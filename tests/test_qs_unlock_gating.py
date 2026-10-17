@@ -1,97 +1,151 @@
 """Quick settings unlock gating (frameworks/base SystemUI patch).
 
-Feature contract (see docs/features.md):
-* While the device shows a secure lock screen, quick settings tiles do not
-  act: tapping (or long-pressing) a tile only shows "Unlock the device to use
-  quick settings". A locked device therefore cannot be used to toggle radios
-  or connectivity, e.g. airplane mode to break remote tracking/wipe.
-* The flashlight and camera-toggle tiles stay usable on the lock screen: they
-  touch no radios/data and stay useful in an emergency.
-* Devices without a secure lock, and the normal unlocked case, are unaffected
-  — the gate keys off KeyguardManager#isDeviceSecure + isKeyguardLocked.
+Feature contract (see docs/features.md), ported from GrapheneOS:
+* Every tile action (click, secondary click, long click) is routed through
+  QSTileImpl#handleAction. Tiles opt in to lock-screen use by overriding
+  isAllowedWhenLocked; the default is "not allowed".
+* When a secure keyguard is showing, a non-allowed action does not run and
+  is not silently dropped: the keyguard is dismissed with
+  ActivityStarter#postQSRunnableDismissingKeyguard, so the user is asked to
+  authenticate and the action runs only after a successful unlock.
+* Devices without a secure lock, and the normal unlocked case, are
+  unaffected.
+* The allow-list matches GrapheneOS: flashlight (incl. brightness-level
+  variant), QR code scanner, color inversion, color correction, Night Light,
+  reduce bright colors, dark theme, rotation lock, battery saver or device
+  controls. Sensitive tiles (radios, connectivity, camera, hotspot, DND,
+  data saver) are deliberately not allow-listed.
 * Stock paths are preserved: policy-disabled tiles still open the
-  admin-support dialog first, and metrics/logging still run for allowed
-  clicks only (no logging of blocked actions).
+  admin-support dialog first, and metrics logging still happens before the
+  gate, as upstream.
 """
 from __future__ import annotations
 
 import unittest
 
-from harness import LenosPatchTest
+from harness import VENDOR, LenosPatchTest
+
+JAVA_TILES = (
+    "BatterySaverTile.java",
+    "ColorCorrectionTile.java",
+    "ColorInversionTile.java",
+    "FlashlightTile.java",
+    "NightDisplayTile.java",
+    "QRCodeScannerTile.java",
+    "ReduceBrightColorsTile.java",
+    "RotationLockTile.java",
+    "UiModeNightTile.java",
+)
+KOTLIN_TILES = (
+    "DeviceControlsTile.kt",
+    "FlashlightTileWithLevel.kt",
+)
+SENSITIVE_TILES = (
+    "WifiTile.java",
+    "BluetoothTile.java",
+    "CameraToggleTile.java",
+    "AirplaneModeTile.java",
+    "DndTile.java",
+    "DataSaverTile.java",
+    "HotspotTile.java",
+)
 
 
 class TestQsUnlockGating(LenosPatchTest):
     PROJECT = "frameworks/base"
     PATCHES = ["0004-lenos-qs-unlock-gating.patch"]
     QTILE = "packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java"
-    STRINGS = "packages/SystemUI/res/values/strings.xml"
+    QSHOST = "packages/SystemUI/src/com/android/systemui/qs/QSHost.java"
+    ADAPTER = "packages/SystemUI/src/com/android/systemui/qs/QSHostAdapter.kt"
+    TILES = "packages/SystemUI/src/com/android/systemui/qs/tiles/"
 
-    def test_java_and_xml_still_parse(self):
+    def test_java_still_parses(self):
         self.assert_java_syntax(self.QTILE)
-        self.assert_xml(self.STRINGS)
+        self.assert_java_syntax(self.QSHOST)
+        for name in JAVA_TILES:
+            self.assert_java_syntax(self.TILES + name)
 
-    def test_all_interactions_are_gated(self):
-        # Primary click, secondary click and long click go through the gate.
-        self.assertEqual(3, self.text(self.QTILE).count("if (requiresUnlock()) {"),
-                         "every click path must be gated")
-
-    def test_gate_keys_off_a_secure_locked_device(self):
+    def test_all_action_paths_route_through_the_gate(self):
         self.assert_contains(
             self.QTILE,
-            "final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);",
-            "keyguard.isDeviceSecure() && keyguard.isKeyguardLocked()",
+            "handleAction(Action.CLICK, () -> handleClick(view));",
+            "handleAction(Action.SECONDARY_CLICK, () -> handleSecondaryClick(view));",
+            "handleAction(Action.LONG_CLICK, () -> handleLongClick(view));",
         )
 
-    def test_flashlight_and_camera_stay_usable(self):
+    def test_gate_requires_unlock_on_a_secure_keyguard(self):
         self.assert_contains(
             self.QTILE,
-            "LENOS_LOCKED_ALLOWED_TILES",
-            "Set.of(FlashlightTile.TILE_SPEC, CameraToggleTile.TILE_SPEC)",
-            "import com.android.systemui.qs.tiles.CameraToggleTile;",
-            "import com.android.systemui.qs.tiles.FlashlightTile;",
+            "public boolean isAllowedWhenLocked(Action action) {\n"
+            "        return false;\n"
+            "    }",
+            "KeyguardStateController ksc = mHost.getKeyguardStateController();",
+            "boolean hasSecureKeyguard = ksc.isMethodSecure() && ksc.isShowing();",
+            "mActivityStarter.postQSRunnableDismissingKeyguard(handler);",
         )
+
+    def test_logging_still_runs_before_the_gate(self):
+        body = self.text(self.QTILE)
+        for log, action in (
+            ("mQSLogger.logHandleClick(mTileSpec, msg.arg1);",
+             "handleAction(Action.CLICK"),
+            ("mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);",
+             "handleAction(Action.SECONDARY_CLICK"),
+            ("mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);",
+             "handleAction(Action.LONG_CLICK"),
+        ):
+            self.assertIn(log, body)
+            self.assertLess(body.index(log), body.index(action),
+                            f"{log} must come before the gate, as upstream")
 
     def test_policy_disabled_tiles_keep_the_stock_dialog(self):
-        body = self.text(self.QTILE)
-        self.assertLess(body.index("if (mState.disabledByPolicy)"),
-                        body.index("} else if (requiresUnlock()) {"),
-                        "the admin-support path must come before the unlock gate")
-
-    def test_blocked_actions_are_not_logged_and_do_not_run(self):
-        body = self.text(self.QTILE)
-        for needle in (
-            "mQSLogger.logHandleClick(mTileSpec, msg.arg1);",
-            "mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);",
-            "mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);",
-            "handleClick((Expandable) msg.obj);",
-            "handleSecondaryClick((Expandable) msg.obj);",
-            "handleLongClick((Expandable) msg.obj);",
-        ):
-            self.assertIn(needle, body)
-            # each logging/handler call must sit after a requiresUnlock check
-            self.assertGreater(body.index(needle), body.index("requiresUnlock()"))
-
-    def test_non_click_messages_are_untouched(self):
-        body = self.text(self.QTILE)
-        for needle in ("handleRefreshState(msg.obj);", "handleUserSwitch(msg.arg1);",
-                       "handleStale();", "handleDestroy();"):
-            self.assertIn(needle, body)
-
-    def test_user_gets_feedback(self):
         self.assert_contains(
             self.QTILE,
-            "private void showUnlockRequired()",
-            "Toast.makeText(mContext, R.string.lenos_qs_unlock_required, "
-            "Toast.LENGTH_SHORT).show();",
-            "import com.android.systemui.res.R;",
+            "if (mState.disabledByPolicy) {",
+            "mActivityStarter.postStartActivityDismissingKeyguard(intent, 0);",
         )
 
-    def test_string_resource_matches_the_toast(self):
+    def test_no_toast_leftovers(self):
+        patch = VENDOR / "patches/frameworks_base/0004-lenos-qs-unlock-gating.patch"
+        patch_text = patch.read_text(encoding="utf-8")
+        for needle in ("lenos_qs_unlock_required", "showUnlockRequired",
+                       "Toast.makeText", "LENOS_LOCKED_ALLOWED_TILES"):
+            self.assertNotIn(needle, patch_text)
+        self.assert_not_contains(self.QTILE, "showUnlockRequired", "Toast.makeText")
+
+    def test_host_exposes_keyguard_state(self):
         self.assert_contains(
-            self.STRINGS,
-            '<string name="lenos_qs_unlock_required">Unlock the device to use '
-            'quick settings</string>',
+            self.QSHOST,
+            "com.android.systemui.statusbar.policy.KeyguardStateController "
+            "getKeyguardStateController();",
         )
+        self.assert_contains(
+            self.ADAPTER,
+            "private val keyguardStateController_: KeyguardStateController,",
+            "override fun getKeyguardStateController() = keyguardStateController_",
+        )
+
+    def test_allowlisted_tiles_match_grapheneos(self):
+        for name in JAVA_TILES:
+            self.assert_contains(
+                self.TILES + name,
+                "@Override\n"
+                "    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {\n"
+                "        return true;\n"
+                "    }",
+            )
+        for name in KOTLIN_TILES:
+            self.assert_contains(
+                self.TILES + name,
+                "override fun isAllowedWhenLocked(action: QSTileImpl.Action): Boolean = true",
+            )
+
+    def test_sensitive_tiles_are_not_allowlisted(self):
+        patch = VENDOR / "patches/frameworks_base/0004-lenos-qs-unlock-gating.patch"
+        patch_text = patch.read_text(encoding="utf-8")
+        for name in SENSITIVE_TILES:
+            self.assertNotIn(name, patch_text,
+                             f"{name} must not be allow-listed on the lock screen")
 
 
 if __name__ == "__main__":

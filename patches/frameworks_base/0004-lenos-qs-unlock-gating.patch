@@ -1,115 +1,287 @@
-diff --git a/packages/SystemUI/res/values/strings.xml b/packages/SystemUI/res/values/strings.xml
-index 20075caa..16d085b7 100644
---- a/packages/SystemUI/res/values/strings.xml
-+++ b/packages/SystemUI/res/values/strings.xml
-@@ -4582,4 +4582,8 @@
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/QSHost.java b/packages/SystemUI/src/com/android/systemui/qs/QSHost.java
+index c6dc0921..36083224 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/QSHost.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/QSHost.java
+@@ -55,6 +55,7 @@ public interface QSHost {
+     Context getUserContext();
+     int getUserId();
+     Collection<QSTile> getTiles();
++    com.android.systemui.statusbar.policy.KeyguardStateController getKeyguardStateController();
+     void addCallback(Callback callback);
+     void removeCallback(Callback callback);
+     void removeTile(String tileSpec);
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/QSHostAdapter.kt b/packages/SystemUI/src/com/android/systemui/qs/QSHostAdapter.kt
+index dc3b5824..08f3fc9d 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/QSHostAdapter.kt
++++ b/packages/SystemUI/src/com/android/systemui/qs/QSHostAdapter.kt
+@@ -31,6 +31,7 @@ import com.android.systemui.qs.pipeline.domain.interactor.CurrentTilesInteractor
+ import com.android.systemui.qs.pipeline.shared.QSPipelineFlagsRepository
+ import com.android.systemui.qs.pipeline.shared.TileSpec
+ import com.android.systemui.shade.ShadeDisplayAware
++import com.android.systemui.statusbar.policy.KeyguardStateController
+ import javax.inject.Inject
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Job
+@@ -53,6 +54,7 @@ constructor(
+     @ShadeDisplayAware private val context: Context,
+     private val tileServiceRequestControllerBuilder: TileServiceRequestController.Builder,
+     @Application private val scope: CoroutineScope,
++    private val keyguardStateController_: KeyguardStateController,
+     dumpManager: DumpManager,
+ ) : QSHost {
  
-     <!-- Description for the Ambient Cue accessibility action label for expanding. [CHAR LIMIT=NONE] -->
-     <string name="ambient_cue_expand_action">expand</string>
+@@ -72,6 +74,8 @@ constructor(
+         return interactor.currentQSTiles
+     }
+ 
++    override fun getKeyguardStateController() = keyguardStateController_
 +
-+    <!-- lenOS: shown when a quick settings tile is used while the device is
-+         locked. All tiles except flashlight and camera toggle require unlock. -->
-+    <string name="lenos_qs_unlock_required">Unlock the device to use quick settings</string>
- </resources>
+     override fun getSpecs(): List<String> {
+         return interactor.currentTilesSpecs.map { it.spec }
+     }
 diff --git a/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java b/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
-index 68d1f8c1..50c1a645 100644
+index 68d1f8c1..8366b03e 100644
 --- a/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
 +++ b/packages/SystemUI/src/com/android/systemui/qs/tileimpl/QSTileImpl.java
-@@ -32,6 +32,7 @@ import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
- import android.annotation.CallSuper;
- import android.annotation.NonNull;
- import android.annotation.SuppressLint;
-+import android.app.KeyguardManager;
- import android.content.Context;
- import android.content.Intent;
- import android.graphics.drawable.Drawable;
-@@ -43,6 +44,7 @@ import android.text.format.DateUtils;
- import android.util.ArraySet;
- import android.util.Log;
- import android.util.SparseArray;
-+import android.widget.Toast;
- 
- import androidx.annotation.Nullable;
- import androidx.lifecycle.Lifecycle;
-@@ -70,9 +72,13 @@ import com.android.systemui.qs.QSHost;
+@@ -70,6 +70,7 @@ import com.android.systemui.qs.QSHost;
  import com.android.systemui.qs.QsEventLogger;
  import com.android.systemui.qs.SideLabelTileLayout;
  import com.android.systemui.qs.logging.QSLogger;
-+import com.android.systemui.qs.tiles.CameraToggleTile;
-+import com.android.systemui.qs.tiles.FlashlightTile;
-+import com.android.systemui.res.R;
++import com.android.systemui.statusbar.policy.KeyguardStateController;
  
  import java.io.PrintWriter;
  import java.util.Objects;
-+import java.util.Set;
- import java.util.concurrent.atomic.AtomicBoolean;
- import java.util.concurrent.atomic.AtomicInteger;
- 
-@@ -441,6 +447,31 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
-                 animationController);
+@@ -277,6 +278,40 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
+         return true;
      }
  
-+    /**
-+     * lenOS: tiles that stay usable while the device shows a secure lock
-+     * screen. They neither touch radios/data nor reveal private state and
-+     * remain useful in an emergency (e.g. the flashlight).
-+     */
-+    private static final Set<String> LENOS_LOCKED_ALLOWED_TILES =
-+            Set.of(FlashlightTile.TILE_SPEC, CameraToggleTile.TILE_SPEC);
++    public enum Action {
++        CLICK,
++        SECONDARY_CLICK,
++        LONG_CLICK,
++    }
 +
 +    /**
-+     * lenOS: every other tile action requires an unlocked device, so that a
-+     * locked device cannot be used to silently toggle radios or connectivity
-+     * (for example turning on airplane mode to break remote tracking/wipe).
++     * lenOS (ported from GrapheneOS): whether this tile's action may run while
++     * a secure keyguard is showing. Tiles that only change non-sensitive local
++     * state (flashlight, display color/Night Light, rotation lock, battery
++     * saver, device controls, QR scanner) opt in by overriding this;
++     * everything else requires the user to unlock first.
 +     */
-+    private boolean requiresUnlock() {
-+        if (mTileSpec != null && LENOS_LOCKED_ALLOWED_TILES.contains(mTileSpec)) {
-+            return false;
++    public boolean isAllowedWhenLocked(Action action) {
++        return false;
++    }
++
++    void handleAction(Action action, Runnable handler) {
++        if (isAllowedWhenLocked(action)) {
++            handler.run();
++            return;
 +        }
-+        final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);
-+        return keyguard != null && keyguard.isDeviceSecure() && keyguard.isKeyguardLocked();
++
++        KeyguardStateController ksc = mHost.getKeyguardStateController();
++        boolean hasSecureKeyguard = ksc.isMethodSecure() && ksc.isShowing();
++
++        if (hasSecureKeyguard) {
++            // require unlocking before running the action
++            mActivityStarter.postQSRunnableDismissingKeyguard(handler);
++        } else {
++            handler.run();
++        }
 +    }
 +
-+    private void showUnlockRequired() {
-+        Toast.makeText(mContext, R.string.lenos_qs_unlock_required, Toast.LENGTH_SHORT).show();
-+    }
-+
-     /**
-      * Returns an intent to be launched when the tile is long pressed.
-      *
-@@ -629,18 +660,31 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
-                         Intent intent = RestrictedLockUtils.getShowAdminSupportDetailsIntent(
-                                 mEnforcedAdmin);
+     // safe to call from any thread
+ 
+     public void addCallback(Callback callback) {
+@@ -631,16 +666,19 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
                          mActivityStarter.postStartActivityDismissingKeyguard(intent, 0);
-+                    } else if (requiresUnlock()) {
-+                        // lenOS: quick settings stay inert until unlocked.
-+                        showUnlockRequired();
                      } else {
                          mQSLogger.logHandleClick(mTileSpec, msg.arg1);
-                         handleClick((Expandable) msg.obj);
+-                        handleClick((Expandable) msg.obj);
++                        Expandable view = (Expandable) msg.obj;
++                        handleAction(Action.CLICK, () -> handleClick(view));
                      }
                  } else if (msg.what == SECONDARY_CLICK) {
                      name = "handleSecondaryClick";
--                    mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);
+                     mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);
 -                    handleSecondaryClick((Expandable) msg.obj);
-+                    if (requiresUnlock()) {
-+                        // lenOS: quick settings stay inert until unlocked.
-+                        showUnlockRequired();
-+                    } else {
-+                        mQSLogger.logHandleSecondaryClick(mTileSpec, msg.arg1);
-+                        handleSecondaryClick((Expandable) msg.obj);
-+                    }
++                    Expandable view = (Expandable) msg.obj;
++                    handleAction(Action.SECONDARY_CLICK, () -> handleSecondaryClick(view));
                  } else if (msg.what == LONG_CLICK) {
                      name = "handleLongClick";
--                    mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);
+                     mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);
 -                    handleLongClick((Expandable) msg.obj);
-+                    if (requiresUnlock()) {
-+                        // lenOS: quick settings stay inert until unlocked.
-+                        showUnlockRequired();
-+                    } else {
-+                        mQSLogger.logHandleLongClick(mTileSpec, msg.arg1);
-+                        handleLongClick((Expandable) msg.obj);
-+                    }
++                    Expandable view = (Expandable) msg.obj;
++                    handleAction(Action.LONG_CLICK, () -> handleLongClick(view));
                  } else if (msg.what == REFRESH_STATE) {
                      name = "handleRefreshState";
                      handleRefreshState(msg.obj);
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/BatterySaverTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/BatterySaverTile.java
+index 9df4e42d..b055e6ce 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/BatterySaverTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/BatterySaverTile.java
+@@ -130,6 +130,11 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
+         return new Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS);
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         if (getState().state == Tile.STATE_UNAVAILABLE) {
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorCorrectionTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorCorrectionTile.java
+index 1f936810..3494b1a8 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorCorrectionTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorCorrectionTile.java
+@@ -114,6 +114,11 @@ public class ColorCorrectionTile extends QSTileImpl<BooleanState> {
+                 .setPackage(mQSSettingsPackageRepository.getSettingsPackageName());
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         mSetting.setValue(mState.value ? 0 : 1);
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorInversionTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorInversionTile.java
+index 38e9a205..96cc2889 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorInversionTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/ColorInversionTile.java
+@@ -112,6 +112,11 @@ public class ColorInversionTile extends QSTileImpl<BooleanState> {
+                 .setPackage(mQSSettingsPackageRepository.getSettingsPackageName());
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         mSetting.setValue(mState.value ? 0 : 1);
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/DeviceControlsTile.kt b/packages/SystemUI/src/com/android/systemui/qs/tiles/DeviceControlsTile.kt
+index 1a573336..b1a92113 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/DeviceControlsTile.kt
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/DeviceControlsTile.kt
+@@ -105,6 +105,8 @@ constructor(
+         }
+     }
+ 
++    override fun isAllowedWhenLocked(action: QSTileImpl.Action): Boolean = true
++
+     override fun handleClick(expandable: Expandable?) {
+         if (state.state == Tile.STATE_UNAVAILABLE) {
+             return
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTile.java
+index 2b127d60..84d6c8fa 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTile.java
+@@ -98,6 +98,11 @@ public class FlashlightTile extends QSTileImpl<BooleanState> implements
+         return mFlashlightController.hasFlashlight();
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         if (ActivityManager.isUserAMonkey()) {
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTileWithLevel.kt b/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTileWithLevel.kt
+index d95090ff..4b82d3ca 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTileWithLevel.kt
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/FlashlightTileWithLevel.kt
+@@ -107,6 +107,8 @@ constructor(
+ 
+     override fun getTileLabel() = mContext.getString(config.uiConfig.labelRes)
+ 
++    override fun isAllowedWhenLocked(action: QSTileImpl.Action): Boolean = true
++
+     override fun handleClick(expandable: Expandable?) {
+         handleAction(QSTileUserAction.Click(expandable))
+     }
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/NightDisplayTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/NightDisplayTile.java
+index 2f590875..162dafeb 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/NightDisplayTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/NightDisplayTile.java
+@@ -111,6 +111,11 @@ public class NightDisplayTile extends QSTileImpl<BooleanState> implements
+         return new BooleanState();
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         // Enroll in forced auto mode if eligible.
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/QRCodeScannerTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/QRCodeScannerTile.java
+index 467233d5..982320e6 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/QRCodeScannerTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/QRCodeScannerTile.java
+@@ -99,6 +99,11 @@ public class QRCodeScannerTile extends QSTileImpl<QSTile.State> {
+         return state;
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         Intent intent = mQRCodeScannerController.getIntent();
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/ReduceBrightColorsTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/ReduceBrightColorsTile.java
+index 3485ae2c..6d3830de 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/ReduceBrightColorsTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/ReduceBrightColorsTile.java
+@@ -123,6 +123,11 @@ public class ReduceBrightColorsTile extends QSTileImpl<QSTile.BooleanState>
+         }
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         if (goToEvenDimmer()) {
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/RotationLockTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/RotationLockTile.java
+index d77591b6..b061d78b 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/RotationLockTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/RotationLockTile.java
+@@ -141,6 +141,11 @@ public class RotationLockTile extends QSTileImpl<BooleanState> implements
+         }
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         final boolean newState = !mState.value;
+diff --git a/packages/SystemUI/src/com/android/systemui/qs/tiles/UiModeNightTile.java b/packages/SystemUI/src/com/android/systemui/qs/tiles/UiModeNightTile.java
+index 61beb6ca..43137a58 100644
+--- a/packages/SystemUI/src/com/android/systemui/qs/tiles/UiModeNightTile.java
++++ b/packages/SystemUI/src/com/android/systemui/qs/tiles/UiModeNightTile.java
+@@ -107,6 +107,11 @@ public class UiModeNightTile extends QSTileImpl<QSTile.BooleanState> implements
+         return new BooleanState();
+     }
+ 
++    @Override
++    public boolean isAllowedWhenLocked(QSTileImpl.Action action) {
++        return true;
++    }
++
+     @Override
+     protected void handleClick(@Nullable Expandable expandable) {
+         if (getState().state == Tile.STATE_UNAVAILABLE) {
