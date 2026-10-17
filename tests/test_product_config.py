@@ -1,0 +1,191 @@
+"""lenOS product configuration (vendor/lenos itself, no upstream patches).
+
+Feature contract (see docs/features.md):
+* The product ships a minimal app set plus the lenOS security companion app.
+* Privacy-critical resource defaults live in static RROs, not in patched
+  upstream files: framework-res NTP fallback, SettingsProvider first-boot
+  defaults, NetworkStack connectivity-check endpoints.
+* No Google infrastructure is referenced by any lenOS-shipped resource.
+* The security app is built against the platform API surface with an explicit
+  privileged-permission allowlist; its Wi-Fi hostname toggle uses the Wi-Fi
+  module API introduced by the packages/modules/Wifi patch.
+"""
+from __future__ import annotations
+
+import re
+import unittest
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+from harness import VENDOR, java_syntax_errors
+
+ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+RROS = {
+    "LenosFrameworksOverlay": "android",
+    "LenosSettingsProviderOverlay": "com.android.providers.settings",
+    "LenosNetworkStackOverlay": "com.android.networkstack",
+}
+
+
+def strip_xml_comments(body: str) -> str:
+    return re.sub(r"<!--.*?-->", "", body, flags=re.S)
+
+
+def strip_bp_comments(body: str) -> str:
+    return re.sub(r"(?m)^\s*//.*$", "", body)
+
+
+class ProductConfigTestCase(unittest.TestCase):
+    def text(self, rel: str) -> str:
+        path = VENDOR / rel
+        self.assertTrue(path.is_file(), f"missing file: {rel}")
+        return path.read_text(encoding="utf-8")
+
+
+class TestProductMakefile(ProductConfigTestCase):
+    MK = "config/lenos.mk"
+
+    def test_ships_the_security_app_and_the_three_overlays(self):
+        self.assertIn("LenosSecurity", self.text(self.MK))
+        for overlay in RROS:
+            self.assertIn(overlay, self.text(self.MK))
+
+    def test_product_properties_are_privacy_hardening(self):
+        body = self.text(self.MK)
+        for needle in (
+            "ro.lenos.version=1.0.0",
+            "ro.lenos.base=lineage-23.2",
+            "persist.traced.enable=0",
+            "persist.logd.size.radio=64K",
+            "persist.vendor.radio.adb_log_on=0",
+        ):
+            self.assertIn(needle, body)
+
+    def test_no_removed_build_variables_or_legacy_props(self):
+        body = self.text(self.MK)
+        # PRODUCT_PACKAGES_REMOVE does not exist in Lineage 23.2 build/make;
+        # app removal is done where the app lists are declared.
+        self.assertNotIn("PRODUCT_PACKAGES_REMOVE", body)
+        # net.hostname is dead in the modern network stack and must not come
+        # back through the product props.
+        self.assertNotIn("net.hostname", body)
+        # ExactCalculator is already part of the Lineage common app set.
+        self.assertNotIn("ExactCalculator", body)
+
+    def test_build_time_overlay_approach_is_gone(self):
+        # Replaced by input RROs: PRODUCT_ENFORCE_RRO_TARGETS := * in the
+        # device tree converts product overlays to RROs anyway, and the RROs
+        # are explicit about target packages and priority.
+        self.assertFalse((VENDOR / "overlay").exists(),
+                         "vendor/lenos/overlay must not exist anymore")
+
+
+class TestRuntimeOverlays(ProductConfigTestCase):
+    def test_androidbp_declares_static_product_overlays(self):
+        for overlay in RROS:
+            body = self.text(f"rro/{overlay}/Android.bp")
+            self.assertIn("runtime_resource_overlay", body)
+            self.assertIn(f'name: "{overlay}"', body)
+            self.assertIn("device_specific: true", body)
+            self.assertIn("product_specific: true", body)
+
+    def test_manifests_are_static_and_target_the_right_package(self):
+        for overlay, target in RROS.items():
+            rel = f"rro/{overlay}/AndroidManifest.xml"
+            root = ET.parse(VENDOR / rel).getroot()
+            self.assertEqual(root.tag, "manifest", rel)
+            self.assertTrue(root.get("package"), rel)
+            node = root.find("overlay")
+            self.assertIsNotNone(node, rel)
+            self.assertEqual(node.get(f"{ANDROID_NS}targetPackage"), target, rel)
+            self.assertEqual(node.get(f"{ANDROID_NS}isStatic"), "true", rel)
+            application = root.find("application")
+            self.assertIsNotNone(application, f"{rel}: hasCode declaration missing")
+            self.assertEqual(application.get(f"{ANDROID_NS}hasCode"), "false", rel)
+
+    def test_only_networkstack_uses_a_target_name(self):
+        # NetworkStack is the only target here that declares an <overlayable>.
+        for overlay, _ in RROS.items():
+            root = ET.parse(VENDOR / f"rro/{overlay}/AndroidManifest.xml").getroot()
+            node = root.find("overlay")
+            target_name = node.get(f"{ANDROID_NS}targetName")
+            if overlay == "LenosNetworkStackOverlay":
+                self.assertEqual(target_name, "NetworkStackConfig")
+            else:
+                self.assertIsNone(target_name, f"{overlay} must not set targetName")
+
+    def test_networkstack_checks_use_cloudflare_only(self):
+        body = strip_xml_comments(
+            self.text("rro/LenosNetworkStackOverlay/res/values/config.xml"))
+        self.assertIn("http://cp.cloudflare.com/generate_204", body)
+        self.assertIn("https://cp.cloudflare.com/generate_204", body)
+        for banned in ("gstatic", "google", "connectivitycheck."):
+            self.assertNotIn(banned, body)
+
+    def test_frameworks_ntp_fallback_is_not_google(self):
+        body = strip_xml_comments(
+            self.text("rro/LenosFrameworksOverlay/res/values/config.xml"))
+        self.assertIn("ntp://pool.ntp.org", body)
+        for banned in ("google", "android.com", "grapheneos"):
+            self.assertNotIn(banned, body)
+
+    def test_settings_defaults_are_hardened_and_do_not_overlap_device_rros(self):
+        body = self.text("rro/LenosSettingsProviderOverlay/res/values/defaults.xml")
+        for needle in (
+            '<bool name="def_lenos_wifi_force_non_persistent_mac_randomization">true</bool>',
+            '<string name="def_lenos_private_dns_mode" translatable="false">hostname</string>',
+            '<string name="def_lenos_private_dns_specifier" translatable="false">dns.quad9.net</string>',
+            '<string name="def_lenos_ntp_server" translatable="false">pool.ntp.org</string>',
+            '<bool name="def_bluetooth_on">false</bool>',
+            '<bool name="def_wifi_wakeup_enabled">false</bool>',
+            '<bool name="def_networks_available_notification_on">false</bool>',
+            '<integer name="def_location_mode">0</integer>',
+            '<bool name="def_usb_mass_storage_enabled">false</bool>',
+            '<bool name="def_lock_screen_show_qr_code_scanner">false</bool>',
+        ):
+            self.assertIn(needle, body)
+        # def_device_name is owned by the device RROs (patched by
+        # device_nothing_asteroids/0006-privacy-device-name.patch); defining
+        # it here as well would create two competing static overlays.
+        self.assertNotIn("def_device_name", body)
+
+
+class TestSecurityApp(ProductConfigTestCase):
+    APP = "app/LenosSecurity"
+
+    def test_built_against_the_platform_api_surface(self):
+        body = strip_bp_comments(self.text(f"{self.APP}/Android.bp"))
+        self.assertIn("platform_apis: true", body)
+        self.assertNotRegex(body, r"^\s*sdk_version\s*:", "sdk_version must not be set")
+
+    def test_declares_and_allowlists_network_settings(self):
+        manifest = self.text(f"{self.APP}/AndroidManifest.xml")
+        self.assertIn("android.permission.NETWORK_SETTINGS", manifest)
+        allowlist = self.text("config/privapp-permissions-org.lenos.security.xml")
+        self.assertIn("android.permission.NETWORK_SETTINGS", allowlist)
+
+    def test_version_strings_are_1_0_0(self):
+        manifest = self.text(f"{self.APP}/AndroidManifest.xml")
+        self.assertIn('android:versionName="1.0.0"', manifest)
+        strings = self.text(f"{self.APP}/res/values/strings.xml")
+        self.assertIn('<string name="lenos_version">1.0.0</string>', strings)
+        self.assertNotIn("shizuku", strings.lower())
+
+    def test_wifi_hostname_toggle_uses_the_new_api_and_setting(self):
+        main = self.text(f"{self.APP}/src/org/lenos/security/MainActivity.java")
+        self.assertIn('"lenos_wifi_send_dhcp_hostname_restriction"', main)
+        # Reflection keeps the app buildable independent of @FlaggedApi
+        # annotations; the Wi-Fi service checks NETWORK_SETTINGS itself.
+        self.assertIn('"setSendDhcpHostnameRestriction"', main)
+        self.assertIn("WIFI_HOSTNAME_BLOCK_ALL", main)
+
+    def test_main_activity_still_parses(self):
+        self.assertEqual(
+            java_syntax_errors(
+                VENDOR / f"{self.APP}/src/org/lenos/security/MainActivity.java"),
+            0)
+
+
+if __name__ == "__main__":
+    unittest.main()

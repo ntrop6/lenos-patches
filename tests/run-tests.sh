@@ -7,4 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 export LENOS_WORKSPACE="${LENOS_WORKSPACE:-$(cd "$HERE/../.." && pwd)}"
 PY="${LENOS_PYTHON:-$(command -v python3)}"
 cd "$HERE"
-exec "$PY" -m unittest "${@:-discover -s . -p test_*.py}" -v
+if [[ $# -eq 0 ]]; then
+  set -- discover -s . -p 'test_*.py'
+fi
+exec "$PY" -m unittest "$@" -v

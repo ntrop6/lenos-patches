@@ -26,6 +26,9 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+from lenos_projects import alias_for  # noqa: E402
+
 WORKSPACE = Path(os.environ.get(
     "LENOS_WORKSPACE",
     "/mnt/sda/AI WORKSPACE/lenos-workspace"))
@@ -66,6 +69,21 @@ def patch_paths(patch: Path) -> list[str]:
     return out
 
 
+def patch_created_paths(patch: Path) -> set[str]:
+    """Files the patch creates (old side is /dev/null)."""
+    created: set[str] = set()
+    old_is_null = False
+    for line in patch.read_text(encoding="utf-8").splitlines():
+        if line.startswith("--- "):
+            old_is_null = line[4:].split("\t")[0].strip() == "/dev/null"
+        elif line.startswith("+++ "):
+            p = line[4:].split("\t")[0].strip()
+            if old_is_null and p not in ("", "/dev/null"):
+                created.add(p[2:] if p.startswith("b/") else p)
+            old_is_null = False
+    return created
+
+
 class LenosPatchTest(unittest.TestCase):
     """Apply one or more patches to a copy of the pinned files and assert."""
 
@@ -87,12 +105,17 @@ class LenosPatchTest(unittest.TestCase):
             raise unittest.SkipTest(f"workspace project missing: {project_dir}")
 
         files: list[str] = list(cls.EXTRA_FILES)
+        created: set[str] = set()
         for name in cls.PATCHES:
-            files += patch_paths(VENDOR / "patches" / cls.PROJECT.replace("/", "_") / name)
+            patch = VENDOR / "patches" / alias_for(cls.PROJECT) / name
+            files += patch_paths(patch)
+            created |= patch_created_paths(patch)
 
         for rel in files:
             src = project_dir / rel
             if not src.is_file():
+                if rel in created:
+                    continue  # git apply creates it in the sandbox
                 raise AssertionError(f"pinned file missing in workspace tree: {cls.PROJECT}/{rel}")
             dst = cls.sandbox / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -101,7 +124,7 @@ class LenosPatchTest(unittest.TestCase):
         # `git apply` works outside a repository, but needs a directory it is
         # allowed to operate in. Keep everything relative to the sandbox.
         for name in cls.PATCHES:
-            patch = VENDOR / "patches" / cls.PROJECT.replace("/", "_") / name
+            patch = VENDOR / "patches" / alias_for(cls.PROJECT) / name
             proc = subprocess.run(["git", "apply", "--whitespace=nowarn", str(patch)],
                                   cwd=cls.sandbox, capture_output=True, text=True)
             if proc.returncode != 0:
