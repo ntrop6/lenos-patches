@@ -54,6 +54,7 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 |---|---|---|
 | Auto reboot to before-first-unlock (BFU) | `frameworks_base/0003` + first-boot default | `LenosAutoRebootService` reboots a secured device that stayed locked for 18h: the FBE keys leave memory and stay out until the next unlock. Timer arms at screen off, resets on every unlock; `Settings.Global.lenos_auto_reboot_timeout_ms` (0 = off, 10min–3 days) with UI in the lenOS app; reboot deferred while a call is in progress; skipped without a secure lock |
 | Quick settings require unlock | `frameworks_base/0004` | while a secure lock screen is up, tapping/long-pressing any QS tile only shows "Unlock the device to use quick settings" — a locked device cannot toggle radios/connectivity (e.g. airplane mode to break remote tracking). Flashlight and camera-toggle tiles stay usable |
+| Duress PIN/password | `frameworks_base/0005` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — and powers off. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential. Limitation: GrapheneOS's eSIM profile erasure (`EuiccWipe`) is not ported |
 
 ## Apps and UI
 
@@ -61,20 +62,14 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 |---|---|
 | Minimal app set | `Gallery2` stripped via `LENOS_STRIP_PACKAGES` (`vendor_lineage/0001`), AudioFX off (`TARGET_EXCLUDES_AUDIOFX`), MP3/Music app (`Twelve`) kept for now |
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
-| `LenosSecurity` app | ships with: Wi-Fi DHCP hostname toggle, PIN-scramble state, auto-BFU timer (framework service), duress UI (experimental, see below), status card |
+| `LenosSecurity` app | ships with: Wi-Fi DHCP hostname toggle, PIN-scramble state, auto-BFU timer (framework service), duress PIN/password UI (framework service), status card |
 
-## Experimental (UI present, backend not in the 1.0 series)
+## Not in the 1.0 series
 
-These ship **disabled in effect** and must not be relied on until their
-backends land in the patch series:
-
-* **Duress PIN/password**: the app's LockBridge UI is from the earlier
-  1.0.0-shizuku work; the LockSettingsService backend is not part of the
-  current series. The app shows the duress backend as `?`.
-* Anything not listed above (sensors permission, Secure Paste, delayed allow
-  buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding, safe recovery,
-  signed OTA/updater, reproducible builds, custom AVB key) is
-  **not implemented yet**.
+Anything not listed above (sensors permission, Secure Paste, delayed allow
+buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding, safe recovery,
+signed OTA/updater, reproducible builds, custom AVB key) is
+**not implemented yet**.
 
 ## Honest limits
 
@@ -107,6 +102,13 @@ backends land in the patch series:
   camera toggle) and is not user-configurable in 1.0; on devices without a
   secure lock it does nothing. The toast is the only feedback — no unlock
   prompt is forced.
+* **The duress wipe is destructive by design and not yet device-verified.**
+  It deletes the KeyMint storage keys and Secretkeeper secrets (cryptographic
+  erase), then powers off — there is no undo. It is opt-in: nothing happens
+  until the user sets a duress PIN/password with the owner credential. eSIM
+  profiles are **not** erased (GrapheneOS erases them; this port does not).
+  The app warns "do not test on this phone"; only test when a full wipe is
+  acceptable.
 * **Jelly (WebView-based browser) still ships.** It is the Lineage default and
   gets WebView security updates from the system; replacing it with Cromite and
   updating WebView are separate work items.
@@ -119,3 +121,11 @@ the seeded values, `settings get global lenos_auto_reboot_timeout_ms` shows
 `64800000`, the Wi-Fi hostname toggle changes the persisted setting, and on the
 lock screen a tile tap (e.g. airplane mode) shows the "Unlock the device to use
 quick settings" toast while the flashlight tile keeps working.
+
+Duress (destructive — run last, only when a wipe is acceptable): set a pair
+with `cmd lock_settings set-duress-credentials --old <owner cred> --duress-pin
+1234 --duress-password ''` (owner credential required), check the app's status
+card flips to "set", then enter the duress PIN at the lock screen: the device
+must delete the storage keys and power off, and the following boot must no
+longer be able to decrypt the user data (expect the device to treat the data
+partition as gone / factory reset).

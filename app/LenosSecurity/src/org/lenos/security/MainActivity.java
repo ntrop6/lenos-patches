@@ -35,9 +35,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Stand-in Settings page for lenOS 2.7.3 where the stock Settings APK never
+ * Stand-in Settings page for lenOS 1.0 where the stock Settings APK never
  * grew the "lenOS security" category. Backed by the hardening backend that IS
- * in this build (auto-BFU timer in init, duress in LockSettingsService, etc.).
+ * in this build (auto-BFU timer in LenosAutoRebootService, duress in
+ * LockSettingsService, etc.).
  *
  * Every privileged write tries the direct Settings/LockPatternUtils path first
  * and falls back to root (ReSukiSU su) on denial. Secrets travel on stdin only.
@@ -207,7 +208,7 @@ public class MainActivity extends Activity {
         });
 
         LinearLayout duressCol = column();
-        duressCol.addView(text("Entering either duress credential anywhere Android asks for your lock deletes keystore secrets, tries to erase eSIMs, and powers off. Storage is gone. Do not test on this phone.", 13, DANGER, false));
+        duressCol.addView(text("Entering either duress credential anywhere Android asks for your lock deletes the keystore secrets protecting storage and powers the device off. Storage is gone. Do not test on this phone.", 13, DANGER, false));
         duressCol.addView(duressStatus);
         duressCol.addView(ownerPin);
         duressCol.addView(check);
@@ -483,7 +484,7 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("Destructive credential warning")
-                .setMessage("Entering either duress credential will immediately and irreversibly make storage inaccessible, attempt to erase eSIMs, and power off. Do not test on this phone.")
+                .setMessage("Entering either duress credential will immediately and irreversibly make storage inaccessible and power off. Do not test on this phone.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Proceed", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {

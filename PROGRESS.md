@@ -3,6 +3,50 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-17 (fourth session) — framework: duress credential backend
+
+* New framework patch `frameworks_base/0005-lenos-duress-credentials`: a port
+  of GrapheneOS's duress implementation into `LockSettingsService`, making the
+  `LenosSecurity` app's existing duress UI work end-to-end.
+  * Four new classes under
+    `services/core/java/com/android/server/locksettings/`: `DuressCredential`
+    (scrypt-stretched hash of one credential via the synthetic-password
+    `stretchLskf`, the same stretching the real lock credential uses),
+    `DuressCredentials` (PIN+password pair serialized as hex into the system
+    user's lock settings storage), `DuressPasswordHelper` (verification hook,
+    background thread), `DuressWipe` (destroys storage keys + Secretkeeper,
+    powers off).
+  * Integration: `LockSettingsService.doVerifyCredential` is now a thin
+    wrapper around `doVerifyCredentialInner` that checks the duress pair in a
+    `finally` — only on failure/mismatch and only for typed PIN/password
+    credentials, so a correct credential can never trigger the wipe. New
+    binder methods `setDuressCredentials`/`hasDuressCredentials` plus
+    `LockPatternUtils` client methods match the app's reflection contract
+    (`LockBridge`); `RecoverySystemService.deleteSecrets()` made public as
+    the wipe entry point; two methods added to `ILockSettings.aidl`.
+  * Owner gating: set/check/delete all verify the current lock credential
+    (`checkOwnerCredential`); min 4 digits/chars at LOW complexity
+    (`validateDuressCredential`); `checkWritePermission` /
+    `checkPasswordHavePermission` on the binder methods; stored form is a
+    stretched hash, never the credential.
+  * Shell workflow for on-device verification:
+    `cmd lock_settings set-duress-credentials --old <cred> --duress-pin 1234
+    --duress-password '' [--sleep-5s-before-poweroff]`.
+  * Limitation vs GrapheneOS: eSIM profile erasure (`EuiccWipe`) is not
+    ported; documented in the class and the feature matrix.
+* App: duress copy updated (no eSIM promise); header/`LockBridge` comments
+  refreshed; `config/lenos.mk` sets `ro.lenos.security.duress=framework` so
+  the status card shows a real backend.
+* Tests: `tests/test_duress.py` (15 checks: app↔framework method-name
+  contract, failure-only check, typed-credential gate, owner gating,
+  stretched-hash storage, wipe actions, the eSIM limitation pin, shell
+  workflow). **14 patches, 98 tests, all green**; trees pristine
+  (`lenos-patch.py --check` ok).
+* `docs/features.md`: duress moved out of "Experimental" into a real row in
+  "Lock, data and recovery", with honest limits and a destructive
+  verification-checklist step; the old experimental section is now the
+  "Not in the 1.0 series" list.
+
 ## 2026-10-17 (third session) — framework: auto reboot to BFU + QS unlock gating
 
 * New framework patch `frameworks_base/0003-lenos-auto-reboot`: a
@@ -128,6 +172,6 @@ One entry per working session. "Verified" = seen working on a booted device
    state change; flashlight works; unlocked device unaffected).
 6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
-7. Framework work still out of the series: duress credential backend, sensor
-   permission, Secure Paste, delayed allow buttons, LTE-only toggle, 2nd PIN,
-   vold FBE filename padding (QS-tile gating done in this session).
+7. Framework work still out of the series: sensor permission, Secure Paste,
+   delayed allow buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding
+   (auto reboot to BFU, QS-tile gating and the duress backend are done).

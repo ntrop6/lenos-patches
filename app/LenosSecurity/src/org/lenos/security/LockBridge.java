@@ -11,7 +11,8 @@ import java.lang.reflect.Method;
  * {@code com.android.internal.widget.LockscreenCredential}, so the app builds
  * against the public android.jar only.
  *
- * Backed by the lenOS 2.7.3 framework (patch 0006), which adds:
+ * Backed by the lenOS 1.0 framework patch
+ * (frameworks/base/0005-lenos-duress-credentials), which adds:
  *   setDuressCredentials(LockscreenCredential, LockscreenCredential, LockscreenCredential)
  *   hasDuressCredentials(LockscreenCredential) -> boolean
  *   deleteDuressCredentials(LockscreenCredential)
