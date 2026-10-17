@@ -2,21 +2,21 @@
 
 Nothing Phone (3a) `asteroids`. Codename **shizuku**. Fingerprint untouched.
 
-The driver is `lenos-1.0-shizuku.sh`. It does **not** replace the 2.8.1 wizard’s compiler (repo/Soong/signing/kernel bind). It **does** replace the overlay-script era: hardwire into the tree, package rootless without firmware re-sign, extract a flash plan that cannot put vbmeta before logicals, and it **will not** flash or lock.
+The driver is `lenos-1.0-shizuku.sh`. It does **not** replace the 2.8.1 wizard’s compiler (repo/Soong/signing/kernel bind). It **does** replace the overlay-script era: apply the lenOS patch series with `tools/lenos-patch.py` (strict `git apply`, every patch tested in `tests/`), package rootless without firmware re-sign, extract a flash plan that cannot put vbmeta before logicals, and it **will not** flash or lock.
 
 ## What this build is
 
 | | |
 |---|---|
 | Artifact | `lenos-asteroids-rootless.zip` — custom AVB/OTA keys, `--clear-vbmeta-flags`, **stock `init_boot`**, no ReSukiSU |
-| Branding | `ro.lenos.version=1.0.0-shizuku` only |
+| Branding | `ro.lenos.version=1.0.0` only |
 | DNS | Quad9 DoT `dns.quad9.net` |
-| NTP | `time.grapheneos.org` |
-| Captive portal | GrapheneOS 204s |
+| NTP | `pool.ntp.org` |
+| Captive portal | Cloudflare `cp.cloudflare.com/generate_204` |
 | SUPL | blank |
 | Radio | `default_network=28,28` (no 2G) |
-| Identifiers | device name `Android`, tether `AndroidAP`, empty hostname |
-| Also | PIN scramble default on, GC on lock, NETWORK permission, location/NFC/scans off |
+| Identifiers | device name `Android`, tether `AndroidAP`, Wi-Fi DHCP hostname blocked |
+| Also | PIN scramble on, location off, Bluetooth/wakeup scans off, lock-screen QR shortcut off, per-connection Wi-Fi MAC randomization, strict DoT |
 
 `lenos-asteroids-prepatched.zip` **does not boot this unit.** Do not flash it again.
 
@@ -25,7 +25,7 @@ The driver is `lenos-1.0-shizuku.sh`. It does **not** replace the 2.8.1 wizard�
 ## 0. Rules that already cost us a brick
 
 - Do not `repo sync`.
-- Do not `git apply` a pile of patches. `hardwire.py` writes sources.
+- Do not `git apply` a pile of patches. Use the patchkit: `tools/lenos-patch.py` (driver step `apply`); the series is strict and tested.
 - Do not `--re-sign` firmware (`bluetooth` / `abl` / `xbl` → `Invalid VBMeta header magic`).
 - Do not flash partitions individually. That is what killed slot A (vbmeta before logicals).
 - Do not invent `android-info.txt`.
@@ -44,7 +44,7 @@ If recovery/fastbootd are dead, stop and use `RECOVERY-3A.md`. Do not improvise.
 ## 1. Build (VM `lenos-build`, tmux)
 
 ```bash
-# laptop → VM
+# laptop → VM   (remove ~/vendor-lenos on the VM first; scp nests if it exists)
 gcloud compute scp --tunnel-through-iap \
   --recurse vendor-lenos lenos-1.0-shizuku.sh \
   cesurmali76@lenos-build:~/
@@ -53,17 +53,22 @@ gcloud compute scp --tunnel-through-iap \
 chmod +x ~/lenos-1.0-shizuku.sh
 export LENOS_ALLOW_LOW_MEMORY=1 LENOS_BUILD_JOBS=4
 ~/lenos-1.0-shizuku.sh doctor
-~/lenos-1.0-shizuku.sh build          # 8–17h: reset hardening → hardwire → mka --rootless --hardening full
+~/lenos-1.0-shizuku.sh apply          # reset hardening → patchkit reset/check/apply → markers
+~/lenos-1.0-shizuku.sh build          # 8–17h: apply (again, idempotent) + mka --rootless --hardening full
 ~/lenos-1.0-shizuku.sh package        # avbroot, OS images only
 ~/lenos-1.0-shizuku.sh extract        # --fastboot --all + sanitize
 ```
 
-`reset hardening` git-resets. Hardwire runs **after** it, inside `build`.
+`reset hardening` git-resets, then the patchkit resets/verifies/applies the
+tested series and dies if any patch is missing. Manual equivalent in
+`docs/build.md`; `apply` is also run inside `build`.
 
 Gates after `package` / `extract`:
 
 ```bash
-grep 1.0.0-shizuku ~/lenos-workspace/lineage/device/nothing/asteroids/system_ext.prop
+grep -q 'ro.lenos.version=1.0.0' ~/lenos-workspace/lineage/vendor/lenos/config/lenos.mk
+grep -q 'dns.quad9.net' ~/lenos-workspace/lineage/vendor/lenos/rro/LenosSettingsProviderOverlay/res/values/defaults.xml
+grep -q 'ro.telephony.default_network=28,28' ~/lenos-workspace/lineage/device/nothing/asteroids/system_ext.prop
 test -s ~/lenos-workspace/extracted-rootless/android-info.txt
 cat ~/lenos-workspace/lenos-asteroids-rootless.zip.sha256
 ```
@@ -119,7 +124,7 @@ First boot takes minutes.
 Enable developer options, USB debugging, **OEM unlocking ON**.
 
 ```bash
-adb shell getprop ro.lenos.version           # 1.0.0-shizuku
+adb shell getprop ro.lenos.version           # 1.0.0
 adb shell getprop ro.boot.veritymode         # enforcing
 adb shell getprop ro.boot.vbmeta.digest      # record; must match THIS zip
 adb reboot bootloader
@@ -145,7 +150,7 @@ Locking wipes `/data`, which clears the OEM-unlocking toggle. If the phone then 
 Do not lock unless every box is true:
 
 - [ ] **This** zip booted unlocked (not the old test-key `0x3` image)
-- [ ] `ro.lenos.version=1.0.0-shizuku`
+- [ ] `ro.lenos.version=1.0.0`
 - [ ] `ro.boot.veritymode=enforcing`
 - [ ] `ro.boot.vbmeta.digest` matches `avbroot ota verify` of this zip
 - [ ] `has-slot:init_boot` / `vendor_boot` / `vbmeta` → yes

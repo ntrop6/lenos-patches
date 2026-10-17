@@ -26,7 +26,7 @@ is: pin the tree → apply the series with `tools/lenos-patch.py` → build.
 | `docs/build.md` | Build/flash/verify workflow (VM rules, verification commands) |
 | `lenos-1.0-shizuku.sh` | VM driver: `apply` (patchkit) / `build` / `package` / `extract` / `flash-plan` / `lock-gates` |
 | `legacy-patches/` | Earlier 1.0.0-shizuku patches, provenance only — do not apply |
-| `integrate.sh`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier "write into the tree" pipeline; kept for reference, **not** used anymore (its `hardwire.py` lives only in the prior-work drop `/home/otoka/lenos-drop/vendor-lenos/`) |
+| `integrate.sh`, `config/hardwire.py`, `config/lenos.prop`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier 1.0.0-shizuku "write into the tree" pipeline; kept for reference, **not** used anymore |
 
 ## Quick start
 
