@@ -1,8 +1,8 @@
 diff --git a/packages/SettingsProvider/res/values/defaults.xml b/packages/SettingsProvider/res/values/defaults.xml
-index ce8de5e8..5bc2ac09 100644
+index ce8de5e8..d21fcaee 100644
 --- a/packages/SettingsProvider/res/values/defaults.xml
 +++ b/packages/SettingsProvider/res/values/defaults.xml
-@@ -352,4 +352,22 @@
+@@ -352,4 +352,18 @@
          devices without forcing it on other form factors.
      -->
      <bool name="def_text_show_password"></bool>
@@ -20,16 +20,12 @@ index ce8de5e8..5bc2ac09 100644
 +    <string name="def_lenos_ntp_server" translatable="false">time.android.com</string>
 +    <!-- Settings.Global.CAPTIVE_PORTAL_MODE: 0 = ignore, 1 = prompt, 2 = avoid. -->
 +    <integer name="def_lenos_captive_portal_mode">1</integer>
-+    <!-- Settings.Global lenos_auto_reboot_timeout_ms: milliseconds the device
-+         may stay locked before LenosAutoRebootService reboots it back to the
-+         before-first-unlock state. 0 disables the timer. -->
-+    <integer name="def_lenos_auto_reboot_timeout_ms">0</integer>
  </resources>
 diff --git a/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java b/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
-index a3eab5da..0f6c26e2 100644
+index a3eab5da..54f3b872 100644
 --- a/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
 +++ b/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
-@@ -83,6 +83,28 @@ class DatabaseHelper extends SQLiteOpenHelper {
+@@ -83,6 +83,17 @@ class DatabaseHelper extends SQLiteOpenHelper {
      private static final String TABLE_SECURE = "secure";
      private static final String TABLE_GLOBAL = "global";
  
@@ -44,21 +40,10 @@ index a3eab5da..0f6c26e2 100644
 +    private static final String LENOS_WIFI_FORCE_NON_PERSISTENT_MAC =
 +            "non_persistent_mac_randomization_force_enabled";
 +
-+    /**
-+     * lenOS: {@code Settings.Global} key consumed by
-+     * {@code com.android.server.LenosAutoRebootService} and written by the
-+     * lenOS security app. Milliseconds the device may stay locked before it
-+     * is rebooted into the before-first-unlock state (0 disables the timer).
-+     * Keep the literal in sync with
-+     * {@code LenosAutoRebootService.SETTING_AUTO_REBOOT_TIMEOUT_MS}.
-+     */
-+    private static final String LENOS_AUTO_REBOOT_TIMEOUT_MS =
-+            "lenos_auto_reboot_timeout_ms";
-+
      static {
          mValidTables.add(TABLE_SYSTEM);
          mValidTables.add(TABLE_SECURE);
-@@ -2468,6 +2490,24 @@ class DatabaseHelper extends SQLiteOpenHelper {
+@@ -2468,6 +2479,22 @@ class DatabaseHelper extends SQLiteOpenHelper {
              }
              loadSetting(stmt, Settings.Global.LID_BEHAVIOR, defaultLidBehavior);
  
@@ -77,8 +62,6 @@ index a3eab5da..0f6c26e2 100644
 +                    R.string.def_lenos_ntp_server);
 +            loadIntegerSetting(stmt, Settings.Global.CAPTIVE_PORTAL_MODE,
 +                    R.integer.def_lenos_captive_portal_mode);
-+            loadIntegerSetting(stmt, LENOS_AUTO_REBOOT_TIMEOUT_MS,
-+                    R.integer.def_lenos_auto_reboot_timeout_ms);
 +
              /*
               * IMPORTANT: Do not add any more upgrade steps here as the global,

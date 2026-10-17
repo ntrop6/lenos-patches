@@ -40,7 +40,9 @@
     <integer name="def_lenos_captive_portal_mode">1</integer>
 
     <!-- Lock and data protection -------------------------------------- -->
-    <!-- Reboot to the before-first-unlock state when the device has stayed
-         locked for 18 hours (0 = off; see LenosAutoRebootService). -->
-    <integer name="def_lenos_auto_reboot_timeout_ms">64800000</integer>
+    <!-- The auto-reboot-to-BFU timer is owned by init (see
+         system/core/init/property_service.cpp) and configured through
+         Settings.Global."settings_reboot_after_timeout" (18 hours by
+         default, see android.ext.settings.ExtSettings). No def_* seed: the
+         default is the ExtSettings code default, as in GrapheneOS. -->
 </resources>

@@ -37,14 +37,14 @@ import java.util.Map;
 /**
  * Stand-in Settings page for lenOS 1.0 where the stock Settings APK never
  * grew the "lenOS security" category. Backed by the hardening backend that IS
- * in this build (auto-BFU timer in LenosAutoRebootService, duress in
- * LockSettingsService, etc.).
+ * in this build (auto-BFU timer in init, duress in LockSettingsService,
+ * etc.).
  *
  * Every privileged write tries the direct Settings/LockPatternUtils path first
  * and falls back to root (ReSukiSU su) on denial. Secrets travel on stdin only.
  */
 public class MainActivity extends Activity {
-    static final String BFU_SETTING = "lenos_auto_reboot_timeout_ms";
+    static final String BFU_SETTING = "settings_reboot_after_timeout";
     static final int BFU_DEFAULT_MS = 64_800_000; // 18h, matches init default
     static final int BFU_12H_MS = 43_200_000;
     static final String SCRAMBLE_KEY = "lockscreen_scramble_pin_layout";

@@ -36,10 +36,12 @@ PRODUCT_PRODUCT_PROPERTIES += \
     ro.lenos.version=1.0.0 \
     ro.lenos.base=lineage-23.2 \
     ro.lenos.dns=dns.quad9.net \
-    # Auto-reboot-to-BFU backend: framework system service
-    # (LenosAutoRebootService, frameworks/base). Status string for the lenOS
-    # security app; the timer value lives in Settings.Global.
-    ro.lenos.security.auto_bfu=framework \
+    # Auto-reboot-to-BFU backend: init timer (system/core/0001), armed from
+    # the keyguard showing-state in frameworks/base (0003). The timeout lives
+    # in Settings.Global."settings_reboot_after_timeout" (18h default via
+    # android.ext.settings, frameworks/base/0006). Status string for the
+    # lenOS security app.
+    ro.lenos.security.auto_bfu=init \
     # Duress credential backend: LockSettingsService (frameworks/base/0005)
     # with the lenOS security app as UI. Destructive by design; entering a
     # duress credential at any prompt destroys the storage keys. Status string
