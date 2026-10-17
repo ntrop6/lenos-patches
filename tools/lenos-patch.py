@@ -9,6 +9,9 @@ Design rules (see docs/patches.md):
 * A patch that does not apply is a hard error. Silently skipping a security
   feature because upstream moved a line is how you ship a broken OS.
 * ``--check`` never writes. ``--reverse`` removes a feature (for bisecting).
+* ``--reset`` returns the series' projects to their pinned revisions: it
+  restores tracked files and deletes files the series creates (plain
+  ``git checkout`` leaves those behind and then ``--check`` can never pass).
 * Every project has ``patches/<project>/series`` listing patches in apply
   order; a patch not in the series is not applied.
 
@@ -17,6 +20,7 @@ Usage:
     lenos-patch.py --tree /path/to/lineage --apply
     lenos-patch.py --tree /path/to/lineage --apply --project frameworks/base
     lenos-patch.py --tree /path/to/lineage --reverse --apply
+    lenos-patch.py --tree /path/to/lineage --reset
     lenos-patch.py --list
 """
 from __future__ import annotations
@@ -92,6 +96,57 @@ def is_applied(project_dir: Path, patch: Path) -> bool:
     return proc.returncode == 0
 
 
+def created_paths(patch: Path) -> list[str]:
+    """Files the patch creates (old side is /dev/null), as project-relative paths."""
+    out: list[str] = []
+    old_is_null = False
+    for line in patch.read_text(encoding="utf-8").splitlines():
+        if line.startswith("--- "):
+            old_is_null = line[4:].split("\t")[0].strip() == "/dev/null"
+        elif line.startswith("+++ "):
+            p = line[4:].split("\t")[0].strip()
+            if old_is_null and p not in ("", "/dev/null"):
+                out.append(p[2:] if p.startswith("b/") else p)
+            old_is_null = False
+    return out
+
+
+def reset_project(project: str, pdir: Path, patches: list[Path]) -> None:
+    """Restore the pinned state: checkout tracked files, remove created files."""
+    dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                           cwd=pdir, capture_output=True, text=True).stdout
+    if dirty.strip():
+        print(f"  WARNING {project}: discarding tracked edits:")
+        for line in dirty.splitlines():
+            print(f"    {line}")
+
+    proc = subprocess.run(["git", "checkout", "--", "."],
+                          cwd=pdir, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"ERROR: git checkout failed in {pdir}:\n{proc.stderr.strip()}")
+
+    for patch in patches:
+        for rel in created_paths(patch):
+            f = pdir / rel
+            if not f.exists():
+                continue
+            tracked = subprocess.run(["git", "ls-files", "--error-unmatch", rel],
+                                     cwd=pdir, capture_output=True, text=True)
+            if tracked.returncode == 0:
+                raise SystemExit(
+                    f"ERROR: {project}: series creates {rel} but it is tracked.\n"
+                    "The patch set does not match the pinned revision; do not reset blindly.")
+            f.unlink()
+            print(f"  removed {project}: {rel}")
+
+    status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                            cwd=pdir, capture_output=True, text=True)
+    if status.stdout.strip():
+        raise SystemExit(
+            f"ERROR: {project}: still modified after reset:\n{status.stdout.strip()}")
+    print(f"  reset {project}: pinned state")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", help="LineageOS source tree root")
@@ -103,6 +158,9 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="list project/patch pairs")
     ap.add_argument("--status", action="store_true",
                     help="report applied/not applied per patch (needs --tree)")
+    ap.add_argument("--reset", action="store_true",
+                    help="restore the series' projects to the pinned revision "
+                         "(git checkout + remove files the series created)")
     args = ap.parse_args()
 
     if args.list:
@@ -112,6 +170,9 @@ def main() -> int:
             for patch in series(project):
                 print(f"{project}\t{patch.name}")
         return 0
+
+    if args.reset and (args.apply or args.check or args.reverse or args.status):
+        ap.error("--reset is exclusive; run it as its own step")
 
     if not args.tree:
         ap.error("--tree is required unless --list")
@@ -131,6 +192,9 @@ def main() -> int:
         if not (pdir / ".git").exists() and not (pdir / ".git").is_file():
             print(f"  WARN  {project}: not a git checkout under {tree}; skipping")
             rc = 1
+            continue
+        if args.reset:
+            reset_project(project, pdir, patches)
             continue
         for patch in patches:
             applied = is_applied(pdir, patch)
