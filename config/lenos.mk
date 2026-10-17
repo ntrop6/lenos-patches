@@ -1,35 +1,46 @@
-# lenOS 1.0.0-shizuku — inherited from device/nothing/asteroids/lineage_asteroids.mk
-# Branding is ro.lenos.* only. Do not touch PRODUCT_BUILD_PROP / fingerprint.
+# lenOS product configuration.
+#
+# Inherited from device/nothing/asteroids/lenos_asteroids.mk (see
+# patches/device_nothing_asteroids/0001-add-lenos-product.patch).
+#
+# Branding is ro.lenos.* only. ro.build.*, the build fingerprint and the
+# device identity stay stock on purpose: changing them breaks app
+# compatibility, attestation and Nothing factory tooling.
 
-PRODUCT_PACKAGES += LenosSecurity ExactCalculator
+# lenOS companion app ("lenOS security"). Everything else in the UI is stock
+# LineageOS Settings; this app only hosts controls that Settings does not have.
+PRODUCT_PACKAGES += \
+    LenosSecurity
 
-PRODUCT_PACKAGE_OVERLAYS += vendor/lenos/overlay
+# Privacy overlays (enabled at boot, no user interaction required):
+# * LenosFrameworksOverlay        - non-Google NTP fallback pool (framework-res)
+# * LenosNetworkStackOverlay      - Cloudflare connectivity-check probes
+# * LenosSettingsProviderOverlay  - hardened first-boot (Settings.Global) defaults
+PRODUCT_PACKAGES += \
+    LenosFrameworksOverlay \
+    LenosNetworkStackOverlay \
+    LenosSettingsProviderOverlay
 
+# Privileged permission allowlist for LenosSecurity. The APK is signed with
+# the platform key, so most permissions are already satisfied by the signature;
+# the allowlist keeps the app working (and documents the intent) if it is ever
+# built without the platform certificate.
 PRODUCT_COPY_FILES += \
     vendor/lenos/config/privapp-permissions-org.lenos.security.xml:$(TARGET_COPY_OUT_SYSTEM)/etc/permissions/privapp-permissions-org.lenos.security.xml
 
-PRODUCT_PACKAGES_REMOVE += \
-    Jelly \
-    Browser2 \
-    Gallery2 \
-    FMRadio \
-    Eleven \
-    AudioFX \
-    LiveWallpapersPicker \
-    Email \
-    Updater \
-    Glimpse \
-    MatLog \
-    WeatherProvider \
-    OpenWeatherMapProvider \
-    Calendar
-
-PRODUCT_SYSTEM_EXT_PROPERTIES += \
+# Product properties are loaded last by init, so they override values from
+# system/system_ext/vendor/odm (see system/core/init/property_service.cpp).
+# Keep this list short and commented; anything user-visible belongs in the
+# SettingsProvider defaults or a documented toggle instead.
+PRODUCT_PRODUCT_PROPERTIES += \
+    ro.lenos.version=1.0.0 \
+    ro.lenos.base=lineage-23.2 \
+    ro.lenos.dns=dns.quad9.net \
     persist.traced.enable=0 \
+    persist.logd.size.radio=64K \
     persist.vendor.verbose_logging_enabled=0 \
     persist.vendor.radio.adb_log_on=0 \
     persist.vendor.radio.ims_log_enabled=0 \
     persist.vendor.sys.modem.logging.enable=0 \
     persist.vendor.radio.snapshot_enabled=0 \
-    persist.vendor.radio.snapshot_timer=0 \
-    net.hostname=
+    persist.vendor.radio.snapshot_timer=0

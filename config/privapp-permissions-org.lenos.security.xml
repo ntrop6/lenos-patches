@@ -5,5 +5,8 @@
         <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
         <permission name="android.permission.WRITE_SETTINGS"/>
         <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
+        <!-- Wi-Fi privacy controls: WifiManager#setSendDhcpHostnameRestriction
+             / querySendDhcpHostnameRestriction require NETWORK_SETTINGS. -->
+        <permission name="android.permission.NETWORK_SETTINGS"/>
     </privapp-permissions>
 </permissions>
