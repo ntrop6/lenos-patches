@@ -1,0 +1,61 @@
+diff --git a/config/common.mk b/config/common.mk
+index f927424..af0a26e 100644
+--- a/config/common.mk
++++ b/config/common.mk
+@@ -141,10 +141,13 @@ PRODUCT_PACKAGES += \
+     framework_compatibility_matrix.lineage.xml
+ 
+ # Lineage packages
++# lenOS: LENOS_STRIP_PACKAGES lets a product drop selected bundled apps from
++# the build (the sources stay in the tree). The product makefile sets it
++# before inheriting this file; see vendor/lenos/docs/features.md.
+ ifeq ($(PRODUCT_IS_ATV),)
+-PRODUCT_PACKAGES += \
++PRODUCT_PACKAGES += $(filter-out $(LENOS_STRIP_PACKAGES), \
+     ExactCalculator \
+-    Jelly
++    Jelly)
+ endif
+ 
+ ifeq ($(PRODUCT_IS_AUTOMOTIVE),)
+diff --git a/config/common_mobile.mk b/config/common_mobile.mk
+index 2c7e496..6c8b380 100644
+--- a/config/common_mobile.mk
++++ b/config/common_mobile.mk
+@@ -14,12 +14,13 @@ PRODUCT_PRODUCT_PROPERTIES += \
+     ro.config.alarm_alert=Hassium.ogg
+ 
+ # Apps
+-PRODUCT_PACKAGES += \
++# lenOS: see LENOS_STRIP_PACKAGES in vendor/lineage/config/common.mk.
++PRODUCT_PACKAGES += $(filter-out $(LENOS_STRIP_PACKAGES), \
+     AvatarPicker \
+     Backgrounds \
+     Gallery2 \
+     Glimpse \
+-    LatinIME
++    LatinIME)
+ 
+ ifeq ($(PRODUCT_TYPE), go)
+ PRODUCT_PACKAGES += \
+diff --git a/config/common_mobile_full.mk b/config/common_mobile_full.mk
+index 4de1d42..a346ccf 100644
+--- a/config/common_mobile_full.mk
++++ b/config/common_mobile_full.mk
+@@ -7,13 +7,14 @@ PRODUCT_SIZE := full
+ $(call inherit-product-if-exists, external/google-fonts/google-sans-flex/fonts.mk)
+ 
+ # Apps
+-PRODUCT_PACKAGES += \
++# lenOS: see LENOS_STRIP_PACKAGES in vendor/lineage/config/common.mk.
++PRODUCT_PACKAGES += $(filter-out $(LENOS_STRIP_PACKAGES), \
+     Camelot \
+     Etar \
+     Profiles \
+     Recorder \
+     Seedvault \
+-    Twelve
++    Twelve)
+ 
+ ifneq ($(PRODUCT_NO_CAMERA),true)
+ PRODUCT_PACKAGES += \

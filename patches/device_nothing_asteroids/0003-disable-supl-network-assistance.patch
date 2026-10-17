@@ -1,0 +1,16 @@
+diff --git a/rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml b/rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml
+index 251fea2..be41444 100644
+--- a/rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml
++++ b/rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml
+@@ -38,7 +38,10 @@
+         <string name="gps.a_glonass_pos_protocol_select">15</string>
+         <string name="gps.lpp_profile">15</string>
+         <string name="gps.nfw_proxy_apps">com.example.android.locationattribution</string>
+-        <string name="gps.supl_host">supl.google.com</string>
++        <!-- lenOS: no SUPL/AGPS network assistance. The device then uses
++             satellite data only (slower first fix, no location data sent to a
++             SUPL server). See docs/features.md. -->
++        <string name="gps.supl_host"></string>
+         <string name="gps.supl_port">7275</string>
+         <string name="gps.supl_ver">0x20004</string>
+         <boolean name="hide_enable_2g_bool" value="true" />

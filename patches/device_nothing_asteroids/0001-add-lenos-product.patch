@@ -1,0 +1,55 @@
+diff --git a/AndroidProducts.mk b/AndroidProducts.mk
+index f204e05..966e2c4 100644
+--- a/AndroidProducts.mk
++++ b/AndroidProducts.mk
+@@ -4,4 +4,5 @@
+ #
+ 
+ PRODUCT_MAKEFILES := \
+-    $(LOCAL_DIR)/lineage_asteroids.mk
++    $(LOCAL_DIR)/lineage_asteroids.mk \
++    $(LOCAL_DIR)/lenos_asteroids.mk
+diff --git a/lenos_asteroids.mk b/lenos_asteroids.mk
+new file mode 100644
+index 0000000..dd95d1f
+--- /dev/null
++++ b/lenos_asteroids.mk
+@@ -0,0 +1,38 @@
++#
++# SPDX-FileCopyrightText: 2026 lenOS
++# SPDX-License-Identifier: Apache-2.0
++#
++# lenOS product for the Nothing Phone (3a) / (3a) Pro (asteroids).
++#
++# Inherits the LineageOS device configuration and layers the lenOS product
++# configuration (vendor/lenos/config/lenos.mk) on top: bundled apps, product
++# overlays, first-boot defaults and hardening properties.
++#
++# The build fingerprint and the device identity are deliberately left at the
++# stock values: changing them breaks app compatibility, SafetyNet/Play
++# Integrity style checks and Nothing's factory tooling. Everything lenOS adds
++# is namespaced under ro.lenos.* and in the lenOS settings UI.
++#
++# LENOS_STRIP_PACKAGES is read by vendor/lineage/config/*.mk (patched) and must
++# be set here, in the product makefile itself: the inherited app lists are
++# evaluated after this file, but product makefiles cannot filter inherited
++# PRODUCT_PACKAGES values. Same for TARGET_EXCLUDES_AUDIOFX, an existing
++# LineageOS switch.
++
++# Apps dropped from the build (sources stay in the tree). Gallery2 is kept out
++# in favour of Glimpse; the browser (Jelly) is kept for now, see
++# vendor/lenos/docs/features.md.
++LENOS_STRIP_PACKAGES := \
++    Gallery2
++
++# LineageOS' existing switch for AudioFX (bass boost / equalizer).
++TARGET_EXCLUDES_AUDIOFX := true
++
++$(call inherit-product, device/nothing/asteroids/lineage_asteroids.mk)
++$(call inherit-product, vendor/lenos/config/lenos.mk)
++
++PRODUCT_NAME := lenos_asteroids
++PRODUCT_DEVICE := asteroids
++
++PRODUCT_SYSTEM_EXT_PROPERTIES += \
++    ro.lenos.product=lenos_asteroids

@@ -1,0 +1,11 @@
+diff --git a/system_ext.prop b/system_ext.prop
+index b96d772..7641fed 100644
+--- a/system_ext.prop
++++ b/system_ext.prop
+@@ -44,5 +44,5 @@ ro.vendor.qti.va_aosp.support=1
+ 
+ # Telephony
+ ril.subscription.types=NV,RUIM
+-ro.telephony.default_network=26,26
++ro.telephony.default_network=28,28
+ telephony.lteOnCdmaDevice=1

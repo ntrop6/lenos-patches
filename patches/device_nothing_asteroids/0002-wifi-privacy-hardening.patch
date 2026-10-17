@@ -1,0 +1,24 @@
+diff --git a/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml b/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
+index 435cc2f..a81c7ab 100644
+--- a/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
++++ b/rro_overlays/AsteroidsWifiOverlay/res/values/config.xml
+@@ -29,7 +29,9 @@
+     <!-- Whether to allow Settings or SUW to create insecure Enterprise networks where server
+          certificate is not validated, by not specifying a Root CA certificate and/or server domain
+          name. It is STRONGLY RECOMMENDED to be set to false -->
+-    <bool name="config_wifiAllowInsecureEnterpriseConfigurationsForSettingsAndSUW">true</bool>
++    <!-- lenOS: do not allow Settings/SUW to join Enterprise networks without
++         certificate validation (stock ships true; see the AOSP comment above). -->
++    <bool name="config_wifiAllowInsecureEnterpriseConfigurationsForSettingsAndSUW">false</bool>
+ 
+     <!-- Indicates that bridged AP mode is supported on this device provided that
+      the device interface combination allows for it -->
+@@ -38,6 +40,6 @@
+     <!-- Wifi driver supports IEEE80211BE for softap -->
+     <bool name="config_wifiSoftapIeee80211beSupported">false</bool>
+ 
+-    <!-- Do not translate. Default access point SSID used for tethering -->
+-    <string translatable="false" name="wifi_tether_configure_ssid_default">Nothing Phone (3a)</string>
++    <!-- lenOS: do not broadcast a device-identifying SSID by default. -->
++    <string translatable="false" name="wifi_tether_configure_ssid_default">AndroidAP</string>
+ </resources>

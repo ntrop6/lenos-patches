@@ -1,0 +1,68 @@
+diff --git a/packages/SettingsProvider/res/values/defaults.xml b/packages/SettingsProvider/res/values/defaults.xml
+index ce8de5e8..d21fcaee 100644
+--- a/packages/SettingsProvider/res/values/defaults.xml
++++ b/packages/SettingsProvider/res/values/defaults.xml
+@@ -352,4 +352,18 @@
+         devices without forcing it on other form factors.
+     -->
+     <bool name="def_text_show_password"></bool>
++
++    <!-- lenOS first-boot privacy defaults (see DatabaseHelper#loadGlobalSettings).
++         The stock values below preserve the AOSP behaviour; the lenOS product
++         overlay replaces them with hardened values. -->
++    <!-- Force per-connection (non-persistent) Wi-Fi MAC randomization. -->
++    <bool name="def_lenos_wifi_force_non_persistent_mac_randomization">false</bool>
++    <!-- Settings.Global.PRIVATE_DNS_MODE: off / opportunistic / hostname. -->
++    <string name="def_lenos_private_dns_mode" translatable="false">opportunistic</string>
++    <!-- Settings.Global.PRIVATE_DNS_SPECIFIER, only used in "hostname" mode. -->
++    <string name="def_lenos_private_dns_specifier" translatable="false"></string>
++    <!-- Settings.Global.NTP_SERVER used by NtpTrustedTime when auto-time is on. -->
++    <string name="def_lenos_ntp_server" translatable="false">time.android.com</string>
++    <!-- Settings.Global.CAPTIVE_PORTAL_MODE: 0 = ignore, 1 = prompt, 2 = avoid. -->
++    <integer name="def_lenos_captive_portal_mode">1</integer>
+ </resources>
+diff --git a/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java b/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
+index a3eab5da..54f3b872 100644
+--- a/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
++++ b/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
+@@ -83,6 +83,17 @@ class DatabaseHelper extends SQLiteOpenHelper {
+     private static final String TABLE_SECURE = "secure";
+     private static final String TABLE_GLOBAL = "global";
+ 
++    /**
++     * lenOS: {@code Settings.Global} key consumed by the Wi-Fi module
++     * ({@code WifiConfigManager}) to force non-persistent (per-connection)
++     * randomized MAC addresses. Defined there as
++     * {@code NON_PERSISTENT_MAC_RANDOMIZATION_FEATURE_FORCE_ENABLE_FLAG};
++     * duplicate the literal here because the provider cannot depend on the
++     * Wi-Fi module.
++     */
++    private static final String LENOS_WIFI_FORCE_NON_PERSISTENT_MAC =
++            "non_persistent_mac_randomization_force_enabled";
++
+     static {
+         mValidTables.add(TABLE_SYSTEM);
+         mValidTables.add(TABLE_SECURE);
+@@ -2468,6 +2479,22 @@ class DatabaseHelper extends SQLiteOpenHelper {
+             }
+             loadSetting(stmt, Settings.Global.LID_BEHAVIOR, defaultLidBehavior);
+ 
++            // lenOS: privacy-hardening defaults applied on first boot. The
++            // values come from lenOS product overlay resources (def_lenos_*)
++            // so a product can change them without touching this code. All of
++            // them are regular user settings afterwards: whatever the user
++            // changes in Settings is kept and never rewritten.
++            loadBooleanSetting(stmt, LENOS_WIFI_FORCE_NON_PERSISTENT_MAC,
++                    R.bool.def_lenos_wifi_force_non_persistent_mac_randomization);
++            loadStringSetting(stmt, Settings.Global.PRIVATE_DNS_MODE,
++                    R.string.def_lenos_private_dns_mode);
++            loadStringSetting(stmt, Settings.Global.PRIVATE_DNS_SPECIFIER,
++                    R.string.def_lenos_private_dns_specifier);
++            loadStringSetting(stmt, Settings.Global.NTP_SERVER,
++                    R.string.def_lenos_ntp_server);
++            loadIntegerSetting(stmt, Settings.Global.CAPTIVE_PORTAL_MODE,
++                    R.integer.def_lenos_captive_portal_mode);
++
+             /*
+              * IMPORTANT: Do not add any more upgrade steps here as the global,
+              * secure, and system settings are no longer stored in a database
