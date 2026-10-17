@@ -1,0 +1,145 @@
+diff --git a/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java b/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
+index 1231f563..93d92c14 100644
+--- a/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
++++ b/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
+@@ -207,6 +207,16 @@ public class SettingsProvider extends ContentProvider {
+     public static final String TABLE_SSAID = "ssaid";
+     public static final String TABLE_CONFIG = "config";
+ 
++    /**
++     * lenOS: Settings.Global key controlling SSAID rotation on app reinstall.
++     * 1 = rotate the SSAID when an app is installed anew (default),
++     * 0 = strict AOSP behaviour (stable for a given signing key, never rotates).
++     *
++     * The value is read by this provider; the matching UI lives in
++     * Settings > Security & privacy > lenOS security.
++     */
++    public static final String LENOS_SSAID_ROTATION_ENABLED = "lenos_ssaid_rotation_enabled";
++
+     // Old tables no longer exist.
+     private static final String TABLE_FAVORITES = "favorites";
+     private static final String TABLE_OLD_FAVORITES = "old_favorites";
+@@ -1829,9 +1839,49 @@ public class SettingsProvider extends ContentProvider {
+             return mascaradeSsaidSetting(ssaidSettings, setting);
+         }
+ 
++        // lenOS: rotate the SSAID of an app that was installed anew. Android reuses the app
++        // id (uid) of a removed app, so without this the stored value would survive a
++        // reinstall and keep identifying the device. firstInstallTime only moves when the
++        // app is actually installed again, never on an upgrade, so upgrades keep their value.
++        if (isLenosSsaidRotationEnabled()
++                && !isSsaidUpToDateLocked(ssaid, callingPkg, owningUserId)) {
++            Slog.i(LOG_TAG, "lenOS: rotating SSAID of " + callingPkg.packageName
++                    + " because it was reinstalled");
++            final String rotated = mSettingsRegistry.computeSsaidLocked(callingPkg, owningUserId,
++                    /* includeInstallGeneration= */ true);
++            if (rotated != null && ssaidSettings.insertSettingLocked(name, rotated, null, true,
++                    callingPkg.packageName)) {
++                final Setting newSsaid = mSettingsRegistry.getSettingLocked(SETTINGS_TYPE_SSAID,
++                        owningUserId, Context.DEVICE_ID_DEFAULT, name);
++                if (newSsaid != null) {
++                    return mascaradeSsaidSetting(ssaidSettings, newSsaid);
++                }
++            } else {
++                Slog.w(LOG_TAG, "lenOS: could not store rotated SSAID");
++            }
++        }
++
+         return mascaradeSsaidSetting(ssaidSettings, ssaid);
+     }
+ 
++    /**
++     * lenOS: whether SSAID rotation on reinstall is enabled (default on).
++     *
++     * Read through the settings provider itself; callers already hold mLock and the lock is
++     * reentrant on the same thread, so this cannot deadlock.
++     */
++    private boolean isLenosSsaidRotationEnabled() {
++        return Settings.Global.getInt(getContext().getContentResolver(),
++                LENOS_SSAID_ROTATION_ENABLED, 1) != 0;
++    }
++
++    @GuardedBy("mLock")
++    private boolean isSsaidUpToDateLocked(Setting ssaid, PackageInfo callingPkg, int owningUserId) {
++        final String expected = mSettingsRegistry.computeSsaidLocked(callingPkg, owningUserId,
++                /* includeInstallGeneration= */ true);
++        return expected == null || expected.equals(ssaid.getValue());
++    }
++
+     private Setting mascaradeSsaidSetting(SettingsState settingsState, Setting ssaidSetting) {
+         // SSAID settings are located in a dedicated table for internal bookkeeping
+         // but for the world they reside in the secure table, so adjust the key here.
+@@ -3342,6 +3392,39 @@ public class SettingsProvider extends ContentProvider {
+         }
+ 
+         public Setting generateSsaidLocked(PackageInfo callingPkg, int userId) {
++            final String ssaid = computeSsaidLocked(callingPkg, userId,
++                    /* includeInstallGeneration= */ true);
++            if (ssaid == null) {
++                throw new IllegalStateException("Ssaid not computable");
++            }
++
++            // Save the ssaid in the ssaid table.
++            final String uid = Integer.toString(callingPkg.applicationInfo.uid);
++            // Note that ssaid settings are applicable only for the default device, hence pass
++            // Context.DEVICE_ID_DEFAULT as the deviceId.
++            final SettingsState ssaidSettings = getSettingsLocked(SETTINGS_TYPE_SSAID, userId,
++                    Context.DEVICE_ID_DEFAULT);
++            final boolean success = ssaidSettings.insertSettingLocked(uid, ssaid, null, true,
++                callingPkg.packageName);
++
++            if (!success) {
++                throw new IllegalStateException("Ssaid settings not accessible");
++            }
++
++            return getSettingLocked(SETTINGS_TYPE_SSAID, userId, Context.DEVICE_ID_DEFAULT, uid);
++        }
++
++        /**
++         * lenOS: derive the SSAID for a package without storing it.
++         *
++         * The value is an HMAC (with a per-user secret) over the app's signing certificates,
++         * exactly like AOSP. When {@code includeInstallGeneration} is set, the package's
++         * firstInstallTime is mixed in as well so that installing an app anew produces a
++         * different identifier while an upgrade keeps the previous one. Callers compare the
++         * result with the stored value to detect a reinstall.
++         */
++        public String computeSsaidLocked(PackageInfo callingPkg, int userId,
++                boolean includeInstallGeneration) {
+             // Read the user's key from the ssaid table.
+             // Note that ssaid settings are applicable only for the default device, hence pass
+             // Context.DEVICE_ID_DEFAULT as the deviceId.
+@@ -3389,24 +3472,17 @@ public class SettingsProvider extends ContentProvider {
+                 m.update(sig);
+             }
+ 
+-            // Convert result to a string for storage in settings table. Only want first 64 bits.
+-            final String ssaid = HexEncoding.encodeToString(m.doFinal(), false /* upperCase */)
+-                    .substring(0, 16);
+-
+-            // Save the ssaid in the ssaid table.
+-            final String uid = Integer.toString(callingPkg.applicationInfo.uid);
+-            // Note that ssaid settings are applicable only for the default device, hence pass
+-            // Context.DEVICE_ID_DEFAULT as the deviceId.
+-            final SettingsState ssaidSettings = getSettingsLocked(SETTINGS_TYPE_SSAID, userId,
+-                    Context.DEVICE_ID_DEFAULT);
+-            final boolean success = ssaidSettings.insertSettingLocked(uid, ssaid, null, true,
+-                callingPkg.packageName);
+-
+-            if (!success) {
+-                throw new IllegalStateException("Ssaid settings not accessible");
++            if (includeInstallGeneration) {
++                // lenOS: the install generation keeps reinstall and upgrade distinguishable.
++                final byte[] generation =
++                        ByteBuffer.allocate(8).putLong(callingPkg.firstInstallTime).array();
++                m.update(getLengthPrefix(generation), 0, 4);
++                m.update(generation);
+             }
+ 
+-            return getSettingLocked(SETTINGS_TYPE_SSAID, userId, Context.DEVICE_ID_DEFAULT, uid);
++            // Convert result to a string for storage in settings table. Only want first 64 bits.
++            return HexEncoding.encodeToString(m.doFinal(), false /* upperCase */)
++                    .substring(0, 16);
+         }
+ 
+         private void syncSsaidTableOnStartLocked() {
