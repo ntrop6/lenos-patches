@@ -4,13 +4,15 @@
 # This is the 1.0 entry point. It does not reimplement Soong/repo/signing.
 # The 2.8.1 wizard remains the compiler. This script:
 #   - never repo syncs
-#   - never git-applies patches (vendor/lenos hardwire.py writes sources)
+#   - applies patches only through vendor/lenos/tools/lenos-patch.py (strict
+#     `git apply`, no fuzz; refuses to patch a project that is not pristine)
 #   - never flashes the phone
 #   - never locks
 #   - never re-signs firmware (abl/xbl/bluetooth VBMeta magic)
 #   - packages --rootless only (prepatched does not boot this unit)
 #
-# Subcommands: doctor | hardwire | build | package | extract | flash-plan | lock-gates
+# Subcommands: doctor | apply | build | package | extract | flash-plan | lock-gates
+# (`hardwire` is kept as an alias of `apply` for the older scripts/manuals)
 set -euo pipefail
 umask 077
 
@@ -50,9 +52,9 @@ usage() {
   cat <<EOF
 lenOS $LENOS_VERSION  (asteroids / Nothing Phone 3a)
 
-  $0 doctor         VM / keys / wizard / avbroot
-  $0 hardwire       reset-hardening then write vendor/lenos into the tree
-  $0 build          hardwire + 8–17h  mka  --rootless --hardening full
+  $0 doctor         VM / keys / wizard / avbroot / patchkit
+  $0 apply          reset-hardening, install vendor/lenos, apply the patch series
+  $0 build          apply + 8–17h  mka  --rootless --hardening full
   $0 package        avbroot OTA, OS images only, --rootless --clear-vbmeta-flags
   $0 extract        avbroot ota extract --fastboot --all + sanitize flash plan
   $0 flash-plan     print laptop commands. does not talk to the phone
@@ -85,13 +87,15 @@ cmd_doctor() {
   info "avbroot: $($AVBROOT --version 2>/dev/null || echo unknown)"
   [[ -f "$SRC/device/nothing/asteroids/lineage_asteroids.mk" ]] \
     || die "not an asteroids tree: $SRC"
-  [[ -d "$VENDOR" && -f "$VENDOR/config/hardwire.py" ]] \
-    || die "vendor/lenos not next to this script and not at $VENDOR"
+  [[ -d "$VENDOR" && -f "$VENDOR/tools/lenos-patch.py" \
+     && -f "$VENDOR/tools/lenos_projects.py" ]] \
+    || die "vendor/lenos patchkit not next to this script and not at $VENDOR"
   need_file "$KEYS/avb.key"
   need_file "$KEYS/ota.key"
   need_file "$KEYS/ota.crt"
   need_file "$KEYS/avb_pkmd.bin"
   command -v python3 >/dev/null || die "python3 required"
+  command -v git >/dev/null || die "git required"
   command -v sha256sum >/dev/null || die "sha256sum required"
   info "tree:    $SRC"
   info "keys:    $KEYS"
@@ -99,23 +103,96 @@ cmd_doctor() {
   info "OK. do not repo sync. do not lock."
 }
 
-cmd_hardwire() {
+# Projects touched by the patch series (unique), read from the patchkit.
+series_projects() {
+  python3 "$VENDOR/tools/lenos-patch.py" --list | cut -f1 | sort -u
+}
+
+# Refuse to patch a project that still has tracked modifications: the
+# patchkit assumes pinned sources, and a stale change from an older pipeline
+# could otherwise survive next to a patch that applies cleanly.
+require_pristine() {
+  local projects proj changes dirty=0
+  projects="$(series_projects)" || die "cannot list the patch series projects"
+  [[ -n "$projects" ]] || die "patch series is empty - refusing to patch"
+  while IFS= read -r proj; do
+    [[ -n "$proj" ]] || continue
+    if [[ -d "$SRC/$proj/.git" || -f "$SRC/$proj/.git" ]]; then
+      changes="$(git -C "$SRC/$proj" status --porcelain --untracked-files=no)"
+      if [[ -n "$changes" ]]; then
+        err "project not pristine: $proj"
+        printf '%s\n' "$changes" | sed 's/^/    /' >&2
+        dirty=1
+      fi
+    else
+      die "no git checkout at $SRC/$proj (fix with repo sync only, then re-pin)"
+    fi
+  done <<< "$projects"
+  if [[ "$dirty" -ne 0 ]]; then
+    die "tree is not pinned. reset first: '$WIZARD reset hardening', then
+    'git -C \$SRC/<project> checkout -- .' for anything still listed"
+  fi
+}
+
+# Build inputs only (config/, app/, rro/). The patchkit, tests and docs stay
+# in $VENDOR outside the tree; nothing else is compiled.
+install_vendor_lenos() {
+  local part
+  info "install vendor/lenos build inputs -> $SRC/vendor/lenos"
+  rm -rf "$SRC/vendor/lenos"
+  mkdir -p "$SRC/vendor/lenos"
+  for part in config app rro; do
+    cp -a "$VENDOR/$part" "$SRC/vendor/lenos/"
+  done
+  need_file "$SRC/vendor/lenos/config/lenos.mk"
+  need_file "$SRC/vendor/lenos/config/privapp-permissions-org.lenos.security.xml"
+}
+
+cmd_apply() {
   cmd_doctor
   export LENOS_ALLOW_LOW_MEMORY="${LENOS_ALLOW_LOW_MEMORY:-1}"
   export LENOS_BUILD_JOBS="${LENOS_BUILD_JOBS:-4}"
   info "wizard reset hardening (git reset of patched projects)"
   "$WIZARD" reset hardening
-  info "install vendor/lenos + hardwire sources"
-  bash "$VENDOR/integrate.sh" "$SRC"
-  grep -q '1.0.0-shizuku' "$SRC/device/nothing/asteroids/system_ext.prop" \
-    || die "ro.lenos.version did not land in system_ext.prop"
-  grep -R --line-number 'dns.quad9.net' "$SRC/frameworks/base/packages/SettingsProvider" \
-    | head -5 || die "Quad9 DoT did not land in DatabaseHelper"
-  info "hardwire OK"
+
+  info "patchkit --reset (pinned state; also removes files the series created)"
+  python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --reset \
+    || die "patchkit --reset failed"
+  require_pristine
+  install_vendor_lenos
+
+  info "patchkit --check (strict, must pass before anything is written)"
+  python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --check \
+    || die "patchkit --check failed: tree does not match the pinned revisions"
+
+  info "patchkit --apply"
+  python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --apply \
+    || die "patchkit --apply failed"
+
+  local status
+  status="$(python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --status)"
+  printf '%s\n' "$status" >&2
+  if grep -q 'missing' <<< "$status"; then
+    die "patches missing after apply. do not build a half-patched tree."
+  fi
+
+  # Markers of this series, independent of the patchkit's own reporting.
+  grep -q '>dns.quad9.net<' \
+    "$SRC/vendor/lenos/rro/LenosSettingsProviderOverlay/res/values/defaults.xml" \
+    || die "Quad9 DoT default missing from the settings RRO"
+  grep -q 'def_lenos_private_dns_specifier' \
+    "$SRC/frameworks/base/packages/SettingsProvider/res/values/defaults.xml" \
+    || die "first-boot default resources missing from SettingsProvider"
+  grep -q 'ro.lenos.version' "$SRC/vendor/lenos/config/lenos.mk" \
+    || die "lenOS version prop missing from config/lenos.mk"
+  grep -q 'def_lenos_wifi_force_non_persistent_mac_randomization' \
+    "$SRC/frameworks/base/packages/SettingsProvider/res/values/defaults.xml" \
+    || die "Wi-Fi MAC randomization default missing from SettingsProvider"
+  info "apply OK - tree carries the lenOS patch series"
 }
 
 cmd_build() {
-  cmd_hardwire
+  cmd_apply
   export LENOS_ALLOW_LOW_MEMORY="${LENOS_ALLOW_LOW_MEMORY:-1}"
   export LENOS_BUILD_JOBS="${LENOS_BUILD_JOBS:-4}"
   info "wizard reset build (clears out/, not the tree)"
@@ -355,7 +432,7 @@ cmd_flash_plan() {
 #    fastboot reboot
 #
 # 6. After it boots (minutes):
-#    adb shell getprop ro.lenos.version          # 1.0.0-shizuku
+#    adb shell getprop ro.lenos.version          # 1.0.0
 #    adb shell getprop ro.boot.veritymode        # enforcing
 #    adb shell getprop ro.boot.vbmeta.digest     # record this
 #    # OEM unlocking ON. Live with it. Then read lock-gates.
@@ -374,7 +451,7 @@ cmd_lock_gates() {
 #
 # Do not lock unless EVERY line is true:
 #   [ ] THIS zip booted UNLOCKED (not the old test-key 0x3 image)
-#   [ ] ro.lenos.version = 1.0.0-shizuku
+#   [ ] ro.lenos.version = 1.0.0
 #   [ ] ro.boot.veritymode = enforcing
 #   [ ] ro.boot.vbmeta.digest matches `avbroot ota verify` of THIS zip
 #   [ ] fastboot getvar has-slot:init_boot  / vendor_boot / vbmeta  → yes
@@ -405,7 +482,8 @@ main() {
   shift || true
   case "$cmd" in
     doctor)      cmd_doctor "$@";;
-    hardwire)    cmd_hardwire "$@";;
+    apply)       cmd_apply "$@";;
+    hardwire)    cmd_apply "$@";;   # legacy name, same strict path
     build)       cmd_build "$@";;
     package)     cmd_package "$@";;
     extract)     cmd_extract "$@";;

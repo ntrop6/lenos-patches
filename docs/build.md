@@ -35,30 +35,49 @@ $PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --apply
 $PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --status
 ```
 
-After a build attempt, `--reverse` (or `mkpatch.sh`, which restores the tree it
-diffed) returns the tree to the pinned state. Never leave a tree that is
-partially patched.
+After a build attempt, `--reset` (or `--reverse`, or `mkpatch.sh`, which
+restores the tree it diffed) returns the tree to the pinned state. `--reset`
+also removes files the series *created* — plain `git checkout` leaves those
+(untracked) behind and then `--check` can never pass again. Never leave a tree
+that is partially patched.
 
 ## 2. Build machine (GCP "lenos-build")
 
 The build runs on the VM with the local manifest and the lenOS signing keys.
-The older driver script (`~/lenOS-2.8.1-ReSukiSU-single.sh`) did a "hardwire"
-step from the previous pipeline; replace that step with the patchkit:
+The VM driver `~/lenos-1.0-shizuku.sh apply` now does the whole tree
+preparation and replaces the old "hardwire" step of the previous pipeline:
 
 ```bash
-# on the VM, in the sync'd tree
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree ~/lenos-workspace/lineage --check
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree ~/lenos-workspace/lineage --apply
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree ~/lenos-workspace/lineage --status
+# on the VM (tmux), with ~/vendor-lenos being this repo
+~/lenos-1.0-shizuku.sh apply     # reset hardening -> reset -> install build
+                                 # inputs -> patchkit --check/--apply/--status
+~/lenos-1.0-shizuku.sh build     # apply + wizard reset build + mka (8-17h)
 ```
 
-Then run the VM's normal reset/build steps (rootless + hardening profile as
-before). Keys and the avbroot step stay exactly as the VM script does them.
-
-Transfer the patchkit to the VM with:
+Equivalent manual steps, if the driver is not used:
 
 ```bash
-gcloud compute scp --tunnel-through-iap --recurse vendor/lenos cesurmali76@lenos-build:~/vendor-lenos
+SRC=~/lenos-workspace/lineage
+python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --reset   # pinned state
+python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --check   # must pass
+python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --apply
+python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --status
+```
+
+`apply` resets the series' projects to their pinned revisions (printing any
+tracked edits it discards), installs only the build inputs (`config/`, `app/`,
+`rro/`) into `$SRC/vendor/lenos`, and dies if any patch or marker of the
+series is missing — a half-patched tree never builds.
+
+Then run the VM's normal reset/build steps (rootless + hardening profile as
+before). Keys and the avbroot step stay exactly as the driver does them.
+
+Transfer the driver + patchkit to the VM with:
+
+```bash
+gcloud compute scp --tunnel-through-iap --recurse \
+  vendor/lenos lenos-1.0-shizuku.sh cesurmali76@lenos-build:~/
+# then on the VM: mv vendor/lenos ~/vendor-lenos   (driver looks for it there)
 ```
 
 ## 3. Flash (only with explicit user approval)

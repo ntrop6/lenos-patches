@@ -14,7 +14,7 @@ is: pin the tree → apply the series with `tools/lenos-patch.py` → build.
 | Path | What |
 |---|---|
 | `patches/<alias>/series` | Ordered patch series per upstream project (strict `git apply`, no fuzz) |
-| `tools/lenos-patch.py` | Apply/check/reverse patches; `--status` reports applied state |
+| `tools/lenos-patch.py` | Apply/check/reverse/reset patches; `--status` reports applied state |
 | `tools/mkpatch.sh` | Turn edits in a pinned project into a patch and restore the tree |
 | `tools/lenos_projects.py` | Project path ↔ patch directory mapping shared by the tools |
 | `tests/` | Test suite; every patch is applied in a sandbox and asserted against |
@@ -24,8 +24,9 @@ is: pin the tree → apply the series with `tools/lenos-patch.py` → build.
 | `app/LenosSecurity/` | Companion app for controls the stock Settings UI does not have |
 | `docs/features.md` | Feature matrix with status and honest limits |
 | `docs/build.md` | Build/flash/verify workflow (VM rules, verification commands) |
+| `lenos-1.0-shizuku.sh` | VM driver: `apply` (patchkit) / `build` / `package` / `extract` / `flash-plan` / `lock-gates` |
 | `legacy-patches/` | Earlier 1.0.0-shizuku patches, provenance only — do not apply |
-| `integrate.sh`, `lenos-1.0-shizuku.sh`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier "write into the tree" pipeline; kept for reference, **not** used anymore (its `hardwire.py` lives only in the prior-work drop `/home/otoka/lenos-drop/vendor-lenos/`) |
+| `integrate.sh`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier "write into the tree" pipeline; kept for reference, **not** used anymore (its `hardwire.py` lives only in the prior-work drop `/home/otoka/lenos-drop/vendor-lenos/`) |
 
 ## Quick start
 
@@ -36,6 +37,9 @@ PY=/tmp/opencode/lenv/bin/python                              # has tree-sitter
 # all patches against the pinned tree
 $PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --status
 $PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --check
+
+# undo an applied series (restores tracked files, deletes files it created)
+$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --reset
 
 # test suite (needs a pristine tree for the series test)
 LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY bash vendor/lenos/tests/run-tests.sh
