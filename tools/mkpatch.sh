@@ -20,9 +20,13 @@ for p in frameworks/base frameworks/opt/telephony packages/apps/Settings \
          packages/apps/Updater packages/apps/LineageParts \
          packages/modules/Connectivity packages/modules/Permission \
          packages/modules/Wifi system/vold system/core \
-         packages/services/Telephony device/nothing/asteroids; do
+         packages/services/Telephony lineage-sdk vendor/lineage \
+         device/nothing/asteroids; do
   if [[ "$p" == "$PROJECT" ]]; then ALIAS="$(echo "$p" | tr '/' '_')"; fi
 done
+# projects whose patch directory alias differs from tr '/' '_'
+[[ "$PROJECT" == "lineage-sdk" ]] && ALIAS="lineage_sdk"
+[[ "$PROJECT" == "vendor/lineage" ]] && ALIAS="vendor_lineage"
 OUT="$HERE/patches/$ALIAS"
 mkdir -p "$OUT"
 

@@ -26,28 +26,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lenos_projects import PROJECT_ALIASES, alias_for, project_for  # noqa: E402
+
 HERE = Path(__file__).resolve().parent.parent  # vendor/lenos
 PATCH_ROOT = HERE / "patches"
 
-# project path -> patch directory (defaults to the project dir name)
-PROJECT_ALIASES = {
-    "frameworks/base": "frameworks_base",
-    "frameworks/opt/telephony": "frameworks_opt_telephony",
-    "packages/apps/Settings": "packages_apps_Settings",
-    "packages/apps/Updater": "packages_apps_Updater",
-    "packages/apps/LineageParts": "packages_apps_LineageParts",
-    "packages/modules/Connectivity": "packages_modules_Connectivity",
-    "packages/modules/Permission": "packages_modules_Permission",
-    "packages/modules/Wifi": "packages_modules_Wifi",
-    "system/vold": "system_vold",
-    "system/core": "system_core",
-    "packages/services/Telephony": "packages_services_Telephony",
-    "device/nothing/asteroids": "device_nothing_asteroids",
-}
-
 
 def patch_dir_for(project: str) -> Path:
-    return PATCH_ROOT / PROJECT_ALIASES.get(project, project.replace("/", "_"))
+    return PATCH_ROOT / alias_for(project)
 
 
 def series(project: str) -> list[Path]:
@@ -72,10 +59,9 @@ def projects() -> list[str]:
     for d in sorted(PATCH_ROOT.iterdir()):
         if not d.is_dir() or not (d / "series").is_file():
             continue
-        for project, alias in PROJECT_ALIASES.items():
-            if alias == d.name:
-                out.append(project)
-                break
+        project = project_for(d.name)
+        if project is not None:
+            out.append(project)
     return out
 
 
