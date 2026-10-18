@@ -484,6 +484,10 @@ confirm a grant instantly.
 `UsbDebuggingActivity.java` has no `postDelayed`; `GrantPermissionsViewHandlerImpl.kt` only uses
 `TransitionManager`). Port = two ~3-line patches.
 **Size: S (< 10 LOC total).** **API/version risk: none.** **Verdict: quick win — port now.**
+**Done:** `packages_modules_Permission/0001` (all six allow variants, `isAllowButton` helper +
+`postDelayed` gate) and `frameworks_base/0014` (ADB prompt); both apply cleanly to LineageOS 23.2.
+Adaptation vs GrapheneOS: the permission handler's debug log omits the app package — this branch no
+longer passes it into the handheld handler (upstream refactor). Driver markers + `tests/test_delayed_allow.py`.
 
 ---
 
@@ -775,7 +779,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 | 7 | Fingerprint lockout after 5 attempts | S | fwb | parity with GrapheneOS (LineageOS still allows 20 before permanent lockout) |
 | 8 | MAX_PASSWORD_LENGTH 128 | S | fwb | one-line; supports duress/passphrase users who hit the 64 limit |
 | 9 | Package installer preserves disabled state | S | packages/apps/PackageInstaller | disabled apps stay disabled after updates; AOSP API already present in 23.2 |
-| 10 | Delayed "Allow" (permission + ADB) | S | Permission, SystemUI | 1-second anti-tapjacking gate, absent from LineageOS 23.2 |
+| 10 | Delayed "Allow" (permission + ADB) | S | Permission, SystemUI | 1-second anti-tapjacking gate, absent from LineageOS 23.2 — **done** (`packages_modules_Permission/0001` + `frameworks_base/0014`) |
 | 11 | Wireless alerts fully optional | S | CellBroadcastReceiver | presidential alerts become opt-out (config + channel-manager + alert-service respect the pref) — **done** (`packages_apps_CellBroadcastReceiver/0001`) |
 | 12 | FLAG_IMMUTABLE log+warp | S | fwb | mutable PendingIntent logs instead of crashing third-party apps (GrapheneOS behavior) |
 | 13 | Screenshot EXIF defaults | S | fwb (SystemUI) | drops timestamp/timezone tags and the Software tag; constant seeded — **done** (`fwb/0013`; Settings toggle in `packages_apps_Settings/0001`) |
@@ -805,7 +809,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 | Max password length 64 → 128 | fwb `DevicePolicyManager.MAX_PASSWORD_LENGTH` | 1 line | GOS 128; LOS `DevicePolicyManager.java:3812` = 64 — **done** (`fwb/0009`) |
 | Clock drift warning 2000 → 250 ms | fwb `timedetector/TimeDetectorStrategyImpl.java` | 1 line | GOS `:90` = 250; LOS `:89` = 2*1000 — **done** (`fwb/0010`). The features page also advertises a 50 ms system-clock *update* threshold — not pinned to a constant in this scan (search the timedetector/alarm paths when implementing) |
 | FBE padding 16 → 32 | `system/extras` `libfscrypt/fscrypt.cpp` | 1–2 lines | GOS branch 17 `:247-248` (`FSCRYPT_POLICY_FLAGS_PAD_32`) — **done** (`system_extras/0001`) |
-| Delayed "Allow" buttons | Permission `GrantPermissionsViewHandlerImpl.kt` + SystemUI `usb/UsbDebuggingActivity.java` | 2 hunks (~6 LOC) | GOS `:411` and `:108-110`; LOS has neither |
+| Delayed "Allow" buttons | Permission `GrantPermissionsViewHandlerImpl.kt` + SystemUI `usb/UsbDebuggingActivity.java` | 2 hunks (~6 LOC) | GOS `:411` and `:108-110`; LOS has neither — **done** (`packages_modules_Permission/0001` + `frameworks_base/0014`; the permission-handler debug log omits the app package — not a field in this branch) |
 | Wireless alerts optional | CellBroadcastReceiver `res/values/config.xml` + `CellBroadcastChannelManager.java` (+ verify `CellBroadcastAlertService` read) | ~5 lines | GOS config `:25` true vs LOS false; GOS channel manager `:283` has the presidential `mAlwaysOn` commented out — **done** (`packages_apps_CellBroadcastReceiver/0001`; also the CDMA category path, the settings-fragment wiring, and the "always allow disabling extreme alerts" mcc-724 commit) |
 | Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` — **done** (`system_ca-certificates/0001`) |
 | Package installer preserves disabled | `packages/apps/PackageInstaller` | ~5 lines | `SessionParams#setApplicationEnabledSettingPersistent()` exists in LOS 23.2 (`PackageInstaller.java:3949`) |
@@ -835,14 +839,15 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 27 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 29 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **27** patches (the fidelity redos, the first quick-win
+`GrapheneOS/*` fetches. Note: this series now has **29** patches (the fidelity redos, the first quick-win
 batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` + the extended
-`packages_apps_Settings/0001`, `system_ca-certificates/0001`, `system_extras/0001` and
-`packages_apps_CellBroadcastReceiver/0001`; earlier notes said
+`packages_apps_Settings/0001`, `system_ca-certificates/0001`, `system_extras/0001`,
+`packages_apps_CellBroadcastReceiver/0001` and the delayed-Allow pair `packages_modules_Permission/0001`
++ `frameworks_base/0014`; earlier notes said
 18). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
@@ -871,18 +876,21 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `system_ca-certificates/0001` distrusted CA removal | GrapheneOS commit `14ad6bb` on `platform_system_ca-certificates` ("remove Chunghwa Telecom and Netlock CAs", June 2025) | Same three files deleted: `files/53a1b57a.0` (HiPKI Root CA - G1), `files/60afe812.0` (NetLock Arany (Class Gold)), `files/9d6523ce.0` (ePKI Root CA). The pinned AOSP snapshot (`android-16.0.0_r4`, no Lineage fork exists for this project) still ships all three, so this is a real removal; `Android.bp` globs `files/*`, so no build-file edit is needed | **Faithful** — keep |
 | `system_extras/0001` FBE filename padding | GrapheneOS `libfscrypt/fscrypt.cpp:248` (`FSCRYPT_POLICY_FLAGS_PAD_32`, commit "pad filenames to 32 bytes instead of 16 or 4 bytes", Sep 2020) | Same one-line behavior for every new policy; the pre-R PAD_4 branch is dropped exactly as GrapheneOS did it (unreachable here: `PRODUCT_SHIPPING_API_LEVEL := 35`, and no shipped lenOS installs to stay compatible with). lenOS additionally updates the stale in-tree `fscrypt_test` expectations to PAD_32 — GrapheneOS's fork changed only the code, so its copy of the test contradicts it; behavior delta vs GrapheneOS: none | **Faithful** (test fix documented) — keep |
 | `packages_apps_CellBroadcastReceiver/0001` wireless alerts optional | GrapheneOS commits "allow toggling presidential alerts" (`11e3a8c`, 8 files) and "always allow disabling extreme alerts" (`59d96c7`, `res/values-mcc724/config.xml`) | Both are ported file-for-file: default `show_presidential_alerts_settings=true`, the override summary string, the presidential preference un-disabled in both preferences XMLs, the alert path reading `KEY_ENABLE_CMAS_PRESIDENTIAL_ALERTS` (default true), the `mAlwaysOn` parse commented out exactly as GrapheneOS writes it, the CDMA category set/clear mapping, the settings-fragment wiring, and Brazil's forced-on extreme override removed. lenOS deltas: the stale "the user is never allowed to change the preference" comment GrapheneOS left behind is dropped (and replaced with a short note), plus a lenOS marker comment on the config bool. The legacy `CellBroadcastSettingsOldFragment` (pre-S/watch path, unreachable here: `hideToolbar = !SdkLevel.isAtLeastS() || isWatch`) is left untouched, same as GrapheneOS. All alert types stay on by default | **Faithful** (comment deltas documented) — keep |
+| `packages_modules_Permission/0001` delayed Allow (permission dialogs) | GrapheneOS commit "delay activation of Allow button(s) in runtime permission dialog" (`f51d118d6`, Dec 2024) | `GrantPermissionsActivity.isAllowButton()` recognises the same six allow button IDs as GrapheneOS (matching is by constant, so upstream's `NEXT_BUTTON` drift is irrelevant), and `GrantPermissionsViewHandlerImpl.kt` disables the button whenever it is visible and an allow variant, then re-enables it via `postDelayed(action, 1000)`. lenOS delta: the debug log suffix drops the app package (`mAppPackageName`), which this branch no longer passes into the handheld handler — GrapheneOS logs it. Deny/Cancel paths untouched | **Faithful** (log suffix delta documented) — keep |
+| `frameworks_base/0014` delayed Allow (USB ADB prompt) | GrapheneOS commit "delay activation of the Allow button in USB ADB confirmation dialog" (`f9fc573b1`, Dec 2024) | The same five lines in `UsbDebuggingActivity.onCreate`: disable the dialog's positive button after `setupAlert()` and re-enable it via `getMainThreadHandler().postDelayed(…, 1000)`; the `android.widget.Button` import is added. No lenOS deltas | **Faithful** — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 27 patches: **18 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 29 patches: **20 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
 auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
-distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`) and the
-wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) — the
+distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
+the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
+pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
 auto-reboot pair carries the two benign environment
 deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
 deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN

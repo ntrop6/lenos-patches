@@ -82,6 +82,7 @@ their content until the user explicitly allows it.
 | `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble is enforced — see the lock section |
 | PendingIntent immutability warp | `frameworks_base/0011` | GrapheneOS port: once the S+ compat change is enforced, an app that omitted `FLAG_IMMUTABLE`/`FLAG_MUTABLE` no longer crashes with `IllegalArgumentException` — the framework logs and forces `FLAG_IMMUTABLE`; every creation path (`getActivity`, `getActivities`, `getBroadcast`, `getService`/foreground service) honours the returned flags. Passing both flags still throws |
 | Clock-drift warning at 250 ms | `frameworks_base/0010` | GrapheneOS value: the time detector logs a warning when something other than itself moves the system clock by more than 250 ms (AOSP 2 s) |
+| Delayed Allow buttons | `packages_modules_Permission/0001` + `frameworks_base/0014` | GrapheneOS port: the Allow button in runtime permission dialogs (all six allow variants) and in the USB-debugging authorization prompt only becomes clickable one second after the dialog appears, so accidental taps cannot confirm a grant instantly; Deny/Cancel stay immediate |
 
 ## Apps and UI
 
@@ -94,10 +95,9 @@ their content until the user explicitly allows it.
 
 ## Not in the 1.0 series
 
-Anything not listed above (sensors permission, Secure Paste, delayed allow
-buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding, safe recovery,
-signed OTA/updater, reproducible builds, custom AVB key) is
-**not implemented yet**.
+Anything not listed above (sensors permission, Secure Paste, LTE-only toggle,
+2nd PIN, safe recovery, signed OTA/updater, reproducible builds, custom AVB
+key) is **not implemented yet**.
 
 ## Honest limits
 
@@ -206,7 +206,8 @@ tags unless "Save screenshot timestamp to EXIF" is enabled (`settings get
 secure screenshot_timestamp_exif` unset means off),
 `ls /system/etc/security/cacerts | grep -E "53a1b57a|60afe812|9d6523ce"`
 prints nothing, Settings > Safety & emergency > Wireless emergency alerts
-lists a working "Presidential alerts" switch, and on
+lists a working "Presidential alerts" switch, a fresh permission dialog keeps
+its Allow button inactive for a moment (the GrapheneOS delay), and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

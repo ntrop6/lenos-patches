@@ -99,7 +99,15 @@ remaining deviation is deliberate and documented.
   stays enabled by default. Driver markers; new
   `tests/test_wireless_alerts.py` (7 tests);
   `packages/apps/CellBroadcastReceiver` added to both patchkit alias maps.
-* **27 patches, 157 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
+* **Delayed Allow buttons** (`packages_modules_Permission/0001` +
+  `frameworks_base/0014`, GrapheneOS "delay activation of Allow button(s) in
+  runtime permission dialog" + "delay activation of the Allow button in USB
+  ADB confirmation dialog"): every allow variant in the runtime permission
+  dialog and the USB-debugging prompt's Allow button activate one second
+  after they appear; Deny/Cancel stay immediate. Driver markers; new
+  `tests/test_delayed_allow.py` (5 tests). The permission-handler debug log
+  omits the app package (no longer a field on this branch) — documented.
+* **29 patches, 162 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 
