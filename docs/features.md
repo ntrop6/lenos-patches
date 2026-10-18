@@ -72,6 +72,7 @@ their content until the user explicitly allows it.
 | Duress PIN/password | `frameworks_base/0005` + `0007`, `frameworks_opt_telephony/0001` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — erases every eSIM profile and powers off. The eUICC reset runs on a side thread with a three second budget, requires system uid and skips the carrier eSIM-removal notification. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential |
 | Credential limits (GrapheneOS values) | `frameworks_base/0009` | the fingerprint sensor locks out permanently after 5 failed attempts (AOSP 20; the 30 s timed lockout is unchanged) and the maximum supported password length is 128 characters (AOSP 64) |
 | Lock-screen notification content hidden | `frameworks_base/0012` | GrapheneOS default: content stays hidden on the lock screen until the user allows private notifications (see first-boot defaults) |
+| FBE filename padding | `system_extras/0001` (GrapheneOS port) | every encryption policy created by this build pads filenames to 32 bytes instead of AOSP's 16 (GrapheneOS commit "pad filenames to 32 bytes instead of 16 or 4 bytes"), hiding filename lengths better. The pre-R 4-byte compatibility branch is dropped (`PRODUCT_SHIPPING_API_LEVEL := 35` makes it unreachable); `vold` picks the flags up through `libfscrypt`. Only applies to policies created after flashing (see limits) |
 
 ## Framework infrastructure
 
@@ -141,6 +142,12 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   uses are unaffected. The AOSP snapshot pinned by LineageOS 23.2 still
   ships these roots, so if that revision ever changes the patchkit hard-fails
   until the removal is re-verified (by design).
+* **FBE filename padding applies to new encryption policies only** — the
+  32-byte padding is written into each policy when it is created (fresh
+  install, factory reset, or a new user profile); data encrypted before
+  flashing keeps its original policy flags, which stay readable. It is a
+  metadata-hardening change, not a fix for an exploitable flaw, and file
+  contents encryption is unchanged.
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).

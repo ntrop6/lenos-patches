@@ -72,7 +72,8 @@ Legend for size: S (<200 LOC), M (200–800 LOC), L (800–3000 LOC), XL (>3000 
 - **Vanadium** is a whole Chromium product (~2 GB source build or a prebuilt APEX/WebView decision);
   realistically `port later / app-level bundle`, not a patch (see §13).
 - **FBE filename padding 16→32 bytes** is a genuine one-line GrapheneOS change in `system/extras`
-  (`libfscrypt/fscrypt.cpp:247-248`) — cheapest at-rest privacy win in this inventory (see §11).
+  (`libfscrypt/fscrypt.cpp:247-248`) — cheapest at-rest privacy win in this inventory (see §11;
+  **done**: `system_extras/0001`).
 
 ---
 
@@ -548,7 +549,10 @@ vold calls libfscrypt's `ParseOptions()` when creating the per-profile encryptio
 (`vold/FsCrypt.cpp:330` for `s_data_options`, `:372` for per-storage options), so changing libfscrypt
 changes the policy flags of every policy created afterwards.
 
-**Port surface for lenOS:** patch `system/extras` (libfscrypt) — effectively 2 lines + comment. The
+**Port surface for lenOS:** patch `system/extras` (libfscrypt) — effectively 2 lines + comment (**done**:
+`system_extras/0001-lenos-fbe-pad-32`; the pre-R compatibility branch is dropped rather than kept —
+`PRODUCT_SHIPPING_API_LEVEL := 35` makes it unreachable — and the stale `fscrypt_test` expectations are
+updated to PAD_32, which GrapheneOS's fork left behind). The
 device fstab (`device/nothing/asteroids/init/fstab.default:59`,
 `fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0`) does not need changes;
 padding is a policy flag, not an fstab option.
@@ -785,7 +789,8 @@ grant to system browsers" (S–M, verify the grant site first).
 
 **Sequencing suggestion.** Land the §16 quick-win batch first (zero design risk). Then the VPN set
 (§12) and Secure Paste stage 1 (§8). Network (§5) and sensors (§6) each deserve their own release and
-test pass. The FBE padding change (§11) only affects new encryption policies, so ship it whenever — but
+test pass. The FBE padding change (§11, **done**: `system_extras/0001`) only affects new encryption
+policies, so ship it whenever — but
 pair it with a note that existing devices keep 16-byte padding until factory reset.
 
 ---
@@ -799,7 +804,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 | Fingerprint permanent lockout 20 → 5 | fwb `biometrics/.../fingerprint/hidl/LockoutFrameworkImpl.java` | 1 line | GOS `:51` = 5; LOS `lineage-23.2` `:51` = 20 — **done** (`fwb/0009`) |
 | Max password length 64 → 128 | fwb `DevicePolicyManager.MAX_PASSWORD_LENGTH` | 1 line | GOS 128; LOS `DevicePolicyManager.java:3812` = 64 — **done** (`fwb/0009`) |
 | Clock drift warning 2000 → 250 ms | fwb `timedetector/TimeDetectorStrategyImpl.java` | 1 line | GOS `:90` = 250; LOS `:89` = 2*1000 — **done** (`fwb/0010`). The features page also advertises a 50 ms system-clock *update* threshold — not pinned to a constant in this scan (search the timedetector/alarm paths when implementing) |
-| FBE padding 16 → 32 | `system/extras` `libfscrypt/fscrypt.cpp` | 1–2 lines | GOS branch 17 `:247-248` (`FSCRYPT_POLICY_FLAGS_PAD_32`) |
+| FBE padding 16 → 32 | `system/extras` `libfscrypt/fscrypt.cpp` | 1–2 lines | GOS branch 17 `:247-248` (`FSCRYPT_POLICY_FLAGS_PAD_32`) — **done** (`system_extras/0001`) |
 | Delayed "Allow" buttons | Permission `GrantPermissionsViewHandlerImpl.kt` + SystemUI `usb/UsbDebuggingActivity.java` | 2 hunks (~6 LOC) | GOS `:411` and `:108-110`; LOS has neither |
 | Wireless alerts optional | CellBroadcastReceiver `res/values/config.xml` + `CellBroadcastChannelManager.java` (+ verify `CellBroadcastAlertService` read) | ~5 lines | GOS config `:25` true vs LOS false; GOS channel manager `:283` has the presidential `mAlwaysOn` commented out |
 | Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` — **done** (`system_ca-certificates/0001`) |
@@ -830,13 +835,14 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 25 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 26 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **25** patches (the fidelity redos, the first quick-win
+`GrapheneOS/*` fetches. Note: this series now has **26** patches (the fidelity redos, the first quick-win
 batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` + the extended
-`packages_apps_Settings/0001`, and `system_ca-certificates/0001`; earlier notes said 18). Verdicts:
+`packages_apps_Settings/0001`, `system_ca-certificates/0001` and `system_extras/0001`; earlier notes said
+18). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -862,17 +868,19 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `fwb/0012` lockscreen notification privacy | GrapheneOS `packages/SettingsProvider/res/values/defaults.xml:170` (`def_lock_screen_allow_private_notifications` `false`) | One line flipped in place (AOSP `true`); seeded through `DatabaseHelper` for new installs/users exactly as GrapheneOS does — no RRO or seed indirection | **Faithful** — keep |
 | `fwb/0013` + `packages_apps_Settings/0001` screenshot metadata | GrapheneOS `ImageExporter.java:513` gate on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`writeExif` nulls `captureTime`; `updateExifAttributes` is nullable and early-returns before the date/timezone tags) and the Settings row `privacy_screenshot_timestamp_exif` (`more_security_privacy_settings.xml:108`) | SystemUI side is line-level faithful plus the removal of LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line (GrapheneOS/AOSP never write it; commented in the patch). Settings side: same row, strings and keys; GrapheneOS wires it via the `settings:boolSettingField` XML attribute, which lenOS does not port — the controller is registered explicitly in `MoreSecurityPrivacyFragment` (documented mechanism substitution, same UX). `packages_apps_Settings/0001` was renamed to `0001-lenos-ext-settings-ui` because it already carried the ext-controller infrastructure | **Faithful** (mechanism substitution documented) — keep |
 | `system_ca-certificates/0001` distrusted CA removal | GrapheneOS commit `14ad6bb` on `platform_system_ca-certificates` ("remove Chunghwa Telecom and Netlock CAs", June 2025) | Same three files deleted: `files/53a1b57a.0` (HiPKI Root CA - G1), `files/60afe812.0` (NetLock Arany (Class Gold)), `files/9d6523ce.0` (ePKI Root CA). The pinned AOSP snapshot (`android-16.0.0_r4`, no Lineage fork exists for this project) still ships all three, so this is a real removal; `Android.bp` globs `files/*`, so no build-file edit is needed | **Faithful** — keep |
+| `system_extras/0001` FBE filename padding | GrapheneOS `libfscrypt/fscrypt.cpp:248` (`FSCRYPT_POLICY_FLAGS_PAD_32`, commit "pad filenames to 32 bytes instead of 16 or 4 bytes", Sep 2020) | Same one-line behavior for every new policy; the pre-R PAD_4 branch is dropped exactly as GrapheneOS did it (unreachable here: `PRODUCT_SHIPPING_API_LEVEL := 35`, and no shipped lenOS installs to stay compatible with). lenOS additionally updates the stale in-tree `fscrypt_test` expectations to PAD_32 — GrapheneOS's fork changed only the code, so its copy of the test contradicts it; behavior delta vs GrapheneOS: none | **Faithful** (test fix documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 25 patches: **16 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 26 patches: **17 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
-auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level) and the
-distrusted-CA removal (`ca-certificates/0001`) — the auto-reboot pair carries the two benign environment
+auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
+distrusted-CA removal (`ca-certificates/0001`) and the FBE padding (`system_extras/0001`) — the
+auto-reboot pair carries the two benign environment
 deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
 deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
 scramble default ON, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several stricter than

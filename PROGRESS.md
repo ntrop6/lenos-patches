@@ -82,7 +82,15 @@ remaining deviation is deliberate and documented.
   Driver file-absence markers; new `tests/test_ca_certificates.py`;
   `system/ca-certificates` added to both patchkit alias maps
   (`tools/lenos_projects.py`, `tools/mkpatch.sh`).
-* **25 patches, 147 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
+* **FBE filename padding 32 bytes** (`system_extras/0001`, GrapheneOS
+  "pad filenames to 32 bytes instead of 16 or 4 bytes"): every new
+  encryption policy requests `FSCRYPT_POLICY_FLAGS_PAD_32` (AOSP: 16, and 4
+  on unreachable pre-R v1 policies); the stale in-tree `fscrypt_test`
+  expectations were updated to match (GrapheneOS's fork changed only the
+  code, leaving its test copy contradicting it — no behavior delta).
+  Driver marker; new `tests/test_fbe_padding.py`; `system/extras` added to
+  both patchkit alias maps.
+* **26 patches, 150 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 
