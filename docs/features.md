@@ -87,6 +87,7 @@ their content until the user explicitly allows it.
 | Minimal app set | `Gallery2` stripped via `LENOS_STRIP_PACKAGES` (`vendor_lineage/0001`), AudioFX off (`TARGET_EXCLUDES_AUDIOFX`), MP3/Music app (`Twelve`) kept for now |
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
 | `LenosSecurity` app | ships with: auto-BFU timer (init backend), PIN-scramble switch (writes the same `Settings.Secure` key SystemUI reads), duress PIN/password UI (framework service), status card. The old global Wi-Fi hostname toggle was dropped in the GrapheneOS-faithful redo — that control is per network in Wi-Fi settings, and the app no longer needs `NETWORK_SETTINGS` |
+| Screenshot metadata | `frameworks_base/0013` + `packages_apps_Settings/0001` | SystemUI screenshot exports carry no timestamp, timezone or build-string EXIF metadata by default (GrapheneOS's `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` gate, default off; LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line removed to match GrapheneOS/AOSP). Per-user toggle: Settings → Security & privacy → More security & privacy → "Save screenshot timestamp to EXIF" |
 
 ## Not in the 1.0 series
 
@@ -126,6 +127,12 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   existing install keeps its stored value (`Settings.Secure
   lock_screen_allow_private_notifications`); the toggle is Settings →
   Notifications → Lockscreen notifications.
+* **Screenshot metadata is stripped by default** — the built-in screenshot
+  flow writes no capture date, timezone or build string to the image EXIF
+  (GrapheneOS default). The per-user toggle "Save screenshot timestamp to
+  EXIF" (Settings → Security & privacy → More security & privacy) restores
+  the AOSP timestamps; the build-string tag never comes back. Third-party
+  screenshot tools manage their own metadata.
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).
@@ -171,7 +178,10 @@ on every appearance (`settings get secure lockscreen_scramble_pin_layout`
 unset means default on; `0` disables it), a newly saved Wi-Fi network shows
 per-connection random MAC and no DHCP hostname (network details),
 `pm get-max-users` reports 32, on a fresh install
-`settings get secure lock_screen_allow_private_notifications` is `0`, and on
+`settings get secure lock_screen_allow_private_notifications` is `0`, a fresh
+screenshot shows no `DateTimeOriginal`/`OffsetTimeOriginal`/`Software` EXIF
+tags unless "Save screenshot timestamp to EXIF" is enabled (`settings get
+secure screenshot_timestamp_exif` unset means off), and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

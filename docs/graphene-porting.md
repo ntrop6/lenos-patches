@@ -682,7 +682,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
-| Private screenshots (EXIF) | Timestamp/timezone tags gated on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`ImageExporter.java:513`); Software tag removed — LineageOS 23.2 sets `exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Android " + Build.DISPLAY)` (`los_ImageExporter.java:520`), GrapheneOS tree has no such line | 2 hunks in fwb SystemUI + Settings row; constant seeded | S | quick win |
+| Private screenshots (EXIF) | Timestamp/timezone tags gated on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`ImageExporter.java:513`); Software tag removed — LineageOS 23.2 sets `exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Android " + Build.DISPLAY)` (`los_ImageExporter.java:520`), GrapheneOS tree has no such line | 2 hunks in fwb SystemUI + Settings row; constant seeded | S | quick win — **done** (`fwb/0013` + `packages_apps_Settings/0001`) |
 | Sensitive notifications hidden by default / passwords hidden while typing | Confirmed: `packages/SettingsProvider/res/values/defaults.xml:170` — `def_lock_screen_allow_private_notifications` = **false** in GrapheneOS (LineageOS 23.2 same file `:170` = **true**), seeded in `DatabaseHelper.java:1642-1643` (fresh DB) and `:2245-2246` (upgrade); passwords-hidden default already exists in AOSP 16 (`def_text_show_password` empty) | flip our default to false (affects new installs/users; existing user choices kept) | S | quick win |
 | Storage Scopes (alternative to storage permissions) | `GosPackageStateFlag.STORAGE_SCOPES_ENABLED = 0`; scope model `core/java/android/app/StorageScope.java`; fake permission grants `services/core/java/com/android/server/pm/GosPackageStatePermissions.java`; MediaProvider enforcement `src/com/android/providers/media/StorageScopesHooks.java` (`callingIdentity.getStorageScopes()`); app hooks `core/java/com/android/internal/app/StorageScopesAppHooks.java`; UI in Permission module `.../permissioncontroller/sscopes/` (Activity/Fragment/Utils + `strings_sscopes.xml`) + Settings `AppStorageScopesPreference.kt` | requires the GosPackageState core first (`GosPackageState*` + `PackageManagerHooks`), then scope model + MediaProvider hooks + Permission/Settings UI | L–XL | port later (after GosPackageState) |
 | Contact Scopes (alternative to the Contacts permission) | `CONTACT_SCOPES_ENABLED = 5`; API/storage `core/java/android/ext/cscopes/ContactScopesApi.java` + `ContactScopesStorage.java`, `core/java/com/android/internal/app/ContactScopes.java`; provider filtering `ContactsProvider/src/.../ScopedContactsProvider.java` + `ContactScopesUiHelper.java` (design notes `ContactScopes.md`); UI `.../permissioncontroller/cscopes/ContactScopesActivity.kt` + Settings `AppContactScopesPreference.kt` | same GosPackageState dependency + ContactsProvider fork | L | port later (after GosPackageState) |
@@ -774,7 +774,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 | 10 | Delayed "Allow" (permission + ADB) | S | Permission, SystemUI | 1-second anti-tapjacking gate, absent from LineageOS 23.2 |
 | 11 | Wireless alerts fully optional | S | CellBroadcastReceiver | presidential alerts become opt-out (config + channel-manager + alert-service respect the pref) |
 | 12 | FLAG_IMMUTABLE log+warp | S | fwb | mutable PendingIntent logs instead of crashing third-party apps (GrapheneOS behavior) |
-| 13 | Screenshot EXIF defaults | S | fwb (SystemUI) | drops timestamp/timezone tags and the Software tag; constant seeded |
+| 13 | Screenshot EXIF defaults | S | fwb (SystemUI) | drops timestamp/timezone tags and the Software tag; constant seeded — **done** (`fwb/0013`; Settings toggle in `packages_apps_Settings/0001`) |
 | 14 | Clock paranoia threshold 250 ms | S | fwb | GrapheneOS 250 ms vs LineageOS 2000 ms drift warning; cheap precision/privacy parity |
 | 15 | More profiles (32) | S | vendor/device overlays | multiuser max 4 → 32; no framework work (fscrypt/quota paths already support it) |
 
@@ -804,7 +804,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 | Wireless alerts optional | CellBroadcastReceiver `res/values/config.xml` + `CellBroadcastChannelManager.java` (+ verify `CellBroadcastAlertService` read) | ~5 lines | GOS config `:25` true vs LOS false; GOS channel manager `:283` has the presidential `mAlwaysOn` commented out |
 | Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` |
 | Package installer preserves disabled | `packages/apps/PackageInstaller` | ~5 lines | `SessionParams#setApplicationEnabledSettingPersistent()` exists in LOS 23.2 (`PackageInstaller.java:3949`) |
-| Screenshot EXIF cleanup | fwb SystemUI `ImageExporter.java` | ~5 lines + Settings row | GOS gates timestamp on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`:513`); LOS writes `TAG_SOFTWARE = "Android " + Build.DISPLAY` (`los_ImageExporter.java:520`) |
+| Screenshot EXIF cleanup | fwb SystemUI `ImageExporter.java` | ~5 lines + Settings row | GOS gates timestamp on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`:513`); LOS writes `TAG_SOFTWARE = "Android " + Build.DISPLAY` (`los_ImageExporter.java:520`) — **done** (`fwb/0013`; Settings row in `packages_apps_Settings/0001`) |
 | Sensitive notification content hidden by default | fwb `packages/SettingsProvider/res/values/defaults.xml` | 1 line | GOS `def_lock_screen_allow_private_notifications` = false (`:170`) vs LOS 23.2 true; seeded at `DatabaseHelper.java:1642-1643` / `:2245-2246` (new installs/users only) — **done** (`fwb/0012`) |
 | More profiles 32 | vendor/device RRO `config_multiuserMaximumUsers` | 1 value | GOS `core/res/res/values/config.xml:3288`; LOS raw 1 + Lineage overlay 4 — **done** (`device/0007`) |
 | FLAG_IMMUTABLE log+warp | fwb `core/java/android/app/PendingIntent.java` | ~10 lines | GOS `:457-467` logs + returns `flags \| FLAG_IMMUTABLE`; LOS `:444-465` throws — **done** (`fwb/0011`) |
@@ -830,14 +830,15 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 23 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 24 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **23** patches (the fidelity redos plus the first
-quick-win batch: `fwb/0009`–`0012` and `device/0007`; earlier notes said 18). Verdicts: **Faithful**
-(line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep), **Original** (no
-GrapheneOS equivalent), **Plumbing** (build/device mechanics).
+`GrapheneOS/*` fetches. Note: this series now has **24** patches (the fidelity redos, the first quick-win
+batch `fwb/0009`–`0012` + `device/0007`, and the screenshot-EXIF pair `fwb/0013` + the extended
+`packages_apps_Settings/0001`; earlier notes said 18). Verdicts: **Faithful** (line-level port; deltas
+only environmental), **Deliberate** (lenOS choice — keep), **Original** (no GrapheneOS equivalent),
+**Plumbing** (build/device mechanics).
 
 | Patch(es) | GrapheneOS equivalent | Deviation found | Verdict |
 |---|---|---|---|
@@ -859,17 +860,20 @@ GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 | `fwb/0010` clock-drift warning | GrapheneOS `TimeDetectorStrategyImpl.java:90` (`SYSTEM_CLOCK_PARANOIA_THRESHOLD_MILLIS = 250`) | Value ported verbatim (AOSP `2 * 1000`) | **Faithful** — keep |
 | `fwb/0011` PendingIntent immutability warp | GrapheneOS `PendingIntent.checkPendingIntent2`: on a missing mutability flag under the enforced S+ compat change, log `Log.e(TAG, msg)` and return `flags \| FLAG_IMMUTABLE` instead of throwing; all four creation paths (`getActivity`, `getActivities` loop, `getBroadcast`, `getService`/foreground service) assign the returned flags | Ported verbatim, including the both-flags-still-throws behaviour. The lenOS comment in the patch notes the intent; no functional delta | **Faithful** — keep |
 | `fwb/0012` lockscreen notification privacy | GrapheneOS `packages/SettingsProvider/res/values/defaults.xml:170` (`def_lock_screen_allow_private_notifications` `false`) | One line flipped in place (AOSP `true`); seeded through `DatabaseHelper` for new installs/users exactly as GrapheneOS does — no RRO or seed indirection | **Faithful** — keep |
+| `fwb/0013` + `packages_apps_Settings/0001` screenshot metadata | GrapheneOS `ImageExporter.java:513` gate on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`writeExif` nulls `captureTime`; `updateExifAttributes` is nullable and early-returns before the date/timezone tags) and the Settings row `privacy_screenshot_timestamp_exif` (`more_security_privacy_settings.xml:108`) | SystemUI side is line-level faithful plus the removal of LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line (GrapheneOS/AOSP never write it; commented in the patch). Settings side: same row, strings and keys; GrapheneOS wires it via the `settings:boolSettingField` XML attribute, which lenOS does not port — the controller is registered explicitly in `MoreSecurityPrivacyFragment` (documented mechanism substitution, same UX). `packages_apps_Settings/0001` was renamed to `0001-lenos-ext-settings-ui` because it already carried the ext-controller infrastructure | **Faithful** (mechanism substitution documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 23 patches: **14 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 24 patches: **15 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
-Settings scramble UI (`packages_apps_Settings/0001`, single-credential-domain adaptation) and the first
-quick-win batch (`fwb/0009`–`0012`, `device/0007`, all value/line-level) — the
+Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
+single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
+auto-wiring) and the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level) — the
 auto-reboot pair carries the two benign environment deltas listed above, the Settings port the
-LockDomain removal; **5 are deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
+LockDomain removal + registration mechanism; **5 are deliberate lenOS choices** (first-boot defaults,
+ExtSettings trim + PIN
 scramble default ON, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several stricter than
 anything GrapheneOS ships (enterprise Wi-Fi, SUPL-off, scramble default); **2 are lenOS-original**
 (SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are line-level

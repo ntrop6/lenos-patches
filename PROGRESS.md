@@ -58,7 +58,22 @@ remaining deviation is deliberate and documented.
   * `device/0007`: `config_multiuserMaximumUsers` 4 → 32.
   * Driver markers for all six; new `tests/test_parity_hardening.py` (4
     classes) plus a multiuser test in `test_device_config.py`.
-* **23 patches, 135 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
+* **Screenshot metadata privacy** (GrapheneOS port, §14/§15/§16 of the
+  porting doc):
+  * `fwb/0013-lenos-screenshot-exif-privacy`: `ImageExporter.writeExif` nulls
+    `captureTime` when `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` is off
+    (default off), `updateExifAttributes` is `@Nullable` and early-returns
+    before the date/timezone tags, and LineageOS's `TAG_SOFTWARE = "Android "
+    + Build.DISPLAY` line (plus its `Build` import) is removed — GrapheneOS
+    and AOSP write no build string into screenshots.
+  * Settings toggle "Save screenshot timestamp to EXIF" (Settings → Security
+    & privacy → More security & privacy) with the GrapheneOS key, row and
+    strings, registered explicitly in `MoreSecurityPrivacyFragment` (no
+    `boolSettingField` XML auto-wiring). `packages_apps_Settings/0001` was
+    renamed to `0001-lenos-ext-settings-ui` — it already carried the
+    ext-controller infrastructure.
+  * Driver markers for both; new `tests/test_screenshot_exif.py` (2 classes).
+* **24 patches, 144 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 
