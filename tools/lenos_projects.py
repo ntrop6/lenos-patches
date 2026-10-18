@@ -18,6 +18,7 @@ PROJECT_ALIASES = {
     "packages/modules/Wifi": "packages_modules_Wifi",
     "system/vold": "system_vold",
     "system/core": "system_core",
+    "system/ca-certificates": "system_ca-certificates",
     "packages/services/Telephony": "packages_services_Telephony",
     "lineage-sdk": "lineage_sdk",
     "vendor/lineage": "vendor_lineage",

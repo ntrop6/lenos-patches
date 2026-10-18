@@ -221,6 +221,10 @@ cmd_apply() {
   grep -q 'privacy_screenshot_timestamp_exif' \
     "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
     || die "screenshot EXIF setting row missing from Settings"
+  for ca in 53a1b57a.0 60afe812.0 9d6523ce.0; do
+    [[ ! -e "$SRC/system/ca-certificates/files/$ca" ]] \
+      || die "distrusted CA $ca is still shipped"
+  done
   info "apply OK - tree carries the lenOS patch series"
 }
 
