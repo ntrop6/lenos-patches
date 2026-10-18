@@ -1,8 +1,9 @@
 """lenOS first-boot privacy defaults (frameworks/base SettingsProvider).
 
 Feature contract (see docs/features.md):
-* A fresh install seeds hardened defaults for Wi-Fi MAC randomization, Private
-  DNS, NTP and captive portal mode.
+* A fresh install seeds hardened defaults for Private DNS, NTP and captive
+  portal mode. Wi-Fi privacy defaults (per-network MAC randomization and DHCP
+  hostname) are carried by the Wi-Fi module patch, not seeded here.
 * The stock (non-lenOS) values stay AOSP-compatible: on a build without the
   lenOS product overlay nothing changes.
 * Defaults are only written with INSERT OR IGNORE semantics (first boot); a
@@ -30,19 +31,10 @@ class TestFirstBootDefaults(LenosPatchTest):
     def test_defaults_are_loaded_from_resources(self):
         self.assert_contains(
             self.DB,
-            "LENOS_WIFI_FORCE_NON_PERSISTENT_MAC",
-            "R.bool.def_lenos_wifi_force_non_persistent_mac_randomization",
             "R.string.def_lenos_private_dns_mode",
             "R.string.def_lenos_private_dns_specifier",
             "R.string.def_lenos_ntp_server",
             "R.integer.def_lenos_captive_portal_mode",
-        )
-
-    def test_wifi_key_matches_the_wifi_module_constant(self):
-        # Must stay identical to WifiConfigManager's force-enable flag name.
-        self.assert_contains(
-            self.DB,
-            '"non_persistent_mac_randomization_force_enabled"',
         )
 
     def test_correct_settings_namespaces_are_used(self):
@@ -57,7 +49,6 @@ class TestFirstBootDefaults(LenosPatchTest):
     def test_stock_resources_keep_aosp_behaviour(self):
         self.assert_contains(
             self.XML,
-            '<bool name="def_lenos_wifi_force_non_persistent_mac_randomization">false</bool>',
             '<string name="def_lenos_private_dns_mode" translatable="false">opportunistic</string>',
             '<string name="def_lenos_ntp_server" translatable="false">time.android.com</string>',
             '<integer name="def_lenos_captive_portal_mode">1</integer>',

@@ -28,10 +28,10 @@
     <bool name="def_lock_screen_show_qr_code_scanner">false</bool>
 
     <!-- Connectivity privacy ----------------------------------------- -->
-    <!-- Force per-connection (non-persistent) Wi-Fi MAC randomization. -->
-    <bool name="def_lenos_wifi_force_non_persistent_mac_randomization">true</bool>
     <!-- Strict DNS-over-TLS to Quad9 (Settings.Global.PRIVATE_DNS_MODE/
          PRIVATE_DNS_SPECIFIER). No local-network plaintext DNS by default. -->
+    <!-- Wi-Fi privacy defaults (per-connection MAC randomization, DHCP hostname
+         off) are carried by the Wi-Fi module patch, not by this overlay. -->
     <string name="def_lenos_private_dns_mode" translatable="false">hostname</string>
     <string name="def_lenos_private_dns_specifier" translatable="false">dns.quad9.net</string>
     <!-- NTP: community pool instead of the Google time service. -->

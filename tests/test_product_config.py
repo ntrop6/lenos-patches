@@ -133,7 +133,6 @@ class TestRuntimeOverlays(ProductConfigTestCase):
     def test_settings_defaults_are_hardened_and_do_not_overlap_device_rros(self):
         body = self.text("rro/LenosSettingsProviderOverlay/res/values/defaults.xml")
         for needle in (
-            '<bool name="def_lenos_wifi_force_non_persistent_mac_randomization">true</bool>',
             '<string name="def_lenos_private_dns_mode" translatable="false">hostname</string>',
             '<string name="def_lenos_private_dns_specifier" translatable="false">dns.quad9.net</string>',
             '<string name="def_lenos_ntp_server" translatable="false">pool.ntp.org</string>',
@@ -145,6 +144,10 @@ class TestRuntimeOverlays(ProductConfigTestCase):
             '<bool name="def_lock_screen_show_qr_code_scanner">false</bool>',
         ):
             self.assertIn(needle, body)
+        # Wi-Fi privacy defaults are carried by the Wi-Fi module patch
+        # (packages_modules_Wifi/0001) since the GrapheneOS-fidelity redo; the
+        # RRO must not define a competing value.
+        self.assertNotIn("def_lenos_wifi_force_non_persistent_mac_randomization", body)
         # def_device_name is owned by the device RROs (patched by
         # device_nothing_asteroids/0006-privacy-device-name.patch); defining
         # it here as well would create two competing static overlays.

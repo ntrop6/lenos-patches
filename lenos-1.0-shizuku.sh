@@ -185,9 +185,12 @@ cmd_apply() {
     || die "first-boot default resources missing from SettingsProvider"
   grep -q 'ro.lenos.version' "$SRC/vendor/lenos/config/lenos.mk" \
     || die "lenOS version prop missing from config/lenos.mk"
-  grep -q 'def_lenos_wifi_force_non_persistent_mac_randomization' \
-    "$SRC/frameworks/base/packages/SettingsProvider/res/values/defaults.xml" \
-    || die "Wi-Fi MAC randomization default missing from SettingsProvider"
+  grep -q 'SendDhcpHostname2' \
+    "$SRC/packages/modules/Wifi/service/java/com/android/server/wifi/util/XmlUtil.java" \
+    || die "Wi-Fi DHCP-hostname privacy default missing from the Wi-Fi module"
+  grep -q 'RANDOMIZATION_ALWAYS' \
+    "$SRC/packages/modules/Wifi/framework/java/android/net/wifi/WifiConfiguration.java" \
+    || die "Wi-Fi MAC randomization default missing from the Wi-Fi module"
   info "apply OK - tree carries the lenOS patch series"
 }
 
