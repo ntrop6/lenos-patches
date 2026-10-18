@@ -1,0 +1,560 @@
+diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
+new file mode 100644
+index 0000000..f3cf20f
+--- /dev/null
++++ b/res/values/strings_ext.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  Copyright (C) 2022 GrapheneOS
++  SPDX-License-Identifier: Apache-2.0
++
++  Ported from GrapheneOS by The lenOS Project.
++-->
++<resources>
++    <!-- Scramble PIN input layout (GrapheneOS strings_ext.xml). -->
++    <string name="scramble_pin_title">Scramble PIN input layout</string>
++</resources>
+diff --git a/res/xml/security_settings_picker.xml b/res/xml/security_settings_picker.xml
+index c64b53e..8ba8536 100644
+--- a/res/xml/security_settings_picker.xml
++++ b/res/xml/security_settings_picker.xml
+@@ -91,17 +91,15 @@
+             android:title="@string/lock_screen_auto_pin_confirm_title"
+             android:summary="@string/lock_screen_auto_pin_confirm_summary" />
+ 
++        <SwitchPreferenceCompat
++            android:key="scramble_pin_layout"
++            android:title="@string/scramble_pin_title" />
++
+         <SwitchPreferenceCompat
+             android:key="enhancedPinPrivacy"
+             android:title="@string/lockpattern_settings_enhanced_pin_privacy_title"
+             android:summary="@string/lockpattern_settings_enhanced_pin_privacy_summary" />
+ 
+-        <!-- Lineage additions, available in pin -->
+-        <SwitchPreferenceCompat
+-            android:key="lockscreen_scramble_pin_layout"
+-            android:title="@string/unlock_scramble_pin_layout_title"
+-            android:summary="@string/unlock_scramble_pin_layout_summary" />
+-
+         <!-- available in pin/pattern/password -->
+         <com.android.settings.security.screenlock.ProtectedTimeoutListPreference
+             android:key="lock_after_timeout"
+diff --git a/res/xml/sim_lock_settings.xml b/res/xml/sim_lock_settings.xml
+index 02db847..baa0ad5 100644
+--- a/res/xml/sim_lock_settings.xml
++++ b/res/xml/sim_lock_settings.xml
+@@ -23,6 +23,11 @@
+             android:summaryOn="@string/sim_lock_on"
+             android:summaryOff="@string/sim_lock_off"/>
+ 
++    <SwitchPreferenceCompat
++            android:key="sim_scramble_pin_layout"
++            android:dependency="sim_toggle"
++            android:title="@string/scramble_pin_title"/>
++
+     <com.android.settings.EditPinPreference
+             android:key="sim_pin"
+             android:dependency="sim_toggle"
+diff --git a/src/com/android/settings/IccLockSettings.java b/src/com/android/settings/IccLockSettings.java
+index 2c8416c..b7a3ada 100644
+--- a/src/com/android/settings/IccLockSettings.java
++++ b/src/com/android/settings/IccLockSettings.java
+@@ -23,6 +23,7 @@ import android.content.Intent;
+ import android.content.IntentFilter;
+ import android.content.res.Configuration;
+ import android.content.res.Resources;
++import android.ext.settings.ExtSettings;
+ import android.graphics.PixelFormat;
+ import android.os.AsyncTask;
+ import android.os.Bundle;
+@@ -124,6 +125,7 @@ public class IccLockSettings extends SettingsPreferenceFragment
+ 
+     private EditPinPreference mPinDialog;
+     private TwoStatePreference mPinToggle;
++    private TwoStatePreference mPinScramblingToggle;
+ 
+     private Resources mRes;
+ 
+@@ -196,6 +198,10 @@ public class IccLockSettings extends SettingsPreferenceFragment
+ 
+         mPinDialog = (EditPinPreference) findPreference(PIN_DIALOG);
+         mPinToggle = (TwoStatePreference) findPreference(PIN_TOGGLE);
++        mPinScramblingToggle = (TwoStatePreference) findPreference("sim_scramble_pin_layout");
++        mPinScramblingToggle.setOnPreferenceChangeListener((preference, newValue) -> {
++            return ExtSettings.SCRAMBLE_SIM_PIN_LAYOUT.put(requireContext(), (boolean) newValue);
++        });
+         if (savedInstanceState != null) {
+             if (savedInstanceState.containsKey(DIALOG_STATE)
+                     && restoreDialogStates(savedInstanceState)) {
+@@ -359,6 +365,8 @@ public class IccLockSettings extends SettingsPreferenceFragment
+                 mPinToggle.setChecked(isIccLockEnabled());
+             }
+         }
++
++        mPinScramblingToggle.setChecked(ExtSettings.SCRAMBLE_SIM_PIN_LAYOUT.get(requireContext()));
+     }
+ 
+     @Override
+diff --git a/src/com/android/settings/ext/AbstractTogglePrefController.java b/src/com/android/settings/ext/AbstractTogglePrefController.java
+new file mode 100644
+index 0000000..e7f4d4c
+--- /dev/null
++++ b/src/com/android/settings/ext/AbstractTogglePrefController.java
+@@ -0,0 +1,55 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++
++import androidx.annotation.Nullable;
++import androidx.preference.Preference;
++
++import com.android.settings.core.TogglePreferenceController;
++
++public abstract class AbstractTogglePrefController extends TogglePreferenceController {
++
++    protected AbstractTogglePrefController(Context ctx, String key) {
++        super(ctx, key);
++    }
++
++    @Nullable protected Preference preference;
++
++    @Override
++    public void updateState(Preference preference) {
++        super.updateState(preference);
++
++        if (preference != this.preference) {
++            preference.setSingleLineTitle(false);
++            preference.setPersistent(false);
++            this.preference = preference;
++        }
++    }
++
++    @Override
++    public boolean isSliceable() {
++        return false;
++    }
++
++    @Override
++    public int getSliceHighlightMenuRes() {
++        return NO_RES;
++    }
++}
+diff --git a/src/com/android/settings/ext/BoolSettingPrefController.java b/src/com/android/settings/ext/BoolSettingPrefController.java
+new file mode 100644
+index 0000000..a4f736b
+--- /dev/null
++++ b/src/com/android/settings/ext/BoolSettingPrefController.java
+@@ -0,0 +1,77 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.ext.settings.BoolSetting;
++import android.os.UserHandle;
++
++import androidx.annotation.NonNull;
++import androidx.lifecycle.LifecycleOwner;
++
++public class BoolSettingPrefController extends AbstractTogglePrefController
++        implements ExtSettingPrefController<BoolSetting> {
++    private final BoolSetting setting;
++    private final ExtSettingControllerHelper<BoolSetting> helper;
++    protected final UserHandle user;
++
++    public BoolSettingPrefController(Context ctx, String key, BoolSetting setting) {
++        this(ctx, key, setting, ctx.getUser());
++    }
++
++    public BoolSettingPrefController(Context ctx, String key, BoolSetting setting, UserHandle user) {
++        super(ctx, key);
++        this.setting = setting;
++        this.user = user;
++        Context userContext = ctx.getUser().equals(user) ? ctx : ctx.createContextAsUser(user, 0);
++        helper = new ExtSettingControllerHelper<>(userContext, setting);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        return helper.getAvailabilityStatus();
++    }
++
++    @Override
++    public final boolean isChecked() {
++        return setting.get(helper.context);
++    }
++
++    @Override
++    public boolean setChecked(boolean isChecked) {
++        return setting.put(helper.context, isChecked);
++    }
++
++    @Override
++    public void onResume(@NonNull LifecycleOwner owner) {
++        helper.onResume(this);
++    }
++
++    @Override
++    public void onPause(@NonNull LifecycleOwner owner) {
++        helper.onPause(this);
++    }
++
++    // called by the setting observer
++    @Override
++    public void accept(BoolSetting boolSetting) {
++        if (preference != null) {
++            updateState(preference);
++        }
++    }
++}
+diff --git a/src/com/android/settings/ext/ExtSettingControllerHelper.java b/src/com/android/settings/ext/ExtSettingControllerHelper.java
+new file mode 100644
+index 0000000..730333f
+--- /dev/null
++++ b/src/com/android/settings/ext/ExtSettingControllerHelper.java
+@@ -0,0 +1,84 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.ContentResolver;
++import android.content.Context;
++import android.ext.settings.Setting;
++import android.provider.Settings;
++
++import java.util.function.Consumer;
++
++import static com.android.settings.core.BasePreferenceController.AVAILABLE;
++import static com.android.settings.core.BasePreferenceController.CONDITIONALLY_UNAVAILABLE;
++import static com.android.settings.core.BasePreferenceController.DISABLED_FOR_USER;
++
++public class ExtSettingControllerHelper<T extends Setting> {
++    public final Context context;
++    private final T setting;
++
++    ExtSettingControllerHelper(Context context, T setting) {
++        this.context = context;
++        this.setting = setting;
++    }
++
++    public static int getGlobalSettingAvailability(Context ctx) {
++        return ctx.getUser().isSystem() ? AVAILABLE : DISABLED_FOR_USER;
++    }
++
++    public static int getSecondaryUserOnlySettingAvailability(Context ctx) {
++        return ctx.getUser().isSystem() ? DISABLED_FOR_USER : AVAILABLE;
++    }
++
++    public static int getDevModeSettingAvailability(Context ctx) {
++        ContentResolver cr = ctx.getContentResolver();
++        String key = Settings.Global.DEVELOPMENT_SETTINGS_ENABLED;
++
++        return (Settings.Global.getInt(cr, key, 0) == 0) ?
++            CONDITIONALLY_UNAVAILABLE : AVAILABLE;
++    }
++
++    int getAvailabilityStatus() {
++        if (setting.getScope() != Setting.Scope.PER_USER) {
++            return getGlobalSettingAvailability(context);
++        }
++        return AVAILABLE;
++    }
++
++    private Object observer;
++
++    void onResume(ExtSettingPrefController espc) {
++        registerObserver(espc);
++    }
++
++    void onPause(ExtSettingPrefController espc) {
++        unregisterObserver();
++    }
++
++    void registerObserver(Consumer<T> settingObserver) {
++        if (setting.canObserveState()) {
++            observer = setting.registerObserver(context, context.getMainThreadHandler(), settingObserver);
++        }
++    }
++
++    void unregisterObserver() {
++        if (setting.canObserveState()) {
++            setting.unregisterObserver(context, observer);
++        }
++    }
++}
+diff --git a/src/com/android/settings/ext/ExtSettingPrefController.java b/src/com/android/settings/ext/ExtSettingPrefController.java
+new file mode 100644
+index 0000000..4a8a2a7
+--- /dev/null
++++ b/src/com/android/settings/ext/ExtSettingPrefController.java
+@@ -0,0 +1,29 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.ext.settings.Setting;
++
++import androidx.annotation.NonNull;
++import androidx.lifecycle.DefaultLifecycleObserver;
++import androidx.lifecycle.LifecycleOwner;
++
++import java.util.function.Consumer;
++
++interface ExtSettingPrefController<T extends Setting> extends DefaultLifecycleObserver, Consumer<T> {
++}
+diff --git a/src/com/android/settings/password/ChooseLockGeneric.java b/src/com/android/settings/password/ChooseLockGeneric.java
+index 2867cd9..0644b6b 100644
+--- a/src/com/android/settings/password/ChooseLockGeneric.java
++++ b/src/com/android/settings/password/ChooseLockGeneric.java
+@@ -98,7 +98,7 @@ import com.android.settings.security.screenlock.PatternDotsVisiblePreferenceCont
+ import com.android.settings.security.screenlock.PatternErrorVisiblePreferenceController;
+ import com.android.settings.security.screenlock.PatternVisiblePreferenceController;
+ import com.android.settings.security.screenlock.PinPrivacyPreferenceController;
+-import com.android.settings.security.screenlock.PinScramblePreferenceController;
++import com.android.settings.security.screenlock.PinScramblingPrefController;
+ import com.android.settings.security.screenlock.PowerButtonInstantLockPreferenceController;
+ import com.android.settingslib.RestrictedPreference;
+ import com.android.settingslib.core.AbstractPreferenceController;
+@@ -718,8 +718,6 @@ public class ChooseLockGeneric extends SettingsActivity {
+                     getContext(), mUserId, mLockPatternUtils));
+             mUnlockSettingsControllers.add(new PinPrivacyPreferenceController(
+                     getContext(), mUserId, mLockPatternUtils));
+-            mUnlockSettingsControllers.add(new PinScramblePreferenceController(
+-                    getContext(), mUserId, mLockPatternUtils));
+             mUnlockSettingsControllers.add(new PowerButtonInstantLockPreferenceController(
+                     getContext(), mUserId, mLockPatternUtils));
+             mUnlockSettingsControllers.add(new LockAfterTimeoutPreferenceController(
+@@ -727,6 +725,8 @@ public class ChooseLockGeneric extends SettingsActivity {
+             mAutoPinConfirmPreferenceController = new AutoPinConfirmPreferenceController(
+                     getContext(), mUserId, mLockPatternUtils, this);
+             mUnlockSettingsControllers.add(mAutoPinConfirmPreferenceController);
++            mUnlockSettingsControllers.add(new PinScramblingPrefController(
++                    requireContext(), UserHandle.of(mUserId)));
+         }
+ 
+         private void setUpUnlockSettingsPreference() {
+diff --git a/src/com/android/settings/security/screenlock/PinScramblePreferenceController.java b/src/com/android/settings/security/screenlock/PinScramblePreferenceController.java
+deleted file mode 100644
+index 6d7ae8a..0000000
+--- a/src/com/android/settings/security/screenlock/PinScramblePreferenceController.java
++++ /dev/null
+@@ -1,78 +0,0 @@
+-/*
+- * Copyright (C) 2018 The LineageOS Project
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- *      http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-package com.android.settings.security.screenlock;
+-
+-import android.app.admin.DevicePolicyManager;
+-import android.content.Context;
+-import androidx.preference.Preference;
+-import androidx.preference.TwoStatePreference;
+-
+-import com.android.internal.widget.LockPatternUtils;
+-import com.android.settings.core.PreferenceControllerMixin;
+-import com.android.settingslib.core.AbstractPreferenceController;
+-
+-import lineageos.providers.LineageSettings;
+-
+-public class PinScramblePreferenceController extends AbstractPreferenceController
+-        implements PreferenceControllerMixin, Preference.OnPreferenceChangeListener {
+-
+-    static final String KEY_LOCKSCREEN_SCRAMBLE_PIN_LAYOUT = "lockscreen_scramble_pin_layout";
+-
+-    private final int mUserId;
+-    private final LockPatternUtils mLockPatternUtils;
+-
+-    public PinScramblePreferenceController(Context context, int userId,
+-            LockPatternUtils lockPatternUtils) {
+-        super(context);
+-        mUserId = userId;
+-        mLockPatternUtils = lockPatternUtils;
+-    }
+-
+-    @Override
+-    public boolean isAvailable() {
+-        return isPinLock();
+-    }
+-
+-    @Override
+-    public String getPreferenceKey() {
+-        return KEY_LOCKSCREEN_SCRAMBLE_PIN_LAYOUT;
+-    }
+-
+-    @Override
+-    public void updateState(Preference preference) {
+-        ((TwoStatePreference) preference).setChecked(LineageSettings.System.getInt(
+-                mContext.getContentResolver(),
+-                LineageSettings.System.LOCKSCREEN_PIN_SCRAMBLE_LAYOUT,
+-                0) == 1);
+-    }
+-
+-    private boolean isPinLock() {
+-        int quality = mLockPatternUtils.getKeyguardStoredPasswordQuality(mUserId);
+-        boolean hasPin = quality == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC ||
+-                quality == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX;
+-        return mLockPatternUtils.isSecure(mUserId) && hasPin;
+-    }
+-
+-    @Override
+-    public boolean onPreferenceChange(Preference preference, Object newValue) {
+-        LineageSettings.System.putInt(
+-                mContext.getContentResolver(),
+-                LineageSettings.System.LOCKSCREEN_PIN_SCRAMBLE_LAYOUT,
+-                (Boolean) newValue ? 1 : 0);
+-        return true;
+-    }
+-}
+diff --git a/src/com/android/settings/security/screenlock/PinScramblingPrefController.java b/src/com/android/settings/security/screenlock/PinScramblingPrefController.java
+new file mode 100644
+index 0000000..830a216
+--- /dev/null
++++ b/src/com/android/settings/security/screenlock/PinScramblingPrefController.java
+@@ -0,0 +1,59 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.security.screenlock;
++
++import android.content.Context;
++import android.ext.settings.ExtSettings;
++import android.os.UserHandle;
++
++import com.android.internal.widget.LockPatternUtils;
++import com.android.settings.ext.BoolSettingPrefController;
++import com.android.settings.overlay.FeatureFactory;
++
++/**
++ * Ported from GrapheneOS (which parameterizes this by LockDomain). The Android 16
++ * LineageOS base has a single credential domain, so the keyguard PIN always uses
++ * ExtSettings.SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY here.
++ */
++public class PinScramblingPrefController extends BoolSettingPrefController {
++
++    private final LockPatternUtils lockPatternUtils;
++    private final UserHandle user;
++
++    static final String PREF_KEY = "scramble_pin_layout";
++
++    public PinScramblingPrefController(Context ctx, UserHandle user) {
++        super(ctx, PREF_KEY, ExtSettings.SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY, user);
++        this.lockPatternUtils = FeatureFactory.getFeatureFactory()
++                .getSecurityFeatureProvider()
++                .getLockPatternUtils(ctx);
++        this.user = user;
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        int res = super.getAvailabilityStatus();
++        if (res == AVAILABLE) {
++            if (lockPatternUtils.getCredentialTypeForUser(user.getIdentifier())
++                    != LockPatternUtils.CREDENTIAL_TYPE_PIN) {
++                return CONDITIONALLY_UNAVAILABLE;
++            }
++        }
++        return res;
++    }
++}
+diff --git a/src/com/android/settings/security/screenlock/ScreenLockSettings.java b/src/com/android/settings/security/screenlock/ScreenLockSettings.java
+index 1c66b71..94adb50 100644
+--- a/src/com/android/settings/security/screenlock/ScreenLockSettings.java
++++ b/src/com/android/settings/security/screenlock/ScreenLockSettings.java
+@@ -89,6 +89,7 @@ public class ScreenLockSettings extends DashboardFragment
+         controllers.add(new AutoPinConfirmPreferenceController(
+                 context, MY_USER_ID, lockPatternUtils, parent));
+         controllers.add(new OwnerInfoPreferenceController(context, parent));
++        controllers.add(new PinScramblingPrefController(context, UserHandle.of(MY_USER_ID)));
+         return controllers;
+     }
+ 

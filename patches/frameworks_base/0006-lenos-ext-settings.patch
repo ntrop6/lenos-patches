@@ -151,7 +151,7 @@ new file mode 100644
 index 00000000..bf47b35d
 --- /dev/null
 +++ b/core/java/android/ext/settings/ExtSettings.java
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,141 @@
 +/*
 + * Copyright (C) 2022 GrapheneOS
 + * Copyright (C) 2026 The lenOS Project
@@ -210,7 +210,11 @@ index 00000000..bf47b35d
 +            Setting.Scope.PER_USER, Settings.Secure.SCREENSHOT_TIMESTAMP_EXIF, false);
 +
 +    public static final BoolSetting SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY = new BoolSetting(
-+            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_PIN_LAYOUT_PRIMARY, false);
++            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_PIN_LAYOUT_PRIMARY,
++            // lenOS: scrambled PIN layout is on by default (hardening deviation from
++            // GrapheneOS, which ships this toggle disabled). The SIM PIN layout inherits
++            // this value.
++            true);
 +    public static final BoolSetting SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_SECONDARY = new BoolSetting(
 +            Setting.Scope.PER_USER, Settings.Secure.SCRAMBLE_PIN_LAYOUT_SECONDARY, false);
 +

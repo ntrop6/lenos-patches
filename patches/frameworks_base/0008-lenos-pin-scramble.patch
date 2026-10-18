@@ -1,0 +1,208 @@
+diff --git a/packages/SystemUI/src/com/android/keyguard/KeyguardPINView.java b/packages/SystemUI/src/com/android/keyguard/KeyguardPINView.java
+index ca387a94..622b67f2 100644
+--- a/packages/SystemUI/src/com/android/keyguard/KeyguardPINView.java
++++ b/packages/SystemUI/src/com/android/keyguard/KeyguardPINView.java
+@@ -44,11 +44,6 @@ import com.android.settingslib.animation.DisappearAnimationUtils;
+ import com.android.systemui.res.R;
+ import com.android.systemui.statusbar.policy.DevicePostureController.DevicePostureInt;
+ 
+-import java.util.ArrayList;
+-import java.util.Arrays;
+-import java.util.Collections;
+-import java.util.List;
+-
+ /**
+  * Displays a PIN pad for unlocking.
+  */
+@@ -70,10 +65,6 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
+     private boolean mIsSmallLockScreenLandscapeEnabled = false;
+     @DevicePostureInt private int mLastDevicePosture = DEVICE_POSTURE_UNKNOWN;
+     public static final long ANIMATION_DURATION = 650;
+-    private boolean mScramblePin;
+-
+-    private List<Integer> mNumbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 0);
+-    private final List<Integer> mDefaultNumbers = List.of(mNumbers.toArray(new Integer[0]));
+ 
+     public KeyguardPINView(Context context) {
+         this(context, null);
+@@ -278,36 +269,6 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
+                 }};
+     }
+ 
+-    protected void updatePinScrambling(boolean scramblePin) {
+-        if (scramblePin || scramblePin != mScramblePin) {
+-            mScramblePin = scramblePin;
+-            if (scramblePin) {
+-                Collections.shuffle(mNumbers);
+-            } else {
+-                mNumbers = new ArrayList<>(mDefaultNumbers);
+-            }
+-            // get all children who are NumPadKeys
+-            List<NumPadKey> views = new ArrayList<>();
+-
+-            // mView contains all Views that make up the PIN pad; row0 = the entry test field, then
+-            // rows 1-4 contain the buttons. Iterate over all views that make up the buttons in the
+-            // pad
+-            for (int row = 1; row < 5; row++) {
+-                for (int column = 0; column < 3; column++) {
+-                    View key = mViews[row][column];
+-                    if (key instanceof NumPadKey) {
+-                        views.add((NumPadKey) key);
+-                    }
+-                }
+-            }
+-            // reset the digits in the views
+-            for (int i = 0; i < mNumbers.size(); i++) {
+-                NumPadKey view = views.get(i);
+-                view.setDigit(mNumbers.get(i));
+-            }
+-        }
+-    }
+-
+     @Override
+     public int getWrongPasswordStringId() {
+         return R.string.kg_wrong_pin;
+@@ -347,14 +308,6 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
+         return true;
+     }
+ 
+-    @Override
+-    protected int getNumberIndex(int number) {
+-        if (mScramblePin) {
+-            return (mNumbers.indexOf(number) + 1) % mNumbers.size();
+-        }
+-        return super.getNumberIndex(number);
+-    }
+-
+     @Override
+     public boolean hasOverlappingRendering() {
+         return false;
+diff --git a/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputView.java b/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputView.java
+index fb5494b1..1d06fd78 100644
+--- a/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputView.java
++++ b/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputView.java
+@@ -44,7 +44,9 @@ import com.android.internal.widget.LockscreenCredential;
+ import com.android.systemui.Flags;
+ import com.android.systemui.res.R;
+ 
++import java.security.SecureRandom;
+ import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.List;
+ 
+ /**
+@@ -149,13 +151,9 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
+         }
+     }
+ 
+-    protected int getNumberIndex(int number) {
+-        return number;
+-    }
+-
+     private void performNumberClick(int number) {
+         if (number >= 0 && number <= 9) {
+-            mButtons[getNumberIndex(number)].performClick();
++            mButtons[digitToViewIndexMap[number]].performClick();
+         }
+     }
+ 
+@@ -275,4 +273,32 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
+         animatorSet.playTogether(animators);
+         animatorSet.start();
+     }
++
++    // lenOS: PIN input scrambling, ported from GrapheneOS. digitToViewIndexMap maps a
++    // digit to the position of the NumPadKey displaying it, so that hardware-key and
++    // accessibility "click digit N" paths hit the correct shuffled key.
++    private final SecureRandom secureRandom = new SecureRandom();
++
++    private final int[] digitToViewIndexMap = new int[mButtons.length];
++
++    void setupPinScrambling(boolean enabled) {
++        NumPadKey[] buttons = mButtons;
++        int numButtons = buttons.length;
++
++        var digits = new ArrayList<Integer>(numButtons);
++
++        for (int i = 0; i < numButtons; ++i) {
++            digits.add(i);
++        }
++
++        if (enabled) {
++            Collections.shuffle(digits, secureRandom);
++        }
++
++        for (int i = 0; i < numButtons; ++i) {
++            int digit = digits.get(i);
++            buttons[i].setDigit(digit);
++            digitToViewIndexMap[digit] = i;
++        }
++    }
+ }
+diff --git a/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputViewController.java b/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputViewController.java
+index 9608cd2b..24f4d843 100644
+--- a/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputViewController.java
++++ b/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputViewController.java
+@@ -22,6 +22,9 @@ import static com.android.internal.widget.flags.Flags.hideLastCharWithPhysicalIn
+ import static com.android.systemui.Flags.pinInputFieldStyledFocusState;
+ import static com.android.systemui.util.kotlin.JavaAdapterKt.collectFlow;
+ 
++import android.content.Context;
++import android.ext.settings.BoolSetting;
++import android.ext.settings.ExtSettings;
+ import android.graphics.drawable.Drawable;
+ import android.graphics.drawable.GradientDrawable;
+ import android.graphics.drawable.StateListDrawable;
+@@ -100,6 +103,17 @@ public abstract class KeyguardPinBasedInputViewController<T extends KeyguardPinB
+         mPasswordEntry = mView.findViewById(mView.getPasswordTextViewId());
+         mInputManager = inputManager;
+         mShowAnimations = null;
++
++        // lenOS: scramble the PIN pad if enabled (default on, see ExtSettings).
++        // Ported from GrapheneOS. The keyguard PIN uses the keyguard setting;
++        // SIM PIN/PUK views use the SIM setting, which defaults to the keyguard
++        // setting.
++        Context ctx = view.getContext().getApplicationContext();
++        int userId = mSelectedUserInteractor.getSelectedUserId();
++        BoolSetting setting = this instanceof KeyguardPinViewController
++                ? ExtSettings.SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY
++                : ExtSettings.SCRAMBLE_SIM_PIN_LAYOUT;
++        view.setupPinScrambling(setting.get(ctx, userId));
+     }
+ 
+     private void updateAnimations(Boolean showAnimations) {
+diff --git a/packages/SystemUI/src/com/android/keyguard/KeyguardPinViewController.java b/packages/SystemUI/src/com/android/keyguard/KeyguardPinViewController.java
+index e6c1e535..7d446380 100644
+--- a/packages/SystemUI/src/com/android/keyguard/KeyguardPinViewController.java
++++ b/packages/SystemUI/src/com/android/keyguard/KeyguardPinViewController.java
+@@ -35,8 +35,6 @@ import com.android.systemui.statusbar.policy.DevicePostureController;
+ import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
+ import com.android.systemui.util.wrapper.LockPatternCheckerWrapper;
+ 
+-import lineageos.providers.LineageSettings;
+-
+ public class KeyguardPinViewController
+         extends KeyguardPinBasedInputViewController<KeyguardPINView> {
+     private final KeyguardUpdateMonitor mKeyguardUpdateMonitor;
+@@ -103,10 +101,6 @@ public class KeyguardPinViewController
+         mPostureController.addCallback(mPostureCallback);
+         mPasswordEntry.setUsePinShapes(true);
+         updateAutoConfirmationState();
+-        mView.updatePinScrambling(
+-                LineageSettings.System.getIntForUser(getContext().getContentResolver(),
+-                        LineageSettings.System.LOCKSCREEN_PIN_SCRAMBLE_LAYOUT, 0,
+-                        mSelectedUserInteractor.getSelectedUserId()) == 1);
+     }
+ 
+     protected void onUserInput() {
+@@ -130,10 +124,6 @@ public class KeyguardPinViewController
+     @Override
+     public void startAppearAnimation() {
+         super.startAppearAnimation();
+-        mView.updatePinScrambling(
+-                LineageSettings.System.getIntForUser(getContext().getContentResolver(),
+-                        LineageSettings.System.LOCKSCREEN_PIN_SCRAMBLE_LAYOUT, 0,
+-                        mSelectedUserInteractor.getSelectedUserId()) == 1);
+     }
+ 
+     @Override

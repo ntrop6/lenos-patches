@@ -191,6 +191,12 @@ cmd_apply() {
   grep -q 'RANDOMIZATION_ALWAYS' \
     "$SRC/packages/modules/Wifi/framework/java/android/net/wifi/WifiConfiguration.java" \
     || die "Wi-Fi MAC randomization default missing from the Wi-Fi module"
+  grep -q 'setupPinScrambling' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/keyguard/KeyguardPinBasedInputView.java" \
+    || die "keyguard PIN scrambling missing from SystemUI"
+  grep -q 'scramble_pin_layout' \
+    "$SRC/packages/apps/Settings/src/com/android/settings/security/screenlock/PinScramblingPrefController.java" \
+    || die "keyguard PIN scrambling UI missing from Settings"
   info "apply OK - tree carries the lenOS patch series"
 }
 
