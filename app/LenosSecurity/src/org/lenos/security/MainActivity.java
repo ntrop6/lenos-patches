@@ -2,7 +2,6 @@ package org.lenos.security;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ContentResolver;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -30,7 +29,6 @@ import android.widget.Toast;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -47,18 +45,9 @@ public class MainActivity extends Activity {
     static final String BFU_SETTING = "settings_reboot_after_timeout";
     static final int BFU_DEFAULT_MS = 64_800_000; // 18h, matches init default
     static final int BFU_12H_MS = 43_200_000;
+    // Settings.Secure key read by the SystemUI and Settings scramble readers
+    // (android.ext.settings.ExtSettings, GrapheneOS port). lenOS default: on.
     static final String SCRAMBLE_KEY = "lockscreen_scramble_pin_layout";
-
-    // Settings.Global key read by the Wi-Fi module (WifiGlobals) and written
-    // by WifiServiceImpl#setSendDhcpHostnameRestriction (lenOS Wi-Fi patch).
-    // Value is a bitmask: 1 = do not send the hostname on open networks,
-    // 2 = do not send it on secure networks; 3 blocks it everywhere.
-    static final String WIFI_HOSTNAME_KEY = "lenos_wifi_send_dhcp_hostname_restriction";
-    static final int WIFI_HOSTNAME_BLOCK_ALL = 3;
-
-    static final int WRITE_FAILED = 0;
-    static final int WRITE_LIVE = 1;
-    static final int WRITE_REBOOT = 2;
 
     private static final int BG = Color.parseColor("#111318");
     private static final int CARD = Color.parseColor("#1C1F26");
@@ -90,7 +79,6 @@ public class MainActivity extends Activity {
     private TextView bfuSummary;
     private TextView duressStatus;
     private Switch scrambleSwitch;
-    private Switch wifiHostnameSwitch;
     private Spinner bfuSpinner;
 
     // Last-committed values, used to ignore programmatic UI sync.
@@ -99,7 +87,6 @@ public class MainActivity extends Activity {
     //  reset by the time the listener runs.)
     private int currentBfu = Integer.MIN_VALUE;
     private int currentScramble = Integer.MIN_VALUE;
-    private int currentWifiHostname = Integer.MIN_VALUE;
 
     private EditText ownerPin;
     private EditText duressPin;
@@ -177,14 +164,11 @@ public class MainActivity extends Activity {
         pinCol.addView(scrambleSwitch);
         root.addView(card("PIN scramble", pinCol));
 
-        wifiHostnameSwitch = new Switch(this);
-        wifiHostnameSwitch.setText("Send device name to Wi-Fi networks");
-        wifiHostnameSwitch.setTextColor(TEXT);
         LinearLayout wifiCol = column();
-        wifiCol.addView(text("Off (recommended): DHCP requests carry no hostname, so the local "
-                + "network and its router logs never see this phone's name. "
-                + "Turn on only if a network needs it.", 13, MUTED, false));
-        wifiCol.addView(wifiHostnameSwitch);
+        wifiCol.addView(text("Off by default for every network (GrapheneOS-faithful): DHCP "
+                + "requests carry no hostname, so the local network and its router logs "
+                + "never see this phone's name. Override per network in the Wi-Fi network "
+                + "details (Advanced).", 13, MUTED, false));
         root.addView(card("Wi-Fi DHCP hostname", wifiCol));
 
         duressStatus = text("Enter your current screen-lock PIN to check or change duress credentials.", 13, MUTED, false);
@@ -221,7 +205,7 @@ public class MainActivity extends Activity {
         root.addView(card("Duress PIN and password", duressCol));
 
         LinearLayout extra = column();
-        extra.addView(text("Wi-Fi per-connection MAC: Settings \u2192 Network & internet \u2192 Internet \u2192 (network) \u2192 Privacy.", 13, MUTED, false));
+        extra.addView(text("Wi-Fi MAC + DHCP hostname: per network in Settings \u2192 Network & internet \u2192 Internet.", 13, MUTED, false));
         extra.addView(text("Other sensors: Settings \u2192 Apps \u2192 [app] \u2192 Permissions.", 13, MUTED, false));
         extra.addView(text("Per-app network block: app data-usage screen (Lineage POLICY_REJECT_ALL).", 13, MUTED, false));
         extra.addView(text("Do not lock the bootloader from this helper.", 13, DANGER, false));
@@ -230,11 +214,9 @@ public class MainActivity extends Activity {
         setContentView(scroll);
         wireBfu();
         wireScramble();
-        wireWifiHostname();
         refreshStatus();
         refreshBfu();
         refreshScramble();
-        refreshWifiHostname();
     }
 
     private void wireBfu() {
@@ -275,74 +257,6 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void wireWifiHostname() {
-        wifiHostnameSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                int value = isChecked ? 0 : WIFI_HOSTNAME_BLOCK_ALL;
-                if (value == currentWifiHostname) {
-                    return;
-                }
-                int result = writeWifiHostname(value);
-                if (result == WRITE_FAILED) {
-                    toast("Could not change the Wi-Fi hostname setting");
-                    refreshWifiHostname();
-                    return;
-                }
-                currentWifiHostname = value;
-                if (result == WRITE_REBOOT) {
-                    toast("Saved. Applies after the next reboot.");
-                } else {
-                    toast(isChecked
-                            ? "Device name will be sent to Wi-Fi networks"
-                            : "Wi-Fi hostname blocked");
-                }
-            }
-        });
-    }
-
-    private void refreshWifiHostname() {
-        int value;
-        try {
-            value = Settings.Global.getInt(getContentResolver(), WIFI_HOSTNAME_KEY,
-                    WIFI_HOSTNAME_BLOCK_ALL);
-        } catch (Throwable t) {
-            value = WIFI_HOSTNAME_BLOCK_ALL;
-        }
-        currentWifiHostname = value;
-        wifiHostnameSwitch.setChecked(value == 0);
-    }
-
-    /**
-     * Sets the DHCP hostname restriction (0 = no restriction, 3 = block on all
-     * networks). Preferred path is the Wi-Fi service API; the lenOS Wi-Fi
-     * module patch persists that value to Settings.Global. If the API is not
-     * available (or denied), the Settings.Global key is written directly and
-     * picked up on the next boot.
-     */
-    private int writeWifiHostname(int restriction) {
-        try {
-            Object wm = getSystemService(WIFI_SERVICE);
-            Method set = wm.getClass().getMethod(
-                    "setSendDhcpHostnameRestriction", int.class);
-            set.invoke(wm, restriction);
-            return WRITE_LIVE;
-        } catch (Throwable ignored) {
-            // Fall through to the persisted setting.
-        }
-        try {
-            if (Settings.Global.putInt(getContentResolver(), WIFI_HOSTNAME_KEY, restriction)) {
-                return WRITE_REBOOT;
-            }
-        } catch (Throwable ignored) {
-            // Not privileged: fall through to root.
-        }
-        if (RootShell.settingsPutGlobal(WIFI_HOSTNAME_KEY,
-                Integer.toString(restriction)).ok()) {
-            return WRITE_REBOOT;
-        }
-        return WRITE_FAILED;
-    }
-
     private void refreshStatus() {
         String secure;
         try {
@@ -350,19 +264,11 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             secure = "error: " + e.getMessage();
         }
-        int hostname = WIFI_HOSTNAME_BLOCK_ALL;
-        try {
-            hostname = Settings.Global.getInt(getContentResolver(), WIFI_HOSTNAME_KEY,
-                    WIFI_HOSTNAME_BLOCK_ALL);
-        } catch (Throwable ignored) {
-        }
         statusBody.setText(
                 "profile " + sysProp("ro.lenos.hardening.profile", "?") + "\n"
                         + "auto-BFU backend " + sysProp("ro.lenos.security.auto_bfu", "?") + "\n"
                         + "duress backend " + sysProp("ro.lenos.security.duress", "?") + "\n"
-                        + "per-connection MAC " + sysProp("ro.lenos.security.wifi_mac_per_connection", "?") + "\n"
-                        + "wifi DHCP hostname " + (hostname == 0 ? "sent"
-                                : hostname == WIFI_HOSTNAME_BLOCK_ALL ? "blocked" : "masked " + hostname) + "\n"
+                        + "wifi MAC + DHCP hostname privacy defaults (per-network)\n"
                         + "owner screen lock " + secure);
     }
 
@@ -405,34 +311,20 @@ public class MainActivity extends Activity {
     }
 
     private int readScramble() {
-        try {
-            Class<?> sys = Class.forName("lineageos.providers.LineageSettings$System");
-            Method get = sys.getMethod("getInt", ContentResolver.class, String.class, int.class);
-            Object key = sys.getField("LOCKSCREEN_PIN_SCRAMBLE_LAYOUT").get(null);
-            return (Integer) get.invoke(null, getContentResolver(), key, 1);
-        } catch (Exception ignored) {
-            return Settings.System.getInt(getContentResolver(), SCRAMBLE_KEY, 1);
-        }
+        // Settings.Secure key, the same one ExtSettings.
+        // SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY drives in SystemUI/Settings.
+        return Settings.Secure.getInt(getContentResolver(), SCRAMBLE_KEY, 1);
     }
 
     private boolean writeScramble(int value) {
         try {
-            Class<?> sys = Class.forName("lineageos.providers.LineageSettings$System");
-            Method put = sys.getMethod("putInt", ContentResolver.class, String.class, int.class);
-            Object key = sys.getField("LOCKSCREEN_PIN_SCRAMBLE_LAYOUT").get(null);
-            Object ok = put.invoke(null, getContentResolver(), key, value);
-            if (ok instanceof Boolean && (Boolean) ok) {
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (Settings.System.putInt(getContentResolver(), SCRAMBLE_KEY, value)) {
+            if (Settings.Secure.putInt(getContentResolver(), SCRAMBLE_KEY, value)) {
                 return true;
             }
         } catch (Throwable ignored) {
+            // Not privileged: fall through to root.
         }
-        return RootShell.settingsPutSystem(SCRAMBLE_KEY, Integer.toString(value)).ok();
+        return RootShell.settingsPutSecure(SCRAMBLE_KEY, Integer.toString(value)).ok();
     }
 
     private void checkDuress() {

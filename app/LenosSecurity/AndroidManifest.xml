@@ -11,11 +11,7 @@
          root (su) when the direct path is denied, so this is belt-and-suspenders. -->
     <uses-permission android:name="android.permission.ACCESS_KEYGUARD_SECURE_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
-    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
-    <!-- Wi-Fi privacy controls (DHCP hostname restriction); also declared in
-         config/privapp-permissions-org.lenos.security.xml. -->
-    <uses-permission android:name="android.permission.NETWORK_SETTINGS" />
 
     <application
         android:name=".CrashApp"

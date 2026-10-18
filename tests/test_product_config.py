@@ -6,9 +6,10 @@ Feature contract (see docs/features.md):
   upstream files: framework-res NTP fallback, SettingsProvider first-boot
   defaults, NetworkStack connectivity-check endpoints.
 * No Google infrastructure is referenced by any lenOS-shipped resource.
-* The security app is built against the platform API surface with an explicit
-  privileged-permission allowlist; its Wi-Fi hostname toggle uses the Wi-Fi
-  module API introduced by the packages/modules/Wifi patch.
+* The security app is built against the platform API surface with an explicit,
+  least-privilege permission allowlist. Wi-Fi privacy defaults are
+  GrapheneOS-faithful per-network defaults (packages/modules/Wifi patch), so
+  the app needs no Wi-Fi permissions and carries no global hostname switch.
 """
 from __future__ import annotations
 
@@ -162,11 +163,22 @@ class TestSecurityApp(ProductConfigTestCase):
         self.assertIn("platform_apis: true", body)
         self.assertNotRegex(body, r"^\s*sdk_version\s*:", "sdk_version must not be set")
 
-    def test_declares_and_allowlists_network_settings(self):
+    def test_holds_only_needed_privileged_permissions(self):
+        # The GrapheneOS-faithful Wi-Fi redo removed the app's only
+        # NETWORK_SETTINGS consumer (the global hostname clamp) and the only
+        # Settings.System writer (the old Lineage scramble key); neither
+        # permission may linger in the manifest or the allowlist.
         manifest = self.text(f"{self.APP}/AndroidManifest.xml")
-        self.assertIn("android.permission.NETWORK_SETTINGS", manifest)
         allowlist = self.text("config/privapp-permissions-org.lenos.security.xml")
-        self.assertIn("android.permission.NETWORK_SETTINGS", allowlist)
+        for perm in ("android.permission.NETWORK_SETTINGS",
+                     'android.permission.WRITE_SETTINGS"'):
+            self.assertNotIn(perm, manifest)
+            self.assertNotIn(perm, allowlist)
+        for perm in ("android.permission.ACCESS_KEYGUARD_SECURE_STORAGE",
+                     "android.permission.WRITE_SECURE_SETTINGS",
+                     "android.permission.READ_PRIVILEGED_PHONE_STATE"):
+            self.assertIn(perm, manifest)
+            self.assertIn(perm, allowlist)
 
     def test_version_strings_are_1_0_0(self):
         manifest = self.text(f"{self.APP}/AndroidManifest.xml")
@@ -175,13 +187,19 @@ class TestSecurityApp(ProductConfigTestCase):
         self.assertIn('<string name="lenos_version">1.0.0</string>', strings)
         self.assertNotIn("shizuku", strings.lower())
 
-    def test_wifi_hostname_toggle_uses_the_new_api_and_setting(self):
+    def test_no_global_wifi_hostname_switch(self):
+        # The control is per network in Wi-Fi settings now; the app must not
+        # keep a lying toggle for the removed global clamp API.
         main = self.text(f"{self.APP}/src/org/lenos/security/MainActivity.java")
-        self.assertIn('"lenos_wifi_send_dhcp_hostname_restriction"', main)
-        # Reflection keeps the app buildable independent of @FlaggedApi
-        # annotations; the Wi-Fi service checks NETWORK_SETTINGS itself.
-        self.assertIn('"setSendDhcpHostnameRestriction"', main)
-        self.assertIn("WIFI_HOSTNAME_BLOCK_ALL", main)
+        self.assertNotIn("setSendDhcpHostnameRestriction", main)
+        self.assertNotIn("lenos_wifi_send_dhcp_hostname_restriction", main)
+        self.assertIn("requests carry no hostname", main)
+
+    def test_scramble_switch_uses_the_secure_key(self):
+        main = self.text(f"{self.APP}/src/org/lenos/security/MainActivity.java")
+        self.assertIn('SCRAMBLE_KEY = "lockscreen_scramble_pin_layout"', main)
+        self.assertIn("Settings.Secure.putInt(getContentResolver(), SCRAMBLE_KEY, value)", main)
+        self.assertIn("settingsPutSecure", main)
 
     def test_main_activity_still_parses(self):
         self.assertEqual(

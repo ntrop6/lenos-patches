@@ -77,8 +77,8 @@ final class RootShell {
         return run("settings put global " + key + " " + value);
     }
 
-    static Result settingsPutSystem(String key, String value) {
-        return run("settings put system " + key + " " + value);
+    static Result settingsPutSecure(String key, String value) {
+        return run("settings put secure " + key + " " + value);
     }
 
     private static String readAll(InputStream in) {
