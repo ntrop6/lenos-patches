@@ -3,6 +3,50 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-18 (seventh session) — GrapheneOS fidelity redos: Wi-Fi privacy + PIN scrambling
+
+Audit-driven redo of the two features that were approximating GrapheneOS
+instead of porting it. Both now carry GrapheneOS's own design; every
+remaining deviation is deliberate and documented.
+
+* **Wi-Fi privacy defaults redone** (`packages_modules_Wifi/0001-privacy-mac-and-dhcp-defaults`,
+  replacing `0001-privacy-dhcp-hostname-default`):
+  * `RANDOMIZATION_ALWAYS (=100)` + IntDef entry; new networks default to
+    per-connection randomized MACs; `shouldUseNonPersistentRandomization`
+    returns true early for it, so any other per-network strategy the user
+    picks still wins.
+  * DHCP hostname off by default; XML tag renamed `SendDhcpHostname` →
+    `SendDhcpHostname2` so values written by stock Android are ignored
+    after upgrade; secure-only legacy backfill removed.
+  * Retired the old approximation: `Settings.Global` force-flag seeding
+    (`frameworks_base/0002` regenerated), RRO bool, app toggle.
+* **PIN scrambling redone** (GrapheneOS implementation replaces Lineage's):
+  * `frameworks_base/0008`: `setupPinScrambling` on the shared base view
+    (SecureRandom shuffle + digit→view remap, hardware keys follow the map),
+    wired for the keyguard (PRIMARY key) and SIM PIN/PUK (SIM key, inherits
+    by default).
+  * `packages_apps_Settings/0001`: ported `com.android.settings.ext`
+    controller infra + `PinScramblingPrefController` (adapted for A16's
+    single credential domain — no LockDomain), lock-picker switch, SIM-lock
+    switch, string.
+  * lenOS deviation: primary default **on** (GrapheneOS ships it off),
+    commented in `frameworks_base/0006`.
+  * Deleted the Lineage remnants: `PinScramblePreferenceController` + its
+    picker entry, `device_nothing_asteroids/0005`, the whole `lineage_sdk`
+    series.
+* **App fixed for both redos**: the global Wi-Fi hostname switch and its
+  `NETWORK_SETTINGS` permission are gone (least privilege; control is per
+  network now); the PIN-scramble switch reads/writes the `Settings.Secure`
+  key SystemUI reads (root fallback via `settings put secure`).
+* **Docs**: `docs/graphene-porting.md` (the 875-line portability inventory)
+  added to the repo with the §18 deviations audit updated for both redos;
+  `docs/features.md` brought in line (scramble row, reworded Wi-Fi rows,
+  honest-limits and verification-check updates).
+* Tests: `test_wifi_privacy.py` replaces `test_wifi_dhcp_hostname.py`;
+  `test_pin_scramble.py` rewritten for the ported feature; first-boot and
+  product-config tests updated. **18 patches, 126 tests green**
+  (`run-tests.sh`, `lenos-patch.py --check`).
+
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 
 Closes the last known gap of the duress backend: a duress wipe now erases the

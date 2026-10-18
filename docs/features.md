@@ -10,11 +10,12 @@ first build/flash gets recorded in `../PROGRESS.md`.
 Seeded once by `frameworks/base/0002-lenos-first-boot-defaults.patch` from
 resources that `rro/LenosSettingsProviderOverlay` hardens (stock values stay
 AOSP-compatible in the upstream source). Every value stays a normal user
-setting afterwards; lenOS never rewrites a user change.
+setting afterwards; lenOS never rewrites a user change. Wi-Fi privacy
+defaults are not seeded here — they are GrapheneOS-faithful per-network
+defaults in `packages_modules_Wifi/0001` (see Network).
 
 | Setting | Value | Effect |
 |---|---|---|
-| `non_persistent_mac_randomization_force_enabled` | `true` | per-connection (non-persistent) Wi-Fi MAC randomization; networks see a new MAC every connection |
 | `private_dns_mode` | `hostname` | strict DNS-over-TLS |
 | `private_dns_specifier` | `dns.quad9.net` | Quad9 DoT |
 | `NTP_SERVER` | `pool.ntp.org` | no Google time service (framework fallback lives in `rro/LenosFrameworksOverlay`) |
@@ -37,11 +38,11 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 
 | Feature | Where | Notes |
 |---|---|---|
-| Wi-Fi MAC randomization (per connection) | RRO + first-boot default | force-enabled via `WifiConfigManager`'s existing flag |
+| Wi-Fi MAC randomization (per connection) | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks default to `RANDOMIZATION_ALWAYS` (per-connection, non-persistent MACs); a per-network strategy the user picks explicitly still wins |
 | Strict Private DNS (DoT, Quad9) | first-boot default | breaks networks that block DoT or need captive-portal DNS; user-changeable |
 | NTP without Google | first-boot default + frameworks RRO | `pool.ntp.org` is a central pool; SNTP is unauthenticated either way |
 | Connectivity checks without Google | `rro/LenosNetworkStackOverlay` | `cp.cloudflare.com/generate_204`; the check still uses a third party (Cloudflare), it is just not Google (see limits) |
-| DHCP hostname blocked by default | `packages_modules_Wifi/0001` | DHCP requests carry no hostname on open or secure networks; toggle in the lenOS app; persisted in `Settings.Global.lenos_wifi_send_dhcp_hostname_restriction` |
+| DHCP hostname blocked by default | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks never send the hostname (XML tag renamed `SendDhcpHostname` → `SendDhcpHostname2`, so values written by stock Android are ignored after upgrade); per-network opt-in in the Wi-Fi network details — no global override |
 | Insecure enterprise Wi-Fi configs blocked | `device_nothing_asteroids/0002` | Settings/SetupWizard cannot configure "no certificate validation" enterprise networks |
 | Default radio mode without 2G | `device_nothing_asteroids/0004` | `ro.telephony.default_network=28,28` (NR+LTE+WCDMA); no GSM/2G fallback, user can change |
 | SUPL / AGPS network assistance off | `device_nothing_asteroids/0003` | no location data to a SUPL server; slower GPS first fix (trade-off, documented) |
@@ -53,13 +54,14 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 |---|---|---|
 | Auto reboot to before-first-unlock (BFU) | `system_core/0001` + `frameworks_base/0003` + `frameworks_base/0006` | GrapheneOS port: init owns a `CLOCK_BOOTTIME_ALARM` timer driven through the `sys.auto_reboot_ctl` property; system_server forwards keyguard showing-state changes (timeout while locked, `on_device_unlocked` on unlock). Requests before the first unlock are ignored, a running timer is not restarted by relocking, and expiry performs a normal reboot, so the FBE keys stay out of memory until the next unlock. `Settings.Global.settings_reboot_after_timeout` (GrapheneOS key, 18h default via `android.ext.settings`, 0 = off, 10min–3 days) with UI in the lenOS app |
 | Quick settings require unlock | `frameworks_base/0004` | GrapheneOS port: every tile action (click, secondary click, long click) goes through `QSTileImpl#handleAction`. While a secure keyguard is up, non-allow-listed tiles do nothing until the user authenticates — the keyguard bouncer is shown and the action runs only after a successful unlock. A locked device cannot toggle radios/connectivity (e.g. airplane mode to break remote tracking). Allow-list as in GrapheneOS: flashlight (both variants), QR scanner, color inversion/correction, Night Light, reduce bright colors, dark theme, rotation lock, battery saver, device controls |
+| PIN keypad scrambling | `frameworks_base/0008` + `packages_apps_Settings/0001` (+ default in `0006`) | GrapheneOS port: the keypad is shuffled with `SecureRandom` on every setup and hardware keys route through the digit→view map; the keyguard reads `ExtSettings.SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY`, SIM PIN/PUK views read the inheriting `SCRAMBLE_SIM_PIN_LAYOUT`. lenOS deviation: default **on** (GrapheneOS ships it off; commented in `frameworks_base/0006`). UI: lock-screen picker switch + SIM-lock switch; the lenOS app toggles the same `Settings.Secure` key |
 | Duress PIN/password | `frameworks_base/0005` + `0007`, `frameworks_opt_telephony/0001` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — erases every eSIM profile and powers off. The eUICC reset runs on a side thread with a three second budget, requires system uid and skips the carrier eSIM-removal notification. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential |
 
 ## Framework infrastructure
 
 | Feature | Where | Notes |
 |---|---|---|
-| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert |
+| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble is enforced — see the lock section |
 
 ## Apps and UI
 
@@ -67,7 +69,7 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 |---|---|
 | Minimal app set | `Gallery2` stripped via `LENOS_STRIP_PACKAGES` (`vendor_lineage/0001`), AudioFX off (`TARGET_EXCLUDES_AUDIOFX`), MP3/Music app (`Twelve`) kept for now |
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
-| `LenosSecurity` app | ships with: Wi-Fi DHCP hostname toggle, PIN-scramble state, auto-BFU timer (init backend), duress PIN/password UI (framework service), status card |
+| `LenosSecurity` app | ships with: auto-BFU timer (init backend), PIN-scramble switch (writes the same `Settings.Secure` key SystemUI reads), duress PIN/password UI (framework service), status card. The old global Wi-Fi hostname toggle was dropped in the GrapheneOS-faithful redo — that control is per network in Wi-Fi settings, and the app no longer needs `NETWORK_SETTINGS` |
 
 ## Not in the 1.0 series
 
@@ -89,9 +91,16 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   block DoT. Users can switch to opportunistic/off in Settings.
 * **No SUPL means slower GPS first fixes** (minutes outdoors, longer indoors);
   GNSS itself still works.
-* **DHCP hostname restriction blocks the per-network user request too** —
-  the restriction overrides the per-network "send hostname" preference on
-  purpose. Re-enable in the lenOS app if a network needs the hostname.
+* **DHCP hostname is off by default** (GrapheneOS-faithful). A network that
+  needs the device name must be opted in per network in its Wi-Fi network
+  details (Advanced). There is no global switch, by design: a global clamp
+  would override explicit per-network user choices.
+* **PIN scramble is on by default** — a lenOS deviation from GrapheneOS
+  (which ships it off). The keypad relayouts on every setup, which can
+  disorient screen-reader/accessibility users; switch it off in Settings →
+  Security → Screen lock settings, or the SIM lock screen for SIM PIN/PUK.
+  The secondary-credential scramble setting is dormant: Android 16's
+  LineageOS base has a single credential domain.
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).
@@ -132,8 +141,11 @@ RROs enabled, `settings list global | grep -E "private_dns|ntp|captive"` shows
 the seeded values, `settings get global settings_reboot_after_timeout` shows
 `64800000` (or unset — the ExtSettings default is 18h),
 `getprop sys.auto_reboot_ctl` shows a timeout while the device is locked and
-`on_device_unlocked` right after unlocking, the Wi-Fi hostname toggle changes
-the persisted setting, and on the lock screen tapping a sensitive tile (e.g.
+`on_device_unlocked` right after unlocking, the lock-screen keypad is shuffled
+on every appearance (`settings get secure lockscreen_scramble_pin_layout`
+unset means default on; `0` disables it), a newly saved Wi-Fi network shows
+per-connection random MAC and no DHCP hostname (network details),
+and on the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
 
