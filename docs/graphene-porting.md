@@ -796,18 +796,18 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 | Change | Where | Effort | Reference |
 |---|---|---|---|
-| Fingerprint permanent lockout 20 → 5 | fwb `biometrics/.../fingerprint/hidl/LockoutFrameworkImpl.java` | 1 line | GOS `:51` = 5; LOS `lineage-23.2` `:51` = 20 |
-| Max password length 64 → 128 | fwb `DevicePolicyManager.MAX_PASSWORD_LENGTH` | 1 line | GOS 128; LOS `DevicePolicyManager.java:3812` = 64 |
-| Clock drift warning 2000 → 250 ms | fwb `timedetector/TimeDetectorStrategyImpl.java` | 1 line | GOS `:90` = 250; LOS `:89` = 2*1000. The features page also advertises a 50 ms system-clock *update* threshold — not pinned to a constant in this scan (search the timedetector/alarm paths when implementing) |
+| Fingerprint permanent lockout 20 → 5 | fwb `biometrics/.../fingerprint/hidl/LockoutFrameworkImpl.java` | 1 line | GOS `:51` = 5; LOS `lineage-23.2` `:51` = 20 — **done** (`fwb/0009`) |
+| Max password length 64 → 128 | fwb `DevicePolicyManager.MAX_PASSWORD_LENGTH` | 1 line | GOS 128; LOS `DevicePolicyManager.java:3812` = 64 — **done** (`fwb/0009`) |
+| Clock drift warning 2000 → 250 ms | fwb `timedetector/TimeDetectorStrategyImpl.java` | 1 line | GOS `:90` = 250; LOS `:89` = 2*1000 — **done** (`fwb/0010`). The features page also advertises a 50 ms system-clock *update* threshold — not pinned to a constant in this scan (search the timedetector/alarm paths when implementing) |
 | FBE padding 16 → 32 | `system/extras` `libfscrypt/fscrypt.cpp` | 1–2 lines | GOS branch 17 `:247-248` (`FSCRYPT_POLICY_FLAGS_PAD_32`) |
 | Delayed "Allow" buttons | Permission `GrantPermissionsViewHandlerImpl.kt` + SystemUI `usb/UsbDebuggingActivity.java` | 2 hunks (~6 LOC) | GOS `:411` and `:108-110`; LOS has neither |
 | Wireless alerts optional | CellBroadcastReceiver `res/values/config.xml` + `CellBroadcastChannelManager.java` (+ verify `CellBroadcastAlertService` read) | ~5 lines | GOS config `:25` true vs LOS false; GOS channel manager `:283` has the presidential `mAlwaysOn` commented out |
 | Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` |
 | Package installer preserves disabled | `packages/apps/PackageInstaller` | ~5 lines | `SessionParams#setApplicationEnabledSettingPersistent()` exists in LOS 23.2 (`PackageInstaller.java:3949`) |
 | Screenshot EXIF cleanup | fwb SystemUI `ImageExporter.java` | ~5 lines + Settings row | GOS gates timestamp on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`:513`); LOS writes `TAG_SOFTWARE = "Android " + Build.DISPLAY` (`los_ImageExporter.java:520`) |
-| Sensitive notification content hidden by default | fwb `packages/SettingsProvider/res/values/defaults.xml` | 1 line | GOS `def_lock_screen_allow_private_notifications` = false (`:170`) vs LOS 23.2 true; seeded at `DatabaseHelper.java:1642-1643` / `:2245-2246` (new installs/users only) |
-| More profiles 32 | vendor/device RRO `config_multiuserMaximumUsers` | 1 value | GOS `core/res/res/values/config.xml:3288`; LOS raw 1 + Lineage overlay 4 |
-| FLAG_IMMUTABLE log+warp | fwb `core/java/android/app/PendingIntent.java` | ~10 lines | GOS `:457-467` logs + returns `flags \| FLAG_IMMUTABLE`; LOS `:444-465` throws |
+| Sensitive notification content hidden by default | fwb `packages/SettingsProvider/res/values/defaults.xml` | 1 line | GOS `def_lock_screen_allow_private_notifications` = false (`:170`) vs LOS 23.2 true; seeded at `DatabaseHelper.java:1642-1643` / `:2245-2246` (new installs/users only) — **done** (`fwb/0012`) |
+| More profiles 32 | vendor/device RRO `config_multiuserMaximumUsers` | 1 value | GOS `core/res/res/values/config.xml:3288`; LOS raw 1 + Lineage overlay 4 — **done** (`device/0007`) |
+| FLAG_IMMUTABLE log+warp | fwb `core/java/android/app/PendingIntent.java` | ~10 lines | GOS `:457-467` logs + returns `flags \| FLAG_IMMUTABLE`; LOS `:444-465` throws — **done** (`fwb/0011`) |
 | Prototype/EVT device warning | fwb AMS + strings (optional; gate on `ro.product.brand` to avoid it firing on every unlockable Nothing device) | ~30 lines | GOS `ActivityManagerService.java:6047-6081` |
 
 ---
@@ -830,14 +830,14 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 18 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 23 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **18** patches (the redo added `fwb/0007` and
-`frameworks_opt_telephony/0001`; earlier notes said 16). Verdicts: **Faithful** (line-level port; deltas
-only environmental), **Deliberate** (lenOS choice — keep), **Original** (no GrapheneOS equivalent),
-**Plumbing** (build/device mechanics).
+`GrapheneOS/*` fetches. Note: this series now has **23** patches (the fidelity redos plus the first
+quick-win batch: `fwb/0009`–`0012` and `device/0007`; earlier notes said 18). Verdicts: **Faithful**
+(line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep), **Original** (no
+GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
 | Patch(es) | GrapheneOS equivalent | Deviation found | Verdict |
 |---|---|---|---|
@@ -855,13 +855,19 @@ only environmental), **Deliberate** (lenOS choice — keep), **Original** (no Gr
 | `device/0005` + `lineage_sdk/0001` PIN scramble default | n/a — superseded by the GrapheneOS port | **Both patches deleted** in the fidelity redo: the Lineage scramble implementation they configured was replaced by GrapheneOS's (`frameworks_base/0008` + `packages_apps_Settings/0001`); the lenOS default-ON now rides `ExtSettings` (`fwb/0006`, commented deviation) | **Removed** — no longer part of the series |
 | `device/0006` device name | None | Default `def_device_name` / `def_device_name_simple` → "Android" (Bluetooth / Wi-Fi Direct / hotspot display name) | **Original** — keep |
 | `wifi/0001` Wi-Fi privacy defaults | GrapheneOS's `packages/modules/Wifi` change set: `RANDOMIZATION_ALWAYS = 100` as the default for new networks, `shouldUseNonPersistentRandomization` early-true for it, DHCP hostname off by default (`mIsSendDhcpHostnameEnabled` uninitialized), `SendDhcpHostname` → `SendDhcpHostname2` XML rename so stock-written values are ignored after upgrade, no secure-only backfill (their `XmlUtil.java` carries the "disabled by default for all Wi-Fi networks on GrapheneOS" comment) — an earlier inventory note claiming GrapheneOS leaves this stock was wrong | Ported exactly (4 files: `WifiConfiguration`, `WifiConfigManager`, `WifiConfigurationUtil`, `XmlUtil`). The earlier lenOS approximation — a global force-flag clamp (`Settings.Global.non_persistent_mac_randomization_force_enabled` seeding, persistence API, RRO bool) — was **deleted**: it silently overrode explicit per-network user choices | **Faithful (redo)** — keep |
+| `fwb/0009` credential hardening | GrapheneOS `LockoutFrameworkImpl.java:51` (`MAX_FAILED_ATTEMPTS_LOCKOUT_PERMANENT = 5`) and `DevicePolicyManager.java:3950` (`MAX_PASSWORD_LENGTH = 128`) | Values ported verbatim; the 30 s timed lockout and the timed-attempt count (5) were already identical | **Faithful** — keep |
+| `fwb/0010` clock-drift warning | GrapheneOS `TimeDetectorStrategyImpl.java:90` (`SYSTEM_CLOCK_PARANOIA_THRESHOLD_MILLIS = 250`) | Value ported verbatim (AOSP `2 * 1000`) | **Faithful** — keep |
+| `fwb/0011` PendingIntent immutability warp | GrapheneOS `PendingIntent.checkPendingIntent2`: on a missing mutability flag under the enforced S+ compat change, log `Log.e(TAG, msg)` and return `flags \| FLAG_IMMUTABLE` instead of throwing; all four creation paths (`getActivity`, `getActivities` loop, `getBroadcast`, `getService`/foreground service) assign the returned flags | Ported verbatim, including the both-flags-still-throws behaviour. The lenOS comment in the patch notes the intent; no functional delta | **Faithful** — keep |
+| `fwb/0012` lockscreen notification privacy | GrapheneOS `packages/SettingsProvider/res/values/defaults.xml:170` (`def_lock_screen_allow_private_notifications` `false`) | One line flipped in place (AOSP `true`); seeded through `DatabaseHelper` for new installs/users exactly as GrapheneOS does — no RRO or seed indirection | **Faithful** — keep |
+| `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 18 patches: **9 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
-duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`) and the
-Settings scramble UI (`packages_apps_Settings/0001`, single-credential-domain adaptation) — the
+PIN scrambling). Of the 23 patches: **14 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
+Settings scramble UI (`packages_apps_Settings/0001`, single-credential-domain adaptation) and the first
+quick-win batch (`fwb/0009`–`0012`, `device/0007`, all value/line-level) — the
 auto-reboot pair carries the two benign environment deltas listed above, the Settings port the
 LockDomain removal; **5 are deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
 scramble default ON, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several stricter than

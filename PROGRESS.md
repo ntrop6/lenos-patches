@@ -44,8 +44,21 @@ remaining deviation is deliberate and documented.
   honest-limits and verification-check updates).
 * Tests: `test_wifi_privacy.py` replaces `test_wifi_dhcp_hostname.py`;
   `test_pin_scramble.py` rewritten for the ported feature; first-boot and
-  product-config tests updated. **18 patches, 126 tests green**
-  (`run-tests.sh`, `lenos-patch.py --check`).
+  product-config tests updated.
+* **Quick-win batch 1** (§16 of the portability doc; six line-level ports):
+  * `fwb/0009`: fingerprint permanent lockout 20 → 5, maximum password
+    length 64 → 128 (GrapheneOS values).
+  * `fwb/0010`: clock-drift warning threshold 2 s → 250 ms.
+  * `fwb/0011`: PendingIntent immutability warp — missing mutability flags
+    log and force `FLAG_IMMUTABLE` instead of throwing; all four creation
+    paths use the returned flags; passing both flags still throws.
+  * `fwb/0012`: lockscreen notification content hidden by default
+    (`def_lock_screen_allow_private_notifications` false, seeded exactly
+    like GrapheneOS for new installs/users).
+  * `device/0007`: `config_multiuserMaximumUsers` 4 → 32.
+  * Driver markers for all six; new `tests/test_parity_hardening.py` (4
+    classes) plus a multiuser test in `test_device_config.py`.
+* **23 patches, 135 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 

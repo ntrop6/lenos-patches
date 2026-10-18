@@ -25,6 +25,13 @@ Other first-boot hardening from the same overlay: Bluetooth off, no Wi-Fi
 wakeup scanning, no "open networks available" notifications, location off,
 USB mass storage off, no lock-screen QR scanner shortcut.
 
+One Secure default is seeded through the stock resource instead
+(`frameworks/base/0012`, GrapheneOS-faithful): the
+`def_lock_screen_allow_private_notifications` default flips to `false`, so
+new installs and new users start with `Settings.Secure
+lock_screen_allow_private_notifications=0` — lock-screen notifications hide
+their content until the user explicitly allows it.
+
 ## Identity / correlation
 
 | Feature | Where | Notes |
@@ -33,6 +40,12 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 | Generic device name by default | `device_nothing_asteroids/0006` | "Android" instead of "Nothing Phone (3a)" — the device name is the Bluetooth adapter / Wi-Fi Direct name neighbours see; user can rename |
 | Generic tether SSID | `device_nothing_asteroids/0002` | `AndroidAP`, no model name |
 | Build fingerprint / product identity | *untouched by design* | keeps app compatibility, attestation, Nothing factory tooling |
+
+## Users and profiles
+
+| Feature | Where | Notes |
+|---|---|---|
+| Up to 32 users/profiles | `device_nothing_asteroids/0007` | GrapheneOS parity: `config_multiuserMaximumUsers` raised 4 → 32 in the vendor overlay (the framework raw default is 1; the overlay is what ships). Each profile is its own encryption domain, so more profiles support stronger per-identity separation; the limit is a ceiling, not a default |
 
 ## Network
 
@@ -56,12 +69,16 @@ USB mass storage off, no lock-screen QR scanner shortcut.
 | Quick settings require unlock | `frameworks_base/0004` | GrapheneOS port: every tile action (click, secondary click, long click) goes through `QSTileImpl#handleAction`. While a secure keyguard is up, non-allow-listed tiles do nothing until the user authenticates — the keyguard bouncer is shown and the action runs only after a successful unlock. A locked device cannot toggle radios/connectivity (e.g. airplane mode to break remote tracking). Allow-list as in GrapheneOS: flashlight (both variants), QR scanner, color inversion/correction, Night Light, reduce bright colors, dark theme, rotation lock, battery saver, device controls |
 | PIN keypad scrambling | `frameworks_base/0008` + `packages_apps_Settings/0001` (+ default in `0006`) | GrapheneOS port: the keypad is shuffled with `SecureRandom` on every setup and hardware keys route through the digit→view map; the keyguard reads `ExtSettings.SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY`, SIM PIN/PUK views read the inheriting `SCRAMBLE_SIM_PIN_LAYOUT`. lenOS deviation: default **on** (GrapheneOS ships it off; commented in `frameworks_base/0006`). UI: lock-screen picker switch + SIM-lock switch; the lenOS app toggles the same `Settings.Secure` key |
 | Duress PIN/password | `frameworks_base/0005` + `0007`, `frameworks_opt_telephony/0001` + app UI | entering either duress credential at any credential prompt (lock screen, Settings confirm, shell) destroys the KeyMint storage keys + Secretkeeper secrets — the user data becomes cryptographically inaccessible — erases every eSIM profile and powers off. The eUICC reset runs on a side thread with a three second budget, requires system uid and skips the carrier eSIM-removal notification. Only failed verifications are checked and only typed PIN/password credentials, so the real lock credential can never trigger it. Setting/checking/deleting requires the owner credential; the stored form is a scrypt-stretched hash, never the credential |
+| Credential limits (GrapheneOS values) | `frameworks_base/0009` | the fingerprint sensor locks out permanently after 5 failed attempts (AOSP 20; the 30 s timed lockout is unchanged) and the maximum supported password length is 128 characters (AOSP 64) |
+| Lock-screen notification content hidden | `frameworks_base/0012` | GrapheneOS default: content stays hidden on the lock screen until the user allows private notifications (see first-boot defaults) |
 
 ## Framework infrastructure
 
 | Feature | Where | Notes |
 |---|---|---|
 | `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble is enforced — see the lock section |
+| PendingIntent immutability warp | `frameworks_base/0011` | GrapheneOS port: once the S+ compat change is enforced, an app that omitted `FLAG_IMMUTABLE`/`FLAG_MUTABLE` no longer crashes with `IllegalArgumentException` — the framework logs and forces `FLAG_IMMUTABLE`; every creation path (`getActivity`, `getActivities`, `getBroadcast`, `getService`/foreground service) honours the returned flags. Passing both flags still throws |
+| Clock-drift warning at 250 ms | `frameworks_base/0010` | GrapheneOS value: the time detector logs a warning when something other than itself moves the system clock by more than 250 ms (AOSP 2 s) |
 
 ## Apps and UI
 
@@ -101,6 +118,14 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   Security → Screen lock settings, or the SIM lock screen for SIM PIN/PUK.
   The secondary-credential scramble setting is dormant: Android 16's
   LineageOS base has a single credential domain.
+* **Five bad fingerprint reads lock the sensor out permanently** (until the
+  device is unlocked with the PIN/password) — GrapheneOS's value; AOSP allows
+  20. Dry or move the finger rather than retrying if reads keep failing.
+* **Lock-screen notification content stays hidden by default where the
+  default applies** — new installs and new users. A device updated over an
+  existing install keeps its stored value (`Settings.Secure
+  lock_screen_allow_private_notifications`); the toggle is Settings →
+  Notifications → Lockscreen notifications.
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).
@@ -145,7 +170,9 @@ the seeded values, `settings get global settings_reboot_after_timeout` shows
 on every appearance (`settings get secure lockscreen_scramble_pin_layout`
 unset means default on; `0` disables it), a newly saved Wi-Fi network shows
 per-connection random MAC and no DHCP hostname (network details),
-and on the lock screen tapping a sensitive tile (e.g.
+`pm get-max-users` reports 32, on a fresh install
+`settings get secure lock_screen_allow_private_notifications` is `0`, and on
+the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
 
