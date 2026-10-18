@@ -20,7 +20,7 @@ for p in frameworks/base frameworks/opt/telephony packages/apps/Settings \
          packages/apps/Updater packages/apps/LineageParts \
          packages/modules/Connectivity packages/modules/Permission \
          packages/modules/Wifi system/vold system/core \
-         system/ca-certificates \
+         system/ca-certificates system/extras \
          packages/services/Telephony lineage-sdk vendor/lineage \
          device/nothing/asteroids; do
   if [[ "$p" == "$PROJECT" ]]; then ALIAS="$(echo "$p" | tr '/' '_')"; fi

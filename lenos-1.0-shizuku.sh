@@ -225,6 +225,9 @@ cmd_apply() {
     [[ ! -e "$SRC/system/ca-certificates/files/$ca" ]] \
       || die "distrusted CA $ca is still shipped"
   done
+  grep -q 'options->flags |= FSCRYPT_POLICY_FLAGS_PAD_32;' \
+    "$SRC/system/extras/libfscrypt/fscrypt.cpp" \
+    || die "FBE filename padding not hardened"
   info "apply OK - tree carries the lenOS patch series"
 }
 

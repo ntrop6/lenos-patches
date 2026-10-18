@@ -19,6 +19,7 @@ PROJECT_ALIASES = {
     "system/vold": "system_vold",
     "system/core": "system_core",
     "system/ca-certificates": "system_ca-certificates",
+    "system/extras": "system_extras",
     "packages/services/Telephony": "packages_services_Telephony",
     "lineage-sdk": "lineage_sdk",
     "vendor/lineage": "vendor_lineage",

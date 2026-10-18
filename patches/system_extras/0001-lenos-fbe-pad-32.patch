@@ -1,0 +1,174 @@
+diff --git a/libfscrypt/fscrypt.cpp b/libfscrypt/fscrypt.cpp
+index 4c756b18..e2b39e37 100644
+--- a/libfscrypt/fscrypt.cpp
++++ b/libfscrypt/fscrypt.cpp
+@@ -235,18 +235,11 @@ bool ParseOptionsForApiLevel(unsigned int first_api_level, const std::string& op
+         }
+     }
+ 
+-    // In the original setting of v1 policies and AES-256-CTS we used 4-byte
+-    // padding of filenames, so retain that on old first_api_levels.
+-    //
+-    // For everything else, use 16-byte padding.  This is more secure (it helps
+-    // hide the length of filenames), and it makes the inputs evenly divisible
+-    // into cipher blocks which is more efficient for encryption and decryption.
+-    if (first_api_level <= __ANDROID_API_Q__ && options->version == 1 &&
+-        options->filenames_mode == FSCRYPT_MODE_AES_256_CTS) {
+-        options->flags |= FSCRYPT_POLICY_FLAGS_PAD_4;
+-    } else {
+-        options->flags |= FSCRYPT_POLICY_FLAGS_PAD_16;
+-    }
++    // lenOS: GrapheneOS pads filenames to the maximum 32 bytes; AOSP uses 16
++    // (and 4 for pre-R v1 AES-256-CTS policies, a branch no device this tree
++    // builds for can take). Ported from the GrapheneOS commit "pad filenames
++    // to 32 bytes instead of 16 or 4 bytes" without the compatibility branch.
++    options->flags |= FSCRYPT_POLICY_FLAGS_PAD_32;
+ 
+     // Use DIRECT_KEY for Adiantum, since it's much more efficient but just as
+     // secure since Android doesn't reuse the same master key for multiple
+diff --git a/libfscrypt/tests/fscrypt_test.cpp b/libfscrypt/tests/fscrypt_test.cpp
+index 90297db4..5af8c65e 100644
+--- a/libfscrypt/tests/fscrypt_test.cpp
++++ b/libfscrypt/tests/fscrypt_test.cpp
+@@ -44,6 +44,11 @@ const EncryptionOptions TestString(unsigned int first_api_level, const std::stri
+ TEST(fscrypt, ParseOptions) {
+     EncryptionOptions dummy_options;
+ 
++    // lenOS: every policy built here is created with 32-byte filename padding
++    // (see fscrypt.cpp), so all padding expectations in this file are PAD_32.
++    // GrapheneOS's fork made the same code change but left these expectations
++    // stale; lenOS keeps them matching the code.
++
+     std::vector<std::string> defaults = {
+             "software",
+             "",
+@@ -62,7 +67,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_4, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+         EXPECT_FALSE(options.dusize_4k);
+     }
+     for (const auto& d : defaults) {
+@@ -71,7 +76,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+         EXPECT_FALSE(options.dusize_4k);
+     }
+ 
+@@ -83,28 +88,28 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_4, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+     {
+         TEST_STRING(30, "::v1", "aes-256-xts:aes-256-cts:v1");
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+     {
+         TEST_STRING(29, "::v2", "aes-256-xts:aes-256-cts:v2");
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+     {
+         TEST_STRING(29, "ice", "ice:aes-256-cts:v1");
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_PRIVATE, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_4, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+     EXPECT_FALSE(ParseOptionsForApiLevel(29, "ice:blah", &dummy_options));
+ 
+@@ -113,7 +118,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_PRIVATE, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_4, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+ 
+     {
+@@ -121,21 +126,21 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_PRIVATE, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_HEH, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+     {
+         TEST_STRING(29, "adiantum", "adiantum:adiantum:v1");
+         EXPECT_EQ(1, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_ADIANTUM, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_ADIANTUM, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16 | FSCRYPT_POLICY_FLAG_DIRECT_KEY, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32 | FSCRYPT_POLICY_FLAG_DIRECT_KEY, options.flags);
+     }
+     {
+         TEST_STRING(30, "adiantum", "adiantum:adiantum:v2");
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_ADIANTUM, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_ADIANTUM, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16 | FSCRYPT_POLICY_FLAG_DIRECT_KEY, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32 | FSCRYPT_POLICY_FLAG_DIRECT_KEY, options.flags);
+     }
+     EXPECT_FALSE(ParseOptionsForApiLevel(29, "adiantum:aes-256-cts", &dummy_options));
+     EXPECT_FALSE(ParseOptionsForApiLevel(30, "adiantum:aes-256-cts", &dummy_options));
+@@ -147,7 +152,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64, options.flags);
+     }
+     {
+         TEST_STRING(30, "aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized",
+@@ -155,7 +160,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_64, options.flags);
+     }
+ 
+     {
+@@ -163,7 +168,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_32, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32 | FSCRYPT_POLICY_FLAG_IV_INO_LBLK_32, options.flags);
+     }
+     EXPECT_FALSE(
+             ParseOptionsForApiLevel(30, "::inlinecrypt_optimized+emmc_optimized", &dummy_options));
+@@ -184,7 +189,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_HCTR2, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+     }
+ 
+     {
+@@ -192,7 +197,7 @@ TEST(fscrypt, ParseOptions) {
+         EXPECT_EQ(2, options.version);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_XTS, options.contents_mode);
+         EXPECT_EQ(FSCRYPT_MODE_AES_256_CTS, options.filenames_mode);
+-        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_16, options.flags);
++        EXPECT_EQ(FSCRYPT_POLICY_FLAGS_PAD_32, options.flags);
+         EXPECT_TRUE(options.dusize_4k);
+     }
+ }
