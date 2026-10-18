@@ -228,6 +228,12 @@ cmd_apply() {
   grep -q 'options->flags |= FSCRYPT_POLICY_FLAGS_PAD_32;' \
     "$SRC/system/extras/libfscrypt/fscrypt.cpp" \
     || die "FBE filename padding not hardened"
+  grep -q 'KEY_ENABLE_CMAS_PRESIDENTIAL_ALERTS, true' \
+    "$SRC/packages/apps/CellBroadcastReceiver/src/com/android/cellbroadcastreceiver/CellBroadcastAlertService.java" \
+    || die "wireless alerts not made optional"
+  grep -q 'show_presidential_alerts_settings">true<' \
+    "$SRC/packages/apps/CellBroadcastReceiver/res/values/config.xml" \
+    || die "presidential alert settings row not enabled"
   info "apply OK - tree carries the lenOS patch series"
 }
 

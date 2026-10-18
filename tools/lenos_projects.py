@@ -13,6 +13,7 @@ PROJECT_ALIASES = {
     "packages/apps/Settings": "packages_apps_Settings",
     "packages/apps/Updater": "packages_apps_Updater",
     "packages/apps/LineageParts": "packages_apps_LineageParts",
+    "packages/apps/CellBroadcastReceiver": "packages_apps_CellBroadcastReceiver",
     "packages/modules/Connectivity": "packages_modules_Connectivity",
     "packages/modules/Permission": "packages_modules_Permission",
     "packages/modules/Wifi": "packages_modules_Wifi",

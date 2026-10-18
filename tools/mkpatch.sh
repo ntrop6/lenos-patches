@@ -18,6 +18,7 @@ NAME="${2:?patch name, e.g. 0001-ssaid-rotate-on-reinstall}"
 ALIAS="$PROJECT"
 for p in frameworks/base frameworks/opt/telephony packages/apps/Settings \
          packages/apps/Updater packages/apps/LineageParts \
+         packages/apps/CellBroadcastReceiver \
          packages/modules/Connectivity packages/modules/Permission \
          packages/modules/Wifi system/vold system/core \
          system/ca-certificates system/extras \
