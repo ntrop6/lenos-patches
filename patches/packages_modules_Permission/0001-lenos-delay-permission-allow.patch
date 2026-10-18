@@ -1,0 +1,70 @@
+diff --git a/PermissionController/src/com/android/permissioncontroller/permission/ui/GrantPermissionsActivity.java b/PermissionController/src/com/android/permissioncontroller/permission/ui/GrantPermissionsActivity.java
+index af03fb0..0681e8d 100644
+--- a/PermissionController/src/com/android/permissioncontroller/permission/ui/GrantPermissionsActivity.java
++++ b/PermissionController/src/com/android/permissioncontroller/permission/ui/GrantPermissionsActivity.java
+@@ -128,6 +128,20 @@ public class GrantPermissionsActivity extends SettingsActivity
+ 
+     public static final String ANNOTATION_ID = "link";
+ 
++    public static boolean isAllowButton(int id) {
++        switch (id) {
++            case ALLOW_BUTTON:
++            case ALLOW_ALWAYS_BUTTON:
++            case ALLOW_FOREGROUND_BUTTON:
++            case ALLOW_ONE_TIME_BUTTON:
++            case ALLOW_ALL_BUTTON:
++            case ALLOW_SELECTED_BUTTON:
++                return true;
++            default:
++                return false;
++        }
++    }
++
+     public static final int NEXT_BUTTON = 15;
+     public static final int ALLOW_BUTTON = 0;
+     public static final int ALLOW_ALWAYS_BUTTON = 1; // Used in auto
+diff --git a/PermissionController/src/com/android/permissioncontroller/permission/ui/handheld/GrantPermissionsViewHandlerImpl.kt b/PermissionController/src/com/android/permissioncontroller/permission/ui/handheld/GrantPermissionsViewHandlerImpl.kt
+index 8fd432f..f3b999e 100644
+--- a/PermissionController/src/com/android/permissioncontroller/permission/ui/handheld/GrantPermissionsViewHandlerImpl.kt
++++ b/PermissionController/src/com/android/permissioncontroller/permission/ui/handheld/GrantPermissionsViewHandlerImpl.kt
+@@ -26,6 +26,7 @@ import android.os.Bundle
+ import android.text.method.LinkMovementMethod
+ import android.transition.ChangeBounds
+ import android.transition.TransitionManager
++import android.util.Log
+ import android.util.SparseIntArray
+ import android.view.Gravity
+ import android.view.LayoutInflater
+@@ -343,12 +344,27 @@ class GrantPermissionsViewHandlerImpl(
+     private fun updateButtons() {
+         for (i in 0 until BUTTON_RES_ID_TO_NUM.size()) {
+             val pos = BUTTON_RES_ID_TO_NUM.valueAt(i)
+-            buttons[pos]?.visibility =
+-                if (buttonVisibilities[pos]) {
+-                    View.VISIBLE
+-                } else {
+-                    View.GONE
++            val button = buttons[pos]!!
++            val buttonVisible = buttonVisibilities[pos]
++
++            button.visibility = if (buttonVisible) View.VISIBLE else View.GONE
++
++            if (buttonVisible && GrantPermissionsActivity.isAllowButton(pos)) {
++                button.isEnabled = false
++
++                val shouldLog = Log.isLoggable(TAG, Log.DEBUG)
++                // lenOS: the app package is not a field of this handler in this branch
++                // (upstream refactor); GrapheneOS logs it in the suffix.
++                val suffix = "$pos, group $groupName"
++                if (shouldLog) Log.d(TAG, "temporarily disabled button $suffix")
++
++                val action = Runnable {
++                    button.isEnabled = true
++                    if (shouldLog) Log.d(TAG, "enabled button $suffix")
+                 }
++                button.postDelayed(action, 1000)
++            }
++
+             if (pos == ALLOW_FOREGROUND_BUTTON && buttonVisibilities[pos]) {
+                 buttons[pos]?.text =
+                     mActivity.resources.getString(R.string.grant_dialog_button_allow_foreground)

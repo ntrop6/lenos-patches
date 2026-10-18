@@ -11,3 +11,4 @@
 0011-lenos-pendingintent-immutable.patch
 0012-lenos-lockscreen-notification-privacy.patch
 0013-lenos-screenshot-exif-privacy.patch
+0014-lenos-delay-usb-adb-allow.patch

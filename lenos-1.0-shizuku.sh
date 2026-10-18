@@ -234,6 +234,12 @@ cmd_apply() {
   grep -q 'show_presidential_alerts_settings">true<' \
     "$SRC/packages/apps/CellBroadcastReceiver/res/values/config.xml" \
     || die "presidential alert settings row not enabled"
+  grep -q 'public static boolean isAllowButton' \
+    "$SRC/packages/modules/Permission/PermissionController/src/com/android/permissioncontroller/permission/ui/GrantPermissionsActivity.java" \
+    || die "permission dialog Allow buttons not delayed"
+  grep -q 'accidental Allow button tap' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/usb/UsbDebuggingActivity.java" \
+    || die "USB debugging Allow button not delayed"
   info "apply OK - tree carries the lenOS patch series"
 }
 
