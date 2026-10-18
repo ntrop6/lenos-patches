@@ -9,6 +9,7 @@ Feature contract (see docs/features.md):
   not hard-disable any other RAT.
 * The default device name (Bluetooth adapter / Wi-Fi Direct) is generic, not
   the commercial model.
+* More profiles than stock are allowed (GrapheneOS parity: 32 full users).
 * The lenOS product inherits the Lineage device config.
 """
 from __future__ import annotations
@@ -26,6 +27,7 @@ class TestDeviceConfig(LenosPatchTest):
         "0003-disable-supl-network-assistance.patch",
         "0004-default-network-without-2g.patch",
         "0006-privacy-device-name.patch",
+        "0007-multiuser-max-users.patch",
     ]
     PRODUCT = "lenos_asteroids.mk"
     WIFI = "rro_overlays/AsteroidsWifiOverlay/res/values/config.xml"
@@ -33,12 +35,14 @@ class TestDeviceConfig(LenosPatchTest):
     PROPS = "system_ext.prop"
     DEVICE_NAME = "rro_overlays/AsteroidsSettingsProviderOverlay/res/values/defaults.xml"
     DEVICE_NAME_PRO = "rro_overlays/AsteroidsProSettingsProviderOverlay/res/values/defaults.xml"
+    MULTIUSER = "rro_overlays/FrameworksResCommon_Vendor/res/values/config.xml"
 
     def test_xml_files_are_well_formed(self):
         self.assert_xml(self.WIFI)
         self.assert_xml(self.CARRIER)
         self.assert_xml(self.DEVICE_NAME)
         self.assert_xml(self.DEVICE_NAME_PRO)
+        self.assert_xml(self.MULTIUSER)
 
     def test_lenos_product_inherits_lineage_and_vendor_config(self):
         self.assert_contains(
@@ -105,6 +109,18 @@ class TestDeviceConfig(LenosPatchTest):
                 '<string name="def_device_name_simple">Android</string>',
             )
             self.assert_not_contains(rel, "Nothing Phone", "Phone (3a)")
+
+    def test_more_profiles_are_allowed(self):
+        # GrapheneOS parity: 32 full users instead of LineageOS's 4 (the
+        # framework raw default is 1; this vendor overlay is what ships).
+        self.assert_contains(
+            self.MULTIUSER,
+            '<integer name="config_multiuserMaximumUsers">32</integer>',
+        )
+        self.assert_not_contains(
+            self.MULTIUSER,
+            '<integer name="config_multiuserMaximumUsers">4</integer>',
+        )
 
 
 if __name__ == "__main__":

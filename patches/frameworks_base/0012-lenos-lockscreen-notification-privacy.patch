@@ -1,0 +1,17 @@
+diff --git a/packages/SettingsProvider/res/values/defaults.xml b/packages/SettingsProvider/res/values/defaults.xml
+index ce8de5e8..675d0a01 100644
+--- a/packages/SettingsProvider/res/values/defaults.xml
++++ b/packages/SettingsProvider/res/values/defaults.xml
+@@ -166,8 +166,10 @@
+     <!-- Default for Settings.Secure.LOCK_SCREEN_SHOW_NOTIFICATIONS, 1==on -->
+     <integer name="def_lock_screen_show_notifications">1</integer>
+ 
+-    <!-- Default for Settings.Secure.LOCK_SCREEN_ALLOW_PRIVATE_NOTIFICATIONS -->
+-    <bool name="def_lock_screen_allow_private_notifications">true</bool>
++    <!-- Default for Settings.Secure.LOCK_SCREEN_ALLOW_PRIVATE_NOTIFICATIONS
++         lenOS: GrapheneOS default: notification content stays hidden on the
++         lockscreen until the user explicitly allows it. -->
++    <bool name="def_lock_screen_allow_private_notifications">false</bool>
+ 
+     <!-- Default for Settings.Secure.LOCK_SCREEN_SHOW_ONLY_UNSEEN_NOTIFICATIONS -->
+     <bool name="def_lock_screen_show_only_unseen_notifications">false</bool>

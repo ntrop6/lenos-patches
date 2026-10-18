@@ -197,6 +197,24 @@ cmd_apply() {
   grep -q 'scramble_pin_layout' \
     "$SRC/packages/apps/Settings/src/com/android/settings/security/screenlock/PinScramblingPrefController.java" \
     || die "keyguard PIN scrambling UI missing from Settings"
+  grep -q 'MAX_FAILED_ATTEMPTS_LOCKOUT_PERMANENT = 5' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/biometrics/sensors/fingerprint/hidl/LockoutFrameworkImpl.java" \
+    || die "fingerprint permanent-lockout hardening missing"
+  grep -q 'MAX_PASSWORD_LENGTH = 128' \
+    "$SRC/frameworks/base/core/java/android/app/admin/DevicePolicyManager.java" \
+    || die "password-length hardening missing"
+  grep -q 'SYSTEM_CLOCK_PARANOIA_THRESHOLD_MILLIS = 250' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/timedetector/TimeDetectorStrategyImpl.java" \
+    || die "clock-drift warning hardening missing"
+  grep -q 'checkPendingIntent2' \
+    "$SRC/frameworks/base/core/java/android/app/PendingIntent.java" \
+    || die "PendingIntent immutability warp missing"
+  grep -q 'def_lock_screen_allow_private_notifications">false<' \
+    "$SRC/frameworks/base/packages/SettingsProvider/res/values/defaults.xml" \
+    || die "lockscreen notification-content privacy default missing"
+  grep -q 'config_multiuserMaximumUsers">32<' \
+    "$SRC/device/nothing/asteroids/rro_overlays/FrameworksResCommon_Vendor/res/values/config.xml" \
+    || die "multiuser limit hardening missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

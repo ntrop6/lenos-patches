@@ -6,3 +6,7 @@
 0006-lenos-ext-settings.patch
 0007-lenos-esim-duress-wipe.patch
 0008-lenos-pin-scramble.patch
+0009-lenos-credential-hardening.patch
+0010-lenos-clock-drift-warning.patch
+0011-lenos-pendingintent-immutable.patch
+0012-lenos-lockscreen-notification-privacy.patch
