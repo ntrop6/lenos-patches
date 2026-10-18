@@ -57,6 +57,7 @@ their content until the user explicitly allows it.
 | Connectivity checks without Google | `rro/LenosNetworkStackOverlay` | `cp.cloudflare.com/generate_204`; the check still uses a third party (Cloudflare), it is just not Google (see limits) |
 | DHCP hostname blocked by default | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks never send the hostname (XML tag renamed `SendDhcpHostname` → `SendDhcpHostname2`, so values written by stock Android are ignored after upgrade); per-network opt-in in the Wi-Fi network details — no global override |
 | Insecure enterprise Wi-Fi configs blocked | `device_nothing_asteroids/0002` | Settings/SetupWizard cannot configure "no certificate validation" enterprise networks |
+| Distrusted root CAs removed | `system_ca-certificates/0001` | Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and NetLock Arany (Class Gold) roots are deleted from the system trust store, matching GrapheneOS commit `14ad6bb` and Google's 2025 root-store distrust; user-installed CAs and app-pinned trust are unaffected (see limits) |
 | Default radio mode without 2G | `device_nothing_asteroids/0004` | `ro.telephony.default_network=28,28` (NR+LTE+WCDMA); no GSM/2G fallback, user can change |
 | SUPL / AGPS network assistance off | `device_nothing_asteroids/0003` | no location data to a SUPL server; slower GPS first fix (trade-off, documented) |
 | Modem/radio logging and snapshot props off | `config/lenos.mk` | `persist.vendor.radio.*` logging off, small radio log buffer, `persist.traced.enable=0` |
@@ -133,6 +134,13 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   EXIF" (Settings → Security & privacy → More security & privacy) restores
   the AOSP timestamps; the build-string tag never comes back. Third-party
   screenshot tools manage their own metadata.
+* **The CA removals touch the system store only** — the platform TLS store
+  no longer trusts Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and
+  NetLock Arany (Class Gold), matching GrapheneOS and Google's 2025
+  root-store distrust. User-installed CAs, app-pinned trust and non-TLS
+  uses are unaffected. The AOSP snapshot pinned by LineageOS 23.2 still
+  ships these roots, so if that revision ever changes the patchkit hard-fails
+  until the removal is re-verified (by design).
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).
@@ -181,7 +189,9 @@ per-connection random MAC and no DHCP hostname (network details),
 `settings get secure lock_screen_allow_private_notifications` is `0`, a fresh
 screenshot shows no `DateTimeOriginal`/`OffsetTimeOriginal`/`Software` EXIF
 tags unless "Save screenshot timestamp to EXIF" is enabled (`settings get
-secure screenshot_timestamp_exif` unset means off), and on
+secure screenshot_timestamp_exif` unset means off),
+`ls /system/etc/security/cacerts | grep -E "53a1b57a|60afe812|9d6523ce"`
+prints nothing, and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

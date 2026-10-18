@@ -73,7 +73,16 @@ remaining deviation is deliberate and documented.
     renamed to `0001-lenos-ext-settings-ui` — it already carried the
     ext-controller infrastructure.
   * Driver markers for both; new `tests/test_screenshot_exif.py` (2 classes).
-* **24 patches, 144 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
+* **Distrusted CA removal** (`system_ca-certificates/0001`, GrapheneOS commit
+  `14ad6bb`): Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and
+  NetLock Arany (Class Gold) deleted from the system trust store. The
+  `android-16.0.0_r4` snapshot LineageOS pins (there is no Lineage fork for
+  `system/ca-certificates`) still ships all three, so this is a real
+  removal; `Android.bp` globs `files/*`, so no build edit is needed.
+  Driver file-absence markers; new `tests/test_ca_certificates.py`;
+  `system/ca-certificates` added to both patchkit alias maps
+  (`tools/lenos_projects.py`, `tools/mkpatch.sh`).
+* **25 patches, 147 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 

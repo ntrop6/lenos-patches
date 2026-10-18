@@ -695,7 +695,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Prototype/EVT/PVT device warning | AMS `services/core/java/com/android/server/am/ActivityManagerService.java:6047-6081` (`ro.boot.secure_boot != PRODUCTION` → notification) | fwb + strings; note: on an unlockable Nothing device this fires as intended (gate on `ro.product.brand` if undesired) | S | quick win (consider gating) |
 | UART debugging warning fix; bootloader/radio/boot partition version+fingerprint checks | Not located in this scan (Settings/About + device props) | verify separately | S–M | verify |
 | Wireless alerts fully optional | `CellBroadcastReceiver` `res/values/config.xml:25` `show_presidential_alerts_settings=true` (LineageOS `false`) making the pref visible; `CellBroadcastChannelManager.java:283` (presidential `mAlwaysOn` commented out) so the pref actually controls delivery; `CellBroadcastAlertService.java:639` reads `KEY_ENABLE_CMAS_PRESIDENTIAL_ALERTS` | patch CellBroadcastReceiver (4 files, ~10 LOC) | S | quick win |
-| CA removal (Chunghwa Telecom, Netlock) | `platform_system_ca-certificates` commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` | remove the same files; re-apply on each CA update | S | quick win |
+| CA removal (Chunghwa Telecom, Netlock) | `platform_system_ca-certificates` commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` | remove the same files; re-apply on each CA update | S | quick win — **done** (`system_ca-certificates/0001`) |
 | FLAG_IMMUTABLE log+warp instead of crash | fwb `core/java/android/app/PendingIntent.java:457-467`: logs the error and `return flags \| PendingIntent.FLAG_IMMUTABLE`; LineageOS `:444-465` throws | replace throw with log+warp | S | quick win |
 | More precise system clock | fwb `TimeDetectorStrategyImpl.java:90`: drift warning threshold `SYSTEM_CLOCK_PARANOIA_THRESHOLD_MILLIS = 250` (LineageOS = 2000); the features page additionally cites the 2000 ms→50 ms *update* threshold (constant not re-located in this scan beyond the paranoia value) | lower the constants | S | quick win |
 | Longer passwords | `DevicePolicyManager.MAX_PASSWORD_LENGTH`: GrapheneOS 128, LineageOS 23.2 = **64** (`DevicePolicyManager.java:3812`) | 1-line constant + audit `PasswordMetrics`/UI assumptions | S | quick win |
@@ -802,7 +802,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 | FBE padding 16 → 32 | `system/extras` `libfscrypt/fscrypt.cpp` | 1–2 lines | GOS branch 17 `:247-248` (`FSCRYPT_POLICY_FLAGS_PAD_32`) |
 | Delayed "Allow" buttons | Permission `GrantPermissionsViewHandlerImpl.kt` + SystemUI `usb/UsbDebuggingActivity.java` | 2 hunks (~6 LOC) | GOS `:411` and `:108-110`; LOS has neither |
 | Wireless alerts optional | CellBroadcastReceiver `res/values/config.xml` + `CellBroadcastChannelManager.java` (+ verify `CellBroadcastAlertService` read) | ~5 lines | GOS config `:25` true vs LOS false; GOS channel manager `:283` has the presidential `mAlwaysOn` commented out |
-| Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` |
+| Remove Chunghwa Telecom + Netlock CAs | `system/ca-certificates` `files/` | delete 3 files | GOS commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` — **done** (`system_ca-certificates/0001`) |
 | Package installer preserves disabled | `packages/apps/PackageInstaller` | ~5 lines | `SessionParams#setApplicationEnabledSettingPersistent()` exists in LOS 23.2 (`PackageInstaller.java:3949`) |
 | Screenshot EXIF cleanup | fwb SystemUI `ImageExporter.java` | ~5 lines + Settings row | GOS gates timestamp on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`:513`); LOS writes `TAG_SOFTWARE = "Android " + Build.DISPLAY` (`los_ImageExporter.java:520`) — **done** (`fwb/0013`; Settings row in `packages_apps_Settings/0001`) |
 | Sensitive notification content hidden by default | fwb `packages/SettingsProvider/res/values/defaults.xml` | 1 line | GOS `def_lock_screen_allow_private_notifications` = false (`:170`) vs LOS 23.2 true; seeded at `DatabaseHelper.java:1642-1643` / `:2245-2246` (new installs/users only) — **done** (`fwb/0012`) |
@@ -830,15 +830,15 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 24 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 25 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **24** patches (the fidelity redos, the first quick-win
-batch `fwb/0009`–`0012` + `device/0007`, and the screenshot-EXIF pair `fwb/0013` + the extended
-`packages_apps_Settings/0001`; earlier notes said 18). Verdicts: **Faithful** (line-level port; deltas
-only environmental), **Deliberate** (lenOS choice — keep), **Original** (no GrapheneOS equivalent),
-**Plumbing** (build/device mechanics).
+`GrapheneOS/*` fetches. Note: this series now has **25** patches (the fidelity redos, the first quick-win
+batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` + the extended
+`packages_apps_Settings/0001`, and `system_ca-certificates/0001`; earlier notes said 18). Verdicts:
+**Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
+**Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
 | Patch(es) | GrapheneOS equivalent | Deviation found | Verdict |
 |---|---|---|---|
@@ -861,19 +861,20 @@ only environmental), **Deliberate** (lenOS choice — keep), **Original** (no Gr
 | `fwb/0011` PendingIntent immutability warp | GrapheneOS `PendingIntent.checkPendingIntent2`: on a missing mutability flag under the enforced S+ compat change, log `Log.e(TAG, msg)` and return `flags \| FLAG_IMMUTABLE` instead of throwing; all four creation paths (`getActivity`, `getActivities` loop, `getBroadcast`, `getService`/foreground service) assign the returned flags | Ported verbatim, including the both-flags-still-throws behaviour. The lenOS comment in the patch notes the intent; no functional delta | **Faithful** — keep |
 | `fwb/0012` lockscreen notification privacy | GrapheneOS `packages/SettingsProvider/res/values/defaults.xml:170` (`def_lock_screen_allow_private_notifications` `false`) | One line flipped in place (AOSP `true`); seeded through `DatabaseHelper` for new installs/users exactly as GrapheneOS does — no RRO or seed indirection | **Faithful** — keep |
 | `fwb/0013` + `packages_apps_Settings/0001` screenshot metadata | GrapheneOS `ImageExporter.java:513` gate on `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` (`writeExif` nulls `captureTime`; `updateExifAttributes` is nullable and early-returns before the date/timezone tags) and the Settings row `privacy_screenshot_timestamp_exif` (`more_security_privacy_settings.xml:108`) | SystemUI side is line-level faithful plus the removal of LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line (GrapheneOS/AOSP never write it; commented in the patch). Settings side: same row, strings and keys; GrapheneOS wires it via the `settings:boolSettingField` XML attribute, which lenOS does not port — the controller is registered explicitly in `MoreSecurityPrivacyFragment` (documented mechanism substitution, same UX). `packages_apps_Settings/0001` was renamed to `0001-lenos-ext-settings-ui` because it already carried the ext-controller infrastructure | **Faithful** (mechanism substitution documented) — keep |
+| `system_ca-certificates/0001` distrusted CA removal | GrapheneOS commit `14ad6bb` on `platform_system_ca-certificates` ("remove Chunghwa Telecom and Netlock CAs", June 2025) | Same three files deleted: `files/53a1b57a.0` (HiPKI Root CA - G1), `files/60afe812.0` (NetLock Arany (Class Gold)), `files/9d6523ce.0` (ePKI Root CA). The pinned AOSP snapshot (`android-16.0.0_r4`, no Lineage fork exists for this project) still ships all three, so this is a real removal; `Android.bp` globs `files/*`, so no build-file edit is needed | **Faithful** — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 24 patches: **15 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 25 patches: **16 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
-auto-wiring) and the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level) — the
-auto-reboot pair carries the two benign environment deltas listed above, the Settings port the
-LockDomain removal + registration mechanism; **5 are deliberate lenOS choices** (first-boot defaults,
-ExtSettings trim + PIN
+auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level) and the
+distrusted-CA removal (`ca-certificates/0001`) — the auto-reboot pair carries the two benign environment
+deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
+deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
 scramble default ON, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several stricter than
 anything GrapheneOS ships (enterprise Wi-Fi, SUPL-off, scramble default); **2 are lenOS-original**
 (SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are line-level
