@@ -58,6 +58,7 @@ their content until the user explicitly allows it.
 | DHCP hostname blocked by default | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks never send the hostname (XML tag renamed `SendDhcpHostname` → `SendDhcpHostname2`, so values written by stock Android are ignored after upgrade); per-network opt-in in the Wi-Fi network details — no global override |
 | Insecure enterprise Wi-Fi configs blocked | `device_nothing_asteroids/0002` | Settings/SetupWizard cannot configure "no certificate validation" enterprise networks |
 | Distrusted root CAs removed | `system_ca-certificates/0001` | Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and NetLock Arany (Class Gold) roots are deleted from the system trust store, matching GrapheneOS commit `14ad6bb` and Google's 2025 root-store distrust; user-installed CAs and app-pinned trust are unaffected (see limits) |
+| Wireless alerts optional | `packages_apps_CellBroadcastReceiver/0001` (GrapheneOS port) | presidential alerts and (in Brazil) extreme alerts become user-toggleable: the presidential preference is visible, runs the config service and is read by the alert path (GrapheneOS commits "allow toggling presidential alerts" + "always allow disabling extreme alerts"). Every alert type stays enabled by default — nothing is silently forced on or off |
 | Default radio mode without 2G | `device_nothing_asteroids/0004` | `ro.telephony.default_network=28,28` (NR+LTE+WCDMA); no GSM/2G fallback, user can change |
 | SUPL / AGPS network assistance off | `device_nothing_asteroids/0003` | no location data to a SUPL server; slower GPS first fix (trade-off, documented) |
 | Modem/radio logging and snapshot props off | `config/lenos.mk` | `persist.vendor.radio.*` logging off, small radio log buffer, `persist.traced.enable=0` |
@@ -148,6 +149,12 @@ signed OTA/updater, reproducible builds, custom AVB key) is
   flashing keeps its original policy flags, which stay readable. It is a
   metadata-hardening change, not a fix for an exploitable flaw, and file
   contents encryption is unchanged.
+* **Emergency alert toggles are user choices, not new defaults** — all
+  wireless alert types ship enabled and the port only makes the presidential
+  (and, in Brazil, extreme-alert) switches real. Where regulation expects no
+  opt-out, turning an alert off is the user's deliberate decision, mirroring
+  GrapheneOS. The legacy settings fragment used on pre-S/watch UIs keeps
+  AOSP's always-on wiring, same as GrapheneOS on this branch.
 * **Device name "Android" is what Settings > About shows** until the user
   renames it. The stock model string is still visible in adb/property contexts
   (fingerprint stays stock by design).
@@ -198,7 +205,8 @@ screenshot shows no `DateTimeOriginal`/`OffsetTimeOriginal`/`Software` EXIF
 tags unless "Save screenshot timestamp to EXIF" is enabled (`settings get
 secure screenshot_timestamp_exif` unset means off),
 `ls /system/etc/security/cacerts | grep -E "53a1b57a|60afe812|9d6523ce"`
-prints nothing, and on
+prints nothing, Settings > Safety & emergency > Wireless emergency alerts
+lists a working "Presidential alerts" switch, and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

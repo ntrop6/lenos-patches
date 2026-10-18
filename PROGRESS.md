@@ -90,7 +90,16 @@ remaining deviation is deliberate and documented.
   code, leaving its test copy contradicting it — no behavior delta).
   Driver marker; new `tests/test_fbe_padding.py`; `system/extras` added to
   both patchkit alias maps.
-* **26 patches, 150 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
+* **Wireless alerts optional** (`packages_apps_CellBroadcastReceiver/0001`,
+  GrapheneOS "allow toggling presidential alerts" + "always allow disabling
+  extreme alerts"): the presidential toggle is visible, runs the config
+  service and is read by the alert path; the `mAlwaysOn` channel flag is
+  inert; the CDMA category mapping covers the presidential category;
+  Brazil's forced-on extreme-alert override is removed. Every alert type
+  stays enabled by default. Driver markers; new
+  `tests/test_wireless_alerts.py` (7 tests);
+  `packages/apps/CellBroadcastReceiver` added to both patchkit alias maps.
+* **27 patches, 157 tests green** (`run-tests.sh`, `lenos-patch.py --check`).
 
 ## 2026-10-17 (sixth session) — duress eSIM wipe (EuiccWipe port)
 
