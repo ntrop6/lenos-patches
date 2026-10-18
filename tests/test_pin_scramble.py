@@ -123,7 +123,7 @@ class TestPinScrambleSystemUi(LenosPatchTest):
 
 class TestPinScrambleSettingsUi(LenosPatchTest):
     PROJECT = "packages/apps/Settings"
-    PATCHES = ["0001-lenos-pin-scramble-ui.patch"]
+    PATCHES = ["0001-lenos-ext-settings-ui.patch"]
     PICKER = "res/xml/security_settings_picker.xml"
     SIM_XML = "res/xml/sim_lock_settings.xml"
     STRINGS = "res/values/strings_ext.xml"

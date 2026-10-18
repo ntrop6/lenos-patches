@@ -10,3 +10,4 @@
 0010-lenos-clock-drift-warning.patch
 0011-lenos-pendingintent-immutable.patch
 0012-lenos-lockscreen-notification-privacy.patch
+0013-lenos-screenshot-exif-privacy.patch

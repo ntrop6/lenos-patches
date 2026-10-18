@@ -1,0 +1,56 @@
+diff --git a/packages/SystemUI/src/com/android/systemui/screenshot/ImageExporter.java b/packages/SystemUI/src/com/android/systemui/screenshot/ImageExporter.java
+index 3fb02cc3..28dbfd3e 100644
+--- a/packages/SystemUI/src/com/android/systemui/screenshot/ImageExporter.java
++++ b/packages/SystemUI/src/com/android/systemui/screenshot/ImageExporter.java
+@@ -24,10 +24,10 @@ import android.content.ContentResolver;
+ import android.content.ContentUris;
+ import android.content.ContentValues;
+ import android.database.Cursor;
++import android.ext.settings.ExtSettings;
+ import android.graphics.Bitmap;
+ import android.graphics.Bitmap.CompressFormat;
+ import android.net.Uri;
+-import android.os.Build;
+ import android.os.Environment;
+ import android.os.ParcelFileDescriptor;
+ import android.os.SystemClock;
+@@ -37,6 +37,7 @@ import android.provider.MediaStore;
+ import android.util.Log;
+ import android.view.Display;
+ 
++import androidx.annotation.Nullable;
+ import androidx.concurrent.futures.CallbackToFutureAdapter;
+ import androidx.exifinterface.media.ExifInterface;
+ 
+@@ -450,6 +451,10 @@ public class ImageExporter {
+                 throw new ImageExportException(EXIF_READ_EXCEPTION, e);
+             }
+ 
++            if (!ExtSettings.SCREENSHOT_TIMESTAMP_EXIF.get(resolver.getContext())) {
++                captureTime = null;
++            }
++
+             updateExifAttributes(exif, requestId, width, height, captureTime);
+             try {
+                 exif.saveAttributes();
+@@ -514,13 +519,18 @@ public class ImageExporter {
+     }
+ 
+     static void updateExifAttributes(ExifInterface exif, UUID uniqueId, int width, int height,
+-            ZonedDateTime captureTime) {
++            @Nullable ZonedDateTime captureTime) {
+         exif.setAttribute(ExifInterface.TAG_IMAGE_UNIQUE_ID, uniqueId.toString());
+ 
+-        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Android " + Build.DISPLAY);
++        // lenOS: LineageOS sets TAG_SOFTWARE to "Android " + Build.DISPLAY here;
++        // it is removed to match GrapheneOS/AOSP: screenshots carry no build string.
+         exif.setAttribute(ExifInterface.TAG_IMAGE_WIDTH, Integer.toString(width));
+         exif.setAttribute(ExifInterface.TAG_IMAGE_LENGTH, Integer.toString(height));
+ 
++        if (captureTime == null) {
++            return;
++        }
++
+         String dateTime = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss").format(captureTime);
+         String subSec = DateTimeFormatter.ofPattern("SSS").format(captureTime);
+         String timeZone = DateTimeFormatter.ofPattern("xxx").format(captureTime);

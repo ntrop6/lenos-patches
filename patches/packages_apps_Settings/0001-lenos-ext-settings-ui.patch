@@ -1,9 +1,9 @@
 diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
 new file mode 100644
-index 0000000..f3cf20f
+index 0000000..383ac85
 --- /dev/null
 +++ b/res/values/strings_ext.xml
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,14 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Copyright (C) 2022 GrapheneOS
@@ -14,7 +14,29 @@ index 0000000..f3cf20f
 +<resources>
 +    <!-- Scramble PIN input layout (GrapheneOS strings_ext.xml). -->
 +    <string name="scramble_pin_title">Scramble PIN input layout</string>
++    <!-- Save screenshot timestamp to EXIF (GrapheneOS strings_ext.xml). -->
++    <string name="screenshot_timestamp_exif_title">Save screenshot timestamp to EXIF</string>
++    <string name="screenshot_timestamp_exif_summary">Enables adding a timestamp to screenshot EXIF metadata</string>
 +</resources>
+diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
+index 0068872..2546802 100644
+--- a/res/xml/more_security_privacy_settings.xml
++++ b/res/xml/more_security_privacy_settings.xml
+@@ -97,6 +97,14 @@
+             settings:controller=
+                 "com.android.settings.sound.MediaControlsLockScreenPreferenceController" />
+ 
++        <!-- lenOS: GrapheneOS wires the screenshot metadata row via
++             settings:boolSettingField; the controller is registered explicitly
++             in MoreSecurityPrivacyFragment instead. -->
++        <SwitchPreferenceCompat
++            android:key="privacy_screenshot_timestamp_exif"
++            android:title="@string/screenshot_timestamp_exif_title"
++            android:summary="@string/screenshot_timestamp_exif_summary" />
++
+         <!-- Allow software fallback for camera extensions -->
+         <SwitchPreferenceCompat
+             android:key="privacy_camera_extensions_fallback"
 diff --git a/res/xml/security_settings_picker.xml b/res/xml/security_settings_picker.xml
 index c64b53e..8ba8536 100644
 --- a/res/xml/security_settings_picker.xml
@@ -397,6 +419,46 @@ index 2867cd9..0644b6b 100644
          }
  
          private void setUpUnlockSettingsPreference() {
+diff --git a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
+index 34f8a53..326c5b2 100644
+--- a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
++++ b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
+@@ -19,6 +19,7 @@ package com.android.settings.safetycenter;
+ import android.app.settings.SettingsEnums;
+ import android.content.Context;
+ import android.content.Intent;
++import android.ext.settings.ExtSettings;
+ import android.os.Bundle;
+ import android.os.UserHandle;
+ import android.os.UserManager;
+@@ -27,6 +28,7 @@ import android.provider.SearchIndexableResource;
+ import com.android.settings.R;
+ import com.android.settings.Utils;
+ import com.android.settings.dashboard.DashboardFragment;
++import com.android.settings.ext.BoolSettingPrefController;
+ import com.android.settings.search.BaseSearchIndexProvider;
+ import com.android.settings.security.LockUnificationPreferenceController;
+ import com.android.settings.security.trustagent.TrustAgentListPreferenceController;
+@@ -48,6 +50,8 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+     private static final String TAG = "MoreSecurityPrivacyFragment";
+     private static final String KEY_NOTIFICATION_WORK_PROFILE_NOTIFICATIONS =
+             "privacy_lock_screen_work_profile_notifications";
++    private static final String KEY_SCREENSHOT_TIMESTAMP_EXIF =
++            "privacy_screenshot_timestamp_exif";
+ 
+     @Override
+     public int getMetricsCategory() {
+@@ -101,6 +105,10 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+         controllers.addAll(SafetyCenterUtils.getControllersForAdvancedPrivacy(context, lifecycle));
+         controllers.addAll(
+                 SafetyCenterUtils.getControllersForAdvancedSecurity(context, lifecycle, host));
++        // lenOS: explicit registration; GrapheneOS auto-wires this row through
++        // the settings:boolSettingField XML attribute.
++        controllers.add(new BoolSettingPrefController(context, KEY_SCREENSHOT_TIMESTAMP_EXIF,
++                ExtSettings.SCREENSHOT_TIMESTAMP_EXIF));
+         return controllers;
+     }
+ 
 diff --git a/src/com/android/settings/security/screenlock/PinScramblePreferenceController.java b/src/com/android/settings/security/screenlock/PinScramblePreferenceController.java
 deleted file mode 100644
 index 6d7ae8a..0000000

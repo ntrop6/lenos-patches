@@ -215,6 +215,12 @@ cmd_apply() {
   grep -q 'config_multiuserMaximumUsers">32<' \
     "$SRC/device/nothing/asteroids/rro_overlays/FrameworksResCommon_Vendor/res/values/config.xml" \
     || die "multiuser limit hardening missing"
+  grep -q 'ExtSettings.SCREENSHOT_TIMESTAMP_EXIF.get(resolver.getContext())' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/screenshot/ImageExporter.java" \
+    || die "screenshot EXIF privacy gate missing from SystemUI"
+  grep -q 'privacy_screenshot_timestamp_exif' \
+    "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
+    || die "screenshot EXIF setting row missing from Settings"
   info "apply OK - tree carries the lenOS patch series"
 }
 
