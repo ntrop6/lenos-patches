@@ -92,6 +92,8 @@ their content until the user explicitly allows it.
 | Secure paste (stage 1) | `frameworks_base/0015` + `packages_apps_Settings/0001` | GrapheneOS clipboard read gate: with "Secure paste" enabled in More security & privacy, third-party apps may only read clipboard items they copied themselves; the default IME and system apps keep access, and denied readers get the mime types without the clip label so paste affordances survive. Off by default (GrapheneOS default); enabling it without the stage-2 per-app UI and SystemUI paste toolbar intentionally stops cross-app paste. Stage 1 uses the global `ALLOW_CLIPBOARD_READ_BY_DEFAULT` default only |
 | Cross-profile shared clipboard | `frameworks_base/0016` + `packages_apps_Settings/0001` | GrapheneOS setting `cross_profile_clipboard_access` (per user; literal key): follow defaults / import-only / export-only / disallow. Gates clipboard propagation between related profiles and cross-profile drag-and-drop. Default follows stock Android, so the control is opt-in |
 | No implicit location grant to browsers | `frameworks_base/0019` (GrapheneOS port) | the first-boot default-grant pass no longer gives the browser role holder (or the `CATEGORY_APP_BROWSER` system handler) foreground location; a browser must ask the user like any other app. Matches GrapheneOS, whose `DefaultPermissionGrantPolicy` has no browser block |
+| Package updates preserve the disabled state | `frameworks_base/0022` (GrapheneOS port) | an app the user disabled (or a system app disabled by default) stays disabled after an update: the three implicit re-enable paths in `InstallPackageHelper` are gone (system packages, the installing user, and other users). The `setApplicationEnabledSettingPersistent` session API remains for installers, and `grapheneos.package_update_preserves_package_enabled_setting` is advertised like GrapheneOS (commit `bff727d`). Apps can still be enabled explicitly by the user |
+| No directory listing without storage access | `packages_providers_MediaProvider/0001` (GrapheneOS port) | an app without `READ_MEDIA_AUDIO`/`IMAGES`/`VIDEO` no longer sees every user-created directory through the FUSE `readdir` path: it only sees directories that contain files it can see (its own files), plus `Android/`. Apps with a media read permission keep the upstream behavior. Ports the directory-listing part of GrapheneOS's Storage Scopes commit `72492da1c`; scopes themselves are not ported yet |
 
 ## Apps and UI
 
@@ -131,6 +133,11 @@ implemented yet**.
   paste toolbar. Enabling it blocks third-party apps from reading another app's
   clip; cross-app paste then depends on the receiving app or on turning the
   toggle back off. The per-app UI, paste grants and toolbar are stage 2.
+* **Storage Scopes are not ported** — only the directory-listing restriction
+  from the same GrapheneOS hook is included. An app without a media read
+  permission can no longer enumerate all user-created directories, but apps
+  with a granted media permission still see all media of that type, with no
+  per-app scope selection.
 * **PIN scramble is on by default** — a lenOS deviation from GrapheneOS
   (which ships it off). The keypad relayouts on every setup, which can
   disorient screen-reader/accessibility users; switch it off in Settings →

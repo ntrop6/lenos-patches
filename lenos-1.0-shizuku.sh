@@ -315,6 +315,9 @@ cmd_apply() {
   grep -q 'android:key="gnss_supl"' \
     "$SRC/packages/apps/Settings/res/xml/location_settings.xml" \
     || die "GNSS network-assistance settings rows missing"
+  grep -q 'StorageScopesHooks.obtainDirContents' \
+    "$SRC/packages/providers/MediaProvider/src/com/android/providers/media/MediaProvider.java" \
+    || die "MediaProvider directory-listing restriction missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

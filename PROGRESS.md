@@ -3,6 +3,56 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (thirteenth session) — preserved disabled state + MediaProvider directory listing
+
+* **Package updates preserve enabled state** (`frameworks_base/0022`, exact port of
+  GrapheneOS `bff727d`):
+  * `InstallPackageHelper.updateSettingsInternalLI` no longer re-enables a
+    package on update: the three implicit
+    `ps.setEnabled(COMPONENT_ENABLED_STATE_DEFAULT, …)` blocks (system
+    packages, the installing user, other users with the package installed)
+    are removed, together with the `InstallRequest.isApplicationEnabledSettingPersistent()`
+    getter. An app the user disabled — or a system app disabled by default —
+    stays disabled across updates.
+  * `SystemConfig` advertises GrapheneOS's
+    `grapheneos.package_update_preserves_package_enabled_setting` feature
+    name verbatim, so apps probing for it behave as on GrapheneOS.
+  * The `setApplicationEnabledSettingPersistent` session API/flag and the
+    `PackageInstallerSession`/`InstallArgs`/metrics plumbing stay in place,
+    matching the GrapheneOS commit; only the update path stops consulting
+    them.
+* **MediaProvider directory-listing restriction**
+  (`packages_providers_MediaProvider/0001`; ports the directory-listing part
+  of GrapheneOS `72492da1c`, Storage Scopes):
+  * `MediaProvider.getFilesInDirectoryForFuse` now returns the visible file
+    names, then an empty-string separator, then the subdirectories that
+    contain files the caller can see; callers with
+    `READ_MEDIA_AUDIO/IMAGES/VIDEO` and the `Android/` directory keep the
+    upstream behavior.
+  * `jni/MediaProviderWrapper.cpp` marks entries after the separator as
+    directories and skips appending lower-filesystem directory names, so an
+    app with no storage permission can no longer enumerate all user-created
+    directories (GrapheneOS's metadata-leak fix).
+  * New `StorageScopesHooks` keeps GrapheneOS's class name and shape; the
+    Storage Scopes themselves (`GosPackageState`, `StorageScope`, scopes UI
+    and the `LocalCallingIdentity` scope hooks) are **not** ported yet and are
+    listed in the porting inventory's watch list.
+  * New project alias `packages/providers/MediaProvider` in the patchkit; the
+    workspace has a fresh checkout of the project (Lineage branch
+    `lineage-23.2`).
+* Tests: new `tests/test_preserve_enabled_state.py` (5 checks) and
+  `tests/test_media_no_dir_listing.py` (7 checks). Full suite **238 tests
+  green**; patchkit `--check` applies all 39 patches cleanly from pristine.
+  Driver markers added for both features.
+* Docs: features.md rows + honest limit for Storage Scopes, §14.4 rows, §18
+  rows and counts (30 faithful / 5 deliberate / 2 original / 2 plumbing) and
+  this log updated.
+* Not verified on a device (VM still unavailable). On first boot check:
+  `pm disable-user` an app, update it (or `pm install -r`), confirm it stays
+  disabled and `pm list features` shows the GrapheneOS feature flag; and a
+  file-manager-style app without media permissions creating a file in a new
+  folder, then confirming other folders are not listed.
+
 ## 2026-10-19 (twelfth session) — LTE-only mode + GNSS network-assistance privacy
 
 * **Settings — LTE-only / 5G-only** (`packages_apps_Settings/0001`, regenerated;
@@ -555,10 +605,12 @@ the approximations as faithful ports and lay shared infrastructure.
 6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
 7. Framework work still out of the series: network permission, sensor
-   permission, 2nd PIN, prototype/EVT warning, memory hygiene on lock,
-   MediaProvider directory listing, package-installer disabled-state
-   persistence (auto reboot to BFU, QS-tile gating, duress, LTE-only and the
-   GNSS toggles are done).
+   permission, 2nd PIN, prototype/EVT warning, memory hygiene on lock
+   (auto reboot to BFU, QS-tile gating, duress, LTE-only, the GNSS toggles,
+   preserved disabled state and the MediaProvider listing restriction are
+   done).
 8. First-boot checks for the new rows: LTE-only entry order/selection,
-   Network assistance defaults = Off, SUPL/PSDS switch survives reboot, and
-   `dumpsys location` shows no SUPL/PSDS servers while off.
+   Network assistance defaults = Off, SUPL/PSDS switch survives reboot,
+   `dumpsys location` shows no SUPL/PSDS servers while off, `pm list features`
+   shows the GrapheneOS enabled-state flag, and directory listing without
+   media permissions only shows folders with the app's own files.

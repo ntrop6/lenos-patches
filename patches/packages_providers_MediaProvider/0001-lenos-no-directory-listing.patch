@@ -1,0 +1,282 @@
+diff --git a/jni/MediaProviderWrapper.cpp b/jni/MediaProviderWrapper.cpp
+index 2b9363147..8c1496906 100644
+--- a/jni/MediaProviderWrapper.cpp
++++ b/jni/MediaProviderWrapper.cpp
+@@ -126,7 +126,7 @@ bool isUidAllowedAccessToDataOrObbPathInternal(JNIEnv* env, jobject media_provid
+ 
+ std::vector<std::shared_ptr<DirectoryEntry>> getFilesInDirectoryInternal(
+         JNIEnv* env, jobject media_provider_object, jmethodID mid_get_files_in_dir, uid_t uid,
+-        const string& path) {
++        const string& path, bool* skip_add_dirs) {
+     std::vector<std::shared_ptr<DirectoryEntry>> directory_entries;
+     ScopedLocalRef<jstring> j_path(env, env->NewStringUTF(path.c_str()));
+ 
+@@ -155,6 +155,8 @@ std::vector<std::shared_ptr<DirectoryEntry>> getFilesInDirectoryInternal(
+         }
+     }
+ 
++    int de_type = DT_REG;
++
+     for (int i = 0; i < de_count; i++) {
+         ScopedLocalRef<jstring> j_d_name(env,
+                                          (jstring)env->GetObjectArrayElement(files_list.get(), i));
+@@ -166,7 +168,14 @@ std::vector<std::shared_ptr<DirectoryEntry>> getFilesInDirectoryInternal(
+             directory_entries.push_back(std::make_shared<DirectoryEntry>("", EFAULT));
+             break;
+         }
+-        directory_entries.push_back(std::make_shared<DirectoryEntry>(d_name.c_str(), DT_REG));
++
++        if (d_name.c_str()[0] == 0) { // see StorageScopesHooks#obtainDirContents
++            de_type = DT_DIR;
++            *skip_add_dirs = true;
++            continue;
++        }
++
++        directory_entries.push_back(std::make_shared<DirectoryEntry>(d_name.c_str(), de_type));
+     }
+     return directory_entries;
+ }
+@@ -410,7 +419,8 @@ std::vector<std::shared_ptr<DirectoryEntry>> MediaProviderWrapper::GetDirectoryE
+     }
+ 
+     JNIEnv* env = MaybeAttachCurrentThread();
+-    res = getFilesInDirectoryInternal(env, media_provider_object_, mid_get_files_in_dir_, uid, path);
++    bool skip_add_dirs = false;
++    res = getFilesInDirectoryInternal(env, media_provider_object_, mid_get_files_in_dir_, uid, path, &skip_add_dirs);
+ 
+     const int res_size = res.size();
+     if (res_size && res[0]->d_name[0] == '/') {
+@@ -419,7 +429,9 @@ std::vector<std::shared_ptr<DirectoryEntry>> MediaProviderWrapper::GetDirectoryE
+         addDirectoryEntriesFromLowerFs(dirp, /* filter */ nullptr, &res);
+     } else if (res_size == 0 || !res[0]->d_name.empty()) {
+         // add directory names from lower file system.
+-        addDirectoryEntriesFromLowerFs(dirp, /* filter */ &isDirectory, &res);
++        if (!skip_add_dirs) {
++            addDirectoryEntriesFromLowerFs(dirp, /* filter */ &isDirectory, &res);
++        }
+     }
+     return res;
+ }
+diff --git a/src/com/android/providers/media/MediaProvider.java b/src/com/android/providers/media/MediaProvider.java
+index cdf28a62d..69316f140 100644
+--- a/src/com/android/providers/media/MediaProvider.java
++++ b/src/com/android/providers/media/MediaProvider.java
+@@ -89,6 +89,7 @@ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_IS_RED
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_IS_SELF;
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_IS_SHELL;
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_IS_SYSTEM_GALLERY;
++import static com.android.providers.media.LocalCallingIdentity.PERMISSION_READ_AUDIO;
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_READ_IMAGES;
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_READ_VIDEO;
+ import static com.android.providers.media.LocalCallingIdentity.PERMISSION_WRITE_EXTERNAL_STORAGE;
+@@ -3272,7 +3273,7 @@ public class MediaProvider extends ContentProvider {
+      * A list with empty string[""] is returned if the calling package doesn't have access to the
+      * given path.
+      *
+-     * <p>Directory names are always obtained from lower file system.
++     * <p>When the app has a storage permission, directory names are obtained from lower file system.
+      *
+      * Called from JNI in jni/MediaProviderWrapper.cpp
+      */
+@@ -3335,13 +3336,32 @@ public class MediaProvider extends ContentProvider {
+                     String.valueOf(userIdFromPath)});
+             // Get database entries for files from MediaProvider database with
+             // MediaColumns.RELATIVE_PATH as the given path.
+-            try (final Cursor cursor = query(FileUtils.getContentUriForPath(path), projection,
++            final Uri volumeUri = FileUtils.getContentUriForPath(path);
++            try (final Cursor cursor = query(volumeUri, projection,
+                     queryArgs, null)) {
+                 while(cursor.moveToNext()) {
+                     fileNamesList.add(extractDisplayName(cursor.getString(0)));
+                 }
+             }
+-            return fileNamesList.toArray(new String[fileNamesList.size()]);
++
++            final LocalCallingIdentity callingIdentity = mCallingIdentity.get();
++
++            if (relativePath.equals("Android/")
++                    || callingIdentity.hasPermission(PERMISSION_READ_AUDIO)
++                    || callingIdentity.hasPermission(PERMISSION_READ_IMAGES)
++                    || callingIdentity.hasPermission(PERMISSION_READ_VIDEO))
++            {
++                /*
++                Match the behavior of upstream MediaProvider in these cases.
++                (native code will obtain the list of directories from the lower FS when the list
++                of dir entries doesn't have an empty string ("") element)
++                 */
++
++                return fileNamesList.toArray(new String[0]);
++            } else {
++                return StorageScopesHooks.obtainDirContents(this, path, volumeUri, relativePath,
++                        callingIdentity, fileNamesList);
++            }
+         } finally {
+             restoreLocalCallingIdentity(token);
+         }
+diff --git a/src/com/android/providers/media/StorageScopesHooks.java b/src/com/android/providers/media/StorageScopesHooks.java
+new file mode 100644
+index 000000000..d9a37674f
+--- /dev/null
++++ b/src/com/android/providers/media/StorageScopesHooks.java
+@@ -0,0 +1,161 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.providers.media;
++
++import android.annotation.Nullable;
++import android.content.ContentResolver;
++import android.database.Cursor;
++import android.net.Uri;
++import android.os.Bundle;
++import android.provider.MediaStore.MediaColumns;
++import android.util.ArraySet;
++import android.util.Log;
++
++import com.android.providers.media.util.DatabaseUtils;
++
++import java.util.ArrayList;
++
++/**
++ * Hooks shared by GrapheneOS's Storage Scopes and MediaProvider directory-listing hardening.
++ *
++ * <p>lenOS currently ports only the directory-listing restriction. GrapheneOS's Storage Scopes
++ * (per-app scopes, {@code android.app.StorageScope}, {@code GosPackageState}) are not ported yet;
++ * when they are, the scope handling belongs in this class, matching GrapheneOS.
++ */
++class StorageScopesHooks {
++
++    private static final String TAG = "StorageScopesHooks";
++
++    // Media#getFilesInDirectoryForFuse(String path, int uid),
++    // when the caller doesn't have any storage permission
++    static String[] obtainDirContents(MediaProvider mp, final String dirPath,
++                                      Uri volumeUri, final String dirRelativePath,
++                                      LocalCallingIdentity callingIdentity, ArrayList<String> fileNamesList)
++    {
++        /*
++        Upstream MediaProvider allows apps that don't have any storage permission to read the
++        list of all external storage directories.
++
++        Address this metadata leak by returning only those directories that have files that the
++        app can see. With no storage permission those are the files the app created itself.
++        (GrapheneOS also adds directories and files that are visible via Storage Scopes here.)
++         */
++
++        Bundle queryArgs = new Bundle(3);
++        //  ESCAPE '\\' is needed by DatabaseUtils.escapeForLike() below
++        final String selection = MediaColumns.DATA + " LIKE ? ESCAPE '\\' and " + MediaColumns.MIME_TYPE + " not like 'null'";
++
++        queryArgs.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection);
++        queryArgs.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, new String[] { DatabaseUtils.escapeForLike(dirPath) + "/%" });
++        queryArgs.putString(ContentResolver.QUERY_ARG_SQL_GROUP_BY, MediaColumns.RELATIVE_PATH);
++
++        final String[] projection = { MediaColumns.RELATIVE_PATH };
++
++        final ArraySet<String> dirEntries;
++        final ArrayList<String> dirNamesList;
++
++        try (final Cursor cursor = mp.query(volumeUri, projection, queryArgs, null)) {
++            dirNamesList = new ArrayList<>(cursor.getCount() + 1);
++
++            // needed to ensure uniqueness of all dir entries (both files and dirs)
++            dirEntries = new ArraySet<>(fileNamesList.size() + dirNamesList.size());
++            dirEntries.addAll(fileNamesList);
++
++            if (dirRelativePath.equals("/")) {
++                // "Android" dir should always be visible for compatibility
++                maybeAddDirEntry("Android", dirEntries, dirNamesList);
++            }
++
++            while (cursor.moveToNext()) {
++                String childRelativePath = cursor.getString(0);
++
++                String childDirName = maybeExtractChildDirNameFromRelativePaths(
++                        dirRelativePath, childRelativePath);
++
++                if (childDirName != null) {
++                    maybeAddDirEntry(childDirName, dirEntries, dirNamesList);
++                }
++            }
++        }
++
++        fileNamesList.ensureCapacity(1 + dirNamesList.size());
++
++        // separator between files and dirs (native code treats the entries after it as dirs and
++        // does not append directory names from the lower file system)
++        fileNamesList.add("");
++
++        fileNamesList.addAll(dirNamesList);
++
++        return fileNamesList.toArray(new String[0]);
++    }
++
++    // MediaProvider doesn't enforce validity of file paths in all cases, which means that the
++    // values of MediaColumns.DATA and MediaColumns.RELATIVE_PATH columns might be malformed
++    private static boolean validateDirEntryName(String n) {
++        return n.length() != 0
++                && n.indexOf('/') < 0
++                && n.indexOf('\0') < 0;
++    }
++
++    private static void maybeAddDirEntry(String dirEntry, ArraySet<String> dirEntries, ArrayList<String> dest) {
++        if (!validateDirEntryName(dirEntry)) {
++            Log.e(TAG, "invalid dirEntry name" + dirEntry);
++            return;
++        }
++
++        if (dirEntries.add(dirEntry)) {
++            dest.add(dirEntry);
++        } // else dir entry was already present
++    }
++
++    @Nullable
++    private static String maybeExtractChildDirNameFromRelativePaths(String parentPath, String childPath) {
++        int adjustedParentLen = parentPath.length();
++        if (adjustedParentLen == 1) {
++            // relative path of the volume root is "/" instead of "", which is inconsistent with all
++            // other relative paths (eg "Android/", not "/Android/")
++
++            if (!parentPath.equals("/")) {
++                Log.e(TAG, "unexpected parentPath " + parentPath);
++                return null;
++            }
++            adjustedParentLen = 0;
++        }
++
++        int childLen = childPath.length();
++
++        int minChildLen = adjustedParentLen + 2; // two extra characters: '/' and a single-letter file name
++
++        if (childLen < minChildLen) {
++            if (childLen != parentPath.length()) {
++                Log.w(TAG, "inconsistent relative path " + childPath);
++            }
++            return null;
++        }
++
++        int dirNameStart = adjustedParentLen;
++        int dirNameEnd = childPath.indexOf('/', dirNameStart);
++
++        if (dirNameEnd <= dirNameStart) {
++            Log.w(TAG, "dirNameEnd not found, childPath: " + childPath);
++            return null;
++        }
++
++        return childPath.substring(dirNameStart, dirNameEnd);
++    }
++}

@@ -19,3 +19,4 @@
 0019-lenos-no-browser-location-grant.patch
 0020-lenos-radio-auto-off.patch
 0021-lenos-gnss-network-assistance.patch
+0022-lenos-preserve-enabled-state.patch
