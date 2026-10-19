@@ -1,3 +1,25 @@
+diff --git a/core/api/current.txt b/core/api/current.txt
+index a1d5522e..2ea491f4 100644
+--- a/core/api/current.txt
++++ b/core/api/current.txt
+@@ -244,6 +244,7 @@ package android {
+     field public static final String NFC = "android.permission.NFC";
+     field public static final String NFC_PREFERRED_PAYMENT_INFO = "android.permission.NFC_PREFERRED_PAYMENT_INFO";
+     field public static final String NFC_TRANSACTION_EVENT = "android.permission.NFC_TRANSACTION_EVENT";
++    field public static final String OTHER_SENSORS = "android.permission.OTHER_SENSORS";
+     field public static final String OVERRIDE_WIFI_CONFIG = "android.permission.OVERRIDE_WIFI_CONFIG";
+     field public static final String PACKAGE_USAGE_STATS = "android.permission.PACKAGE_USAGE_STATS";
+     field @Deprecated public static final String PERSISTENT_ACTIVITY = "android.permission.PERSISTENT_ACTIVITY";
+@@ -372,7 +373,9 @@ package android {
+     field public static final String LOCATION = "android.permission-group.LOCATION";
+     field public static final String MICROPHONE = "android.permission-group.MICROPHONE";
+     field public static final String NEARBY_DEVICES = "android.permission-group.NEARBY_DEVICES";
++    field public static final String NETWORK = "android.permission-group.NETWORK";
+     field public static final String NOTIFICATIONS = "android.permission-group.NOTIFICATIONS";
++    field public static final String OTHER_SENSORS = "android.permission-group.OTHER_SENSORS";
+     field public static final String PHONE = "android.permission-group.PHONE";
+     field public static final String READ_MEDIA_AURAL = "android.permission-group.READ_MEDIA_AURAL";
+     field public static final String READ_MEDIA_VISUAL = "android.permission-group.READ_MEDIA_VISUAL";
 diff --git a/core/api/system-current.txt b/core/api/system-current.txt
 index 52034ccd..457537f1 100644
 --- a/core/api/system-current.txt
@@ -381,10 +403,29 @@ index e45a740b..3a168964 100644
  
      /* @hide */
 diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
-index 769c3d31..c48ef792 100644
+index 769c3d31..bc05cb2b 100644
 --- a/core/res/AndroidManifest.xml
 +++ b/core/res/AndroidManifest.xml
-@@ -2206,13 +2206,21 @@
+@@ -1944,6 +1944,18 @@
+                 android:protectionLevel="dangerous|instant" />
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ 
++    <permission-group android:name="android.permission-group.OTHER_SENSORS"
++        android:icon="@drawable/perm_group_location"
++        android:label="@string/permgrouplab_otherSensors"
++        android:description="@string/permgroupdesc_otherSensors"
++        android:priority="1000" />
++
++    <permission android:name="android.permission.OTHER_SENSORS"
++        android:permissionGroup="android.permission-group.UNDEFINED"
++        android:label="@string/permlab_otherSensors"
++        android:description="@string/permdesc_otherSensors"
++        android:protectionLevel="dangerous" />
++
+     <!-- ====================================================================== -->
+     <!-- REMOVED PERMISSIONS                                                    -->
+     <!-- ====================================================================== -->
+@@ -2206,13 +2218,21 @@
      <!-- ======================================= -->
      <eat-comment />
  
@@ -408,13 +449,18 @@ index 769c3d31..c48ef792 100644
      <!-- Allows applications to access information about networks.
           <p>Protection level: normal
 diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
-index f9abbcd1..4b47a438 100644
+index f9abbcd1..46cd8be8 100644
 --- a/core/res/res/values/strings.xml
 +++ b/core/res/res/values/strings.xml
-@@ -1055,6 +1055,11 @@
+@@ -1055,6 +1055,16 @@
      <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=NONE]-->
      <string name="permgroupdesc_nearby_devices">discover and connect to nearby devices</string>
  
++    <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
++    <string name="permgrouplab_otherSensors">Sensors</string>
++    <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
++    <string name="permgroupdesc_otherSensors">access sensor data about orientation, movement, etc.</string>
++
 +    <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=40]-->
 +    <string name="permgrouplab_network">Network</string>
 +    <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=NONE]-->
@@ -423,6 +469,20 @@ index f9abbcd1..4b47a438 100644
      <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
      <string name="permgrouplab_calllog">Call logs</string>
      <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
+@@ -1520,6 +1530,13 @@
+     <!-- Description of the background body sensors permission, listed so the user can decide whether to allow the application to access data from body sensors in the background. [CHAR LIMIT=NONE] -->
+     <string name="permdesc_bodySensors_background" product="default">Allows the app to access body sensor data, such as heart rate, temperature, and blood oxygen percentage, while the app is in the background.</string>
+ 
++    <!-- Title of the sensors permission, listed so the user can decide whether to allow the application to access sensor data. [CHAR LIMIT=80] -->
++    <string name="permlab_otherSensors">access sensors (like the compass)
++    </string>
++    <!-- Description of the sensors permission, listed so the user can decide whether to allow the application to access data from sensors. [CHAR LIMIT=NONE] -->
++    <string name="permdesc_otherSensors" product="default">Allows the app to access data from sensors
++    monitoring orientation, movement, vibration (including low frequency sound) and environmental data</string>
++
+     <!-- Title of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
+     <string name="permlab_readCalendar">Read calendar events and details</string>
+     <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
 diff --git a/services/core/java/com/android/server/am/ActivityManagerService.java b/services/core/java/com/android/server/am/ActivityManagerService.java
 index 49b2efa1..9a80d302 100644
 --- a/services/core/java/com/android/server/am/ActivityManagerService.java
@@ -679,10 +739,10 @@ index bdcc66bf..ba4f84dd 100644
      }
 diff --git a/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java b/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java
 new file mode 100644
-index 00000000..198268d7
+index 00000000..c40ed1b7
 --- /dev/null
 +++ b/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,138 @@
 +/*
 + * Copyright (C) 2022 GrapheneOS
 + * Copyright (C) 2026 The lenOS Project
@@ -703,36 +763,39 @@ index 00000000..198268d7
 +package com.android.server.pm.permission;
 +
 +import android.Manifest;
++import android.app.ActivityManager;
 +import android.companion.virtual.VirtualDeviceManager;
 +import android.content.Context;
 +import android.content.pm.PackageManager;
 +import android.content.pm.SrtPermissions;
++import android.ext.settings.ExtSettings;
++import android.os.Build;
 +import android.os.Bundle;
 +import android.util.ArraySet;
 +import android.util.EmptyArray;
++import android.util.Slog;
 +
 +import com.android.internal.pm.pkg.component.ParsedUsesPermission;
 +import com.android.server.LocalServices;
++import com.android.server.pm.UserManagerInternal;
 +import com.android.server.pm.pkg.AndroidPackage;
 +import com.android.server.pm.pkg.PackageState;
 +
 +/**
 + * Utilities for the "special runtime permissions" (lenOS port of the GrapheneOS feature):
 + * permissions that are runtime permissions in principle, but are granted by default and, when
-+ * revoked, put the app into a compatibility mode instead of breaking it.
-+ *
-+ * <p>Currently: INTERNET (the OTHER_SENSORS permission is not ported yet).
++ * revoked, are either handled by a per-app compatibility mode (INTERNET) or simply denied
++ * (OTHER_SENSORS).
 + *
 + * <p>Derived from GrapheneOS ({@code frameworks/base/services/core/java/com/android/server/pm/
-+ * permission/SpecialRuntimePermUtils.java}), trimmed down to the INTERNET permission (the
-+ * GrapheneOS ExtSettings dependency is left out; the auto-grant default is unconditional for
-+ * INTERNET anyway).
++ * permission/SpecialRuntimePermUtils.java}).
 + */
 +public class SpecialRuntimePermUtils {
 +    private static final String TAG = SpecialRuntimePermUtils.class.getSimpleName();
 +
 +    private static final ArraySet<String> specialRuntimePermissions = new ArraySet<>(new String[] {
 +            Manifest.permission.INTERNET,
++            Manifest.permission.OTHER_SENSORS,
 +    });
 +
 +    public static boolean isSpecialRuntimePermission(String permission) {
@@ -743,19 +806,28 @@ index 00000000..198268d7
 +        return specialRuntimePermissions.toArray(EmptyArray.STRING);
 +    }
 +
-+    public static boolean shouldAutoGrant(Context ctx, String packageName, int userId,
-+            String perm) {
++    public static boolean shouldAutoGrant(Context ctx, String packageName, int userId, String perm) {
 +        if (!isSpecialRuntimePermission(perm)) {
 +            return false;
 +        }
 +
-+        // INTERNET is granted by default to keep compatibility with apps that expect it (they
-+        // were able to use it unconditionally on stock Android). The user can revoke it at any
-+        // time in the permission UI.
-+        //
-+        // GrapheneOS: the OTHER_SENSORS permission (not ported) is auto-granted based on the
-+        // ExtSettings.AUTO_GRANT_OTHER_SENSORS_PERMISSION setting, and therefore needs the
-+        // arguments of this method.
++        if (Manifest.permission.OTHER_SENSORS.equals(perm)) {
++            if (ActivityManager.getService() == null) {
++                // a failsafe: should never happen
++                Slog.d(TAG, "AMS is null");
++                if (Build.isDebuggable()) {
++                    throw new IllegalStateException();
++                }
++                return false;
++            }
++
++            var um = LocalServices.getService(UserManagerInternal.class);
++            // use parent profile settings for work profile
++            int userIdForSettings = um.getProfileParentId(userId);
++
++            return ExtSettings.AUTO_GRANT_OTHER_SENSORS_PERMISSION.get(ctx, userIdForSettings);
++        }
++
 +        return true;
 +    }
 +
@@ -806,6 +878,8 @@ index 00000000..198268d7
 +                Manifest.permission.INTERNET, VirtualDeviceManager.PERSISTENT_DEVICE_ID_DEFAULT,
 +                userId) != PackageManager.PERMISSION_GRANTED;
 +    }
++
++    private SpecialRuntimePermUtils() {}
 +}
 diff --git a/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt b/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt
 index e61cb9d7..482442cf 100644
@@ -891,7 +965,7 @@ index e61cb9d7..482442cf 100644
              if (
                  targetSdkVersion >= Build.VERSION_CODES.M &&
 diff --git a/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt b/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
-index 95cd6277..abf3c2a4 100644
+index 95cd6277..b6232feb 100644
 --- a/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
 +++ b/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
 @@ -97,6 +97,8 @@ import com.android.server.pm.permission.LegacyPermissionState
@@ -913,13 +987,12 @@ index 95cd6277..abf3c2a4 100644
                      // If a permission review is required for legacy apps we represent
                      // their permissions as always granted
                      return
-@@ -2507,7 +2510,31 @@ class PermissionService(private val service: AccessCheckingService) :
+@@ -2507,7 +2510,30 @@ class PermissionService(private val service: AccessCheckingService) :
                  params.allowlistedRestrictedPermissions,
                  userId,
              )
 -            setRequestedPermissionStates(packageState, userId, params.permissionStates)
-+            // lenOS (GrapheneOS): apply the default states of the special runtime permissions
-+            // (INTERNET is granted by default; the OTHER_SENSORS permission is not ported yet).
++            // lenOS (GrapheneOS): apply the default states of the special runtime permissions.
 +            // Only done on a new install for the user, so that an app update never re-grants a
 +            // permission that the user has revoked.
 +            val permissionStates = ArrayMap(params.permissionStates)

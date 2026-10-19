@@ -86,7 +86,8 @@ their content until the user explicitly allows it.
 
 | Feature | Where | Notes |
 |---|---|---|
-| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble, the clipboard defaults and the Wi-Fi/Bluetooth auto-off timers are enforced — see the lock, clipboard and framework sections |
+| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble, the clipboard defaults, the Wi-Fi/Bluetooth auto-off timers and the sensors auto-grant are enforced — see the lock, clipboard and framework sections |
+| Sensors (`OTHER_SENSORS`) permission | `frameworks_base/0025` + `frameworks_base/0026` + `frameworks_native/0001` (GrapheneOS port) | a runtime permission covering every sensor that has no more specific one (accelerometer, gyroscope, compass, barometer, ...): granted by default on install unless the `AUTO_GRANT_OTHER_SENSORS_PERMISSION` ExtSettings default (on) is turned off via `settings put secure auto_grant_other_sensors_permission 0`. Revoking it makes `SensorService` deny app UIDs: apps get no events at all (continuously reporting sensors report nothing), system processes (e.g. the closed-source `gpsd` daemon) and sensors with their own permission (body sensors, activity recognition) are unaffected. The first blocked access posts a rate-limited "… tried to access sensors" notification that taps through to the grant dialog; "Don't show again" marks the app as user-set and silences it. The permission shows up in app info as its own "Sensors" group |
 | Radio auto-off timers | `frameworks_base/0020` + `packages_apps_Settings/0001` (GrapheneOS port) | Wi-Fi is turned off after a configurable idle timeout when it is on but not connected to any network, and Bluetooth when the adapter is on with no connected device (including LE/GATT); default "Never" (GrapheneOS default), choices 15 s–8 h in More security & privacy. GrapheneOS's `SystemServerExt` is trimmed to the auto-off wiring; GrapheneOS shows these on its Exploit protection screen with a radio-button sub-screen — lenOS uses plain list rows (documented substitution). NFC auto-off is not ported (needs the Nfc app side) |
 | PendingIntent immutability warp | `frameworks_base/0011` | GrapheneOS port: once the S+ compat change is enforced, an app that omitted `FLAG_IMMUTABLE`/`FLAG_MUTABLE` no longer crashes with `IllegalArgumentException` — the framework logs and forces `FLAG_IMMUTABLE`; every creation path (`getActivity`, `getActivities`, `getBroadcast`, `getService`/foreground service) honours the returned flags. Passing both flags still throws |
 | Clock-drift warning at 250 ms | `frameworks_base/0010` | GrapheneOS value: the time detector logs a warning when something other than itself moves the system clock by more than 250 ms (AOSP 2 s) |
@@ -111,9 +112,8 @@ their content until the user explicitly allows it.
 
 ## Not in the 1.0 series
 
-Anything not listed above (sensors permission, 2nd PIN, safe
-recovery, signed OTA/updater, reproducible builds, custom AVB key) is **not
-implemented yet**.
+Anything not listed above (safe recovery, signed OTA/updater, reproducible
+builds, custom AVB key) is **not implemented yet**.
 
 ## Honest limits
 
@@ -140,6 +140,13 @@ implemented yet**.
   aggressive retry logic may still show unexpected errors. System apps never
   get compat mode (GrapheneOS design) — revoking their network is real and can
   break them, so treat it as an expert action.
+* **The sensors permission covers the sensors that have no other permission.**
+  Body sensors (`BODY_SENSORS`), activity recognition (`ACTIVITY_RECOGNITION`)
+  and everything behind another runtime permission keep their own controls;
+  GNSS is location, not a sensor. System processes and system apps are exempt
+  (GrapheneOS design), and a denied app gets no data at all rather than fake
+  values. The "tried to access sensors" notice is deliberately rate-limited
+  (one per app per 30 seconds).
 * **Secure paste is stage 1.** It ships the global default and the framework
   enforcement, but not GrapheneOS's per-app switch or the SystemUI/text-selection
   paste toolbar. Enabling it blocks third-party apps from reading another app's
@@ -281,6 +288,15 @@ returns. Then revoke it again, update the same app from a new build
 re-grant the permission. Do the same for a pre-installed system app once to
 see the difference: revocation there is real, not compat mode (GrapheneOS
 behavior), so treat that as an expert action.
+
+Sensors permission: app info → Permissions for a sensor app (a compass, level
+or vibration-meter tool) shows the "Sensors" group and it is granted by
+default; turn it off and its readings stop updating (no events, not wrong
+values) while the app stays alive, and the first blocked access posts a
+"… tried to access sensors" notification — tapping it opens the permission
+dialog, "Don't show again" marks the app as user-set and silences repeats.
+Grant it again and the readings resume without a reboot. A system app (e.g.
+the camera) and body-sensor apps keep working throughout.
 
 VPN lockdown: configure an always-on VPN with "Block connections without VPN",
 then stop the VPN app's tunnel (force-stop/disable it) — DNS and all traffic

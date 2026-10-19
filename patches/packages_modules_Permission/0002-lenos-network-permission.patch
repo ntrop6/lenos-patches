@@ -148,7 +148,7 @@ index 01a19fc..0a29d54 100644
  
          val affectsAppOp = permissionToOp(perm.name) != null || perm.isBackgroundPermission
 diff --git a/PermissionController/src/com/android/permissioncontroller/permission/utils/PermissionMapping.kt b/PermissionController/src/com/android/permissioncontroller/permission/utils/PermissionMapping.kt
-index a8d5806..9e06992 100644
+index a8d5806..13315e8 100644
 --- a/PermissionController/src/com/android/permissioncontroller/permission/utils/PermissionMapping.kt
 +++ b/PermissionController/src/com/android/permissioncontroller/permission/utils/PermissionMapping.kt
 @@ -66,6 +66,12 @@ object PermissionMapping {
@@ -164,15 +164,21 @@ index a8d5806..9e06992 100644
      /** Set of groups that will be able to receive one-time grant */
      private val ONE_TIME_PERMISSION_GROUPS: MutableSet<String> = mutableSetOf()
  
-@@ -221,10 +227,21 @@ object PermissionMapping {
+@@ -221,10 +227,27 @@ object PermissionMapping {
              }
          }
  
-+        // lenOS (GrapheneOS): the INTERNET permission is a runtime permission, presented in the
-+        // "Network" permission group (it has no group in the framework manifest)
++        // lenOS (GrapheneOS): the special runtime permissions have no group in the framework
++        // manifest, so map them here: INTERNET is presented as "Network", OTHER_SENSORS in its
++        // own "Sensors" group.
 +        PLATFORM_PERMISSIONS[Manifest.permission.INTERNET] = Manifest.permission_group.NETWORK
++        PLATFORM_PERMISSIONS[Manifest.permission.OTHER_SENSORS] =
++            Manifest.permission_group.OTHER_SENSORS
++
 +        SPECIAL_RUNTIME_PERMISSIONS[Manifest.permission.INTERNET] =
 +            Manifest.permission_group.NETWORK
++        SPECIAL_RUNTIME_PERMISSIONS[Manifest.permission.OTHER_SENSORS] =
++            Manifest.permission_group.OTHER_SENSORS
 +
          for ((permission, permissionGroup) in PLATFORM_PERMISSIONS) {
              PLATFORM_PERMISSION_GROUPS.getOrPut(permissionGroup) { mutableListOf() }.add(permission)
@@ -186,7 +192,7 @@ index a8d5806..9e06992 100644
          ONE_TIME_PERMISSION_GROUPS.add(Manifest.permission_group.LOCATION)
          ONE_TIME_PERMISSION_GROUPS.add(Manifest.permission_group.CAMERA)
          ONE_TIME_PERMISSION_GROUPS.add(Manifest.permission_group.MICROPHONE)
-@@ -448,4 +465,21 @@ object PermissionMapping {
+@@ -448,4 +471,21 @@ object PermissionMapping {
  
          return PERMISSION_GROUPS_TO_DATA_CATEGORIES.containsKey(permissionGroupName)
      }

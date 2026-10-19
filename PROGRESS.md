@@ -3,6 +3,58 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
+
+* **The sensors permission is in** — Tier 1 #2, closing the Tier 1 set. It
+  reuses the SRT mechanism the network permission shipped; two framework
+  patches plus the first `frameworks/native` patch:
+  * `frameworks_base/0025` was *extended* (not forked) with the shared half:
+    the SRT registry now contains both permissions, `shouldAutoGrant` carries
+    GrapheneOS's `ExtSettings.AUTO_GRANT_OTHER_SENSORS_PERMISSION` path
+    (per-user, default on, work profiles read the parent profile), and the
+    manifest declares `android.permission-group.OTHER_SENSORS` ("Sensors")
+    plus `android.permission.OTHER_SENSORS` (`dangerous`).
+    * **Build-breaking fix found while doing this:** the earlier network port
+      had assumed `Manifest.permission_group` is empty in the API files — it
+      is not. `core/api/current.txt` now carries `permission_group.NETWORK`,
+      `permission_group.OTHER_SENSORS` and `permission.OTHER_SENSORS`;
+      without them the API check fails the build.
+  * `frameworks_base/0026` — the notification stack: `MISSING_PERMISSION`
+    notification channel, proto id `NOTE_MISSING_PERMISSION_OTHER_SENSORS =
+    500` (inserted with a trailing-context-only hunk so it co-applies with
+    `fwb/0023`'s 400 at the same spot), `PackageManagerNative
+    .onDeniedSpecialRuntimePermissionOp` (SYSTEM_UID-guarded), and the ported
+    `MissingSpecialRuntimePermissionNotification` (30 s per-app rate limit,
+    suppressed once the app is USER_SET, tap opens the grant dialog, "Don't
+    show again" sets USER_SET), `IntentReceiver` and `SseUtils` helpers.
+  * `frameworks/native/0001` — enforcement: `libs/sensor/Sensor.cpp` tags
+    every HAL sensor without a more specific permission with `OTHER_SENSORS`;
+    `SensorService::canAccessSensor` denies app UIDs that do not hold it and
+    reports the denial through the new
+    `IPackageManagerNative.onDeniedSpecialRuntimePermissionOp`. UIDs below
+    `AID_APP_START` (the closed-source `gpsd`) keep access; pre-Q apps that
+    used the step counter without `ACTIVITY_RECOGNITION` get `OTHER_SENSORS`
+    enforced instead of the upstream unconditional allow (GrapheneOS logic,
+    adapted to the A16 function shape).
+  * `packages_modules_Permission/0002` (extended) maps the "Sensors" group.
+* New project: `frameworks/native` is now part of the patchkit (alias added to
+  `lenos_projects.py`, patch `frameworks_native/0001`).
+* Tests: new `tests/test_sensors_permission.py` (16 checks across the three
+  projects: manifest/strings/channel/proto, SRT auto-grant path, notification
+  rate limit + action, native enforcement, AIDL). Full suite **297 tests
+  green**; `--check` verifies all **47** patches against pristine and a full
+  `--apply`/`--reset` round-trip passed. Driver markers added for the native
+  tag, the enforcement, the notification hook and the proto id.
+* Docs: features.md row + limits bullet + checklist steps; `graphene-porting.md`
+  §0/§6/§15/§18 (47 patches: 38 faithful / 5 deliberate / 2 original /
+  2 plumbing).
+* Not verified on a device (VM still unavailable). On first boot: revoke
+  "Sensors" from a compass/level app → readings stop (no events, no fake
+  values) while the app stays alive; the blocked access posts the "… tried to
+  access sensors" notification; grant it back → readings resume; a system app
+  (camera) and body-sensor apps keep working throughout.
+* Next: Tier 2 (#16–29) per the approved roadmap.
+
 ## 2026-10-20 (fifteenth session) — network (INTERNET) permission
 
 * **The network permission is in** — Tier 1 #1, the last big Tier 1 item

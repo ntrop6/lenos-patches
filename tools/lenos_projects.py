@@ -9,6 +9,7 @@ from __future__ import annotations
 
 PROJECT_ALIASES = {
     "frameworks/base": "frameworks_base",
+    "frameworks/native": "frameworks_native",
     "frameworks/opt/telephony": "frameworks_opt_telephony",
     "packages/apps/Settings": "packages_apps_Settings",
     "packages/apps/Updater": "packages_apps_Updater",

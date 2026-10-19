@@ -1,0 +1,106 @@
+diff --git a/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl b/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl
+index 191871ced6..d3233734ad 100644
+--- a/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl
++++ b/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl
+@@ -173,4 +173,10 @@ interface IPackageManagerNative {
+      * Get information of staged APEXes.
+      */
+     StagedApexInfo[] getStagedApexInfos();
++
++    /**
++     * App attempted to perform an operation that is protected with a special runtime permission
++     * and failed due to that permission being denied.
++     */
++    oneway void onDeniedSpecialRuntimePermissionOp(in String permissionName, int uid, in String packageName);
+ }
+diff --git a/libs/sensor/Sensor.cpp b/libs/sensor/Sensor.cpp
+index 16a932e7e0..7c2e4ce4b1 100644
+--- a/libs/sensor/Sensor.cpp
++++ b/libs/sensor/Sensor.cpp
+@@ -65,6 +65,7 @@ Sensor::Sensor(struct sensor_t const& hwSensor, const uuid_t& uuid, int halVersi
+     mMinDelay = hwSensor.minDelay;
+     mFlags = 0;
+     mUuid = uuid;
++    mRequiredPermission = "android.permission.OTHER_SENSORS";
+ 
+     // Set fifo event count zero for older devices which do not support batching. Fused
+     // sensors also have their fifo counts set to zero.
+diff --git a/services/sensorservice/SensorService.cpp b/services/sensorservice/SensorService.cpp
+index c28ef15479..8bf5161408 100644
+--- a/services/sensorservice/SensorService.cpp
++++ b/services/sensorservice/SensorService.cpp
+@@ -2314,15 +2314,10 @@ bool SensorService::canAccessSensor(const Sensor& sensor, const char* operation,
+     const int32_t opCode = sensor.getRequiredAppOp();
+     int targetSdkVersion = getTargetSdkVersion(opPackageName);
+ 
++    bool protectedByOtherSensorsPerm = false;
++
+     bool canAccess = false;
+-    if (targetSdkVersion > 0 && targetSdkVersion <= __ANDROID_API_P__ &&
+-            (sensor.getType() == SENSOR_TYPE_STEP_COUNTER ||
+-             sensor.getType() == SENSOR_TYPE_STEP_DETECTOR)) {
+-        // Allow access to step sensors if the application targets pre-Q, which is before the
+-        // requirement to hold the AR permission to access Step Counter and Step Detector events
+-        // was introduced.
+-        canAccess = true;
+-    } else if (IPCThreadState::self()->getCallingUid() == AID_SYSTEM) {
++    if (IPCThreadState::self()->getCallingUid() == AID_SYSTEM) {
+         // Allow access if it is requested from system.
+         canAccess = true;
+     } else if (hasPermissionForSensor(sensor)) {
+@@ -2336,11 +2331,55 @@ bool SensorService::canAccessSensor(const Sensor& sensor, const char* operation,
+         } else {
+             canAccess = true;
+         }
++    } else {
++        if (sensor.getRequiredPermission() == "android.permission.OTHER_SENSORS") {
++            if (IPCThreadState::self()->getCallingUid() < AID_APP_START) {
++                // System processes do not expect that sensors that are protected by OTHER_SENSORS
++                // require a permission.
++                //
++                // The lack of this check led to crashes of the closed-source gpsd daemon.
++                return true;
++            }
++        }
++
++        if (targetSdkVersion > 0 && targetSdkVersion <= __ANDROID_API_P__ &&
++                (sensor.getType() == SENSOR_TYPE_STEP_COUNTER ||
++                 sensor.getType() == SENSOR_TYPE_STEP_DETECTOR)) {
++            // upstream allows access to these sensors without the ACTIVITY_RECOGNITION permission
++            // for targetSdk < 29 apps, enforce the OTHER_SENSORS permission instead
++            const String16 requiredPermission("android.permission.OTHER_SENSORS");
++            protectedByOtherSensorsPerm = true;
++
++            // copied from hasPermissionForSensor() below
++            canAccess = checkPermission(requiredPermission,
++                    IPCThreadState::self()->getCallingPid(),
++                    IPCThreadState::self()->getCallingUid());
++        }
+     }
+ 
+     if (!canAccess) {
+         ALOGE("%s %s a sensor (%s) without holding %s", String8(opPackageName).c_str(),
+               operation, sensor.getName().c_str(), sensor.getRequiredPermission().c_str());
++
++        if (!protectedByOtherSensorsPerm) {
++            protectedByOtherSensorsPerm =
++                    (sensor.getRequiredPermission() == "android.permission.OTHER_SENSORS");
++        }
++
++        if (protectedByOtherSensorsPerm) {
++            sp<IBinder> binder = defaultServiceManager()->getService(String16("package_native"));
++            if (binder != nullptr) {
++                sp<content::pm::IPackageManagerNative> packageManager =
++                        interface_cast<content::pm::IPackageManagerNative>(binder);
++                if (packageManager != nullptr) {
++                    int32_t callingUid = IPCThreadState::self()->getCallingUid();
++                    AutoCallerClear acc;
++                    packageManager->onDeniedSpecialRuntimePermissionOp(
++                            String16("android.permission.OTHER_SENSORS"),
++                            callingUid, opPackageName);
++                }
++            }
++        }
+     }
+ 
+     return canAccess;

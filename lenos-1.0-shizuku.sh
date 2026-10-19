@@ -351,6 +351,18 @@ cmd_apply() {
   grep -q 'setNewlyInstalledInUserId' \
     "$SRC/frameworks/base/services/core/java/com/android/server/pm/InstallPackageHelper.java" \
     || die "new-install gate for special runtime permissions missing"
+  grep -q 'android.permission.OTHER_SENSORS' \
+    "$SRC/frameworks/native/libs/sensor/Sensor.cpp" \
+    || die "sensors permission native tag missing"
+  grep -q 'protectedByOtherSensorsPerm' \
+    "$SRC/frameworks/native/services/sensorservice/SensorService.cpp" \
+    || die "sensors permission enforcement missing"
+  grep -q 'onDeniedSpecialRuntimePermissionOp' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/pm/PackageManagerNative.java" \
+    || die "sensors permission denial notification hook missing"
+  grep -q 'NOTE_MISSING_PERMISSION_OTHER_SENSORS = 500;' \
+    "$SRC/frameworks/base/proto/src/system_messages.proto" \
+    || die "sensors permission system message id missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

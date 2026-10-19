@@ -1,0 +1,432 @@
+diff --git a/core/java/com/android/internal/notification/SystemNotificationChannels.java b/core/java/com/android/internal/notification/SystemNotificationChannels.java
+index 972c2ea4..2d691237 100644
+--- a/core/java/com/android/internal/notification/SystemNotificationChannels.java
++++ b/core/java/com/android/internal/notification/SystemNotificationChannels.java
+@@ -71,6 +71,7 @@ public class SystemNotificationChannels {
+     public static final String ACCESSIBILITY_HEARING_DEVICE = "ACCESSIBILITY_HEARING_DEVICE";
+     public static final String ACCESSIBILITY_SECURITY_POLICY = "ACCESSIBILITY_SECURITY_POLICY";
+     public static final String ABUSIVE_BACKGROUND_APPS = "ABUSIVE_BACKGROUND_APPS";
++    public static final String MISSING_PERMISSION = "MISSING_PERMISSION";
+ 
+     @VisibleForTesting
+     static final String OBSOLETE_DO_NOT_DISTURB = "DO_NOT_DISTURB";
+@@ -230,6 +231,13 @@ public class SystemNotificationChannels {
+                 NotificationManager.IMPORTANCE_LOW);
+         channelsList.add(abusiveBackgroundAppsChannel);
+ 
++        final NotificationChannel missingPermissionChannel = new NotificationChannel(
++                MISSING_PERMISSION,
++                context.getString(R.string.notification_channel_missing_permission),
++                NotificationManager.IMPORTANCE_HIGH);
++        missingPermissionChannel.setBlockable(true);
++        channelsList.add(missingPermissionChannel);
++
+         nm.createNotificationChannels(channelsList);
+ 
+         // Delete channels created by previous Android versions that are no longer used.
+diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
+index f9abbcd1..12c678ac 100644
+--- a/core/res/res/values/strings.xml
++++ b/core/res/res/values/strings.xml
+@@ -6963,4 +6963,10 @@ ul.</string>
+     <string name="tv_watchdog_notification_channel_name">System Resource Alerts</string>
+     <string name="tv_watchdog_notification_title">Resource Overuse</string>
+     <string name="tv_watchdog_notification_content">"App '<xliff:g id="app_name">%1$s</xliff:g>' is using too many resources."</string>
++
++    <!-- lenOS (GrapheneOS): notifications about a denied special runtime permission -->
++    <string name="notification_action_dont_show_again">Don’t show again</string>
++    <string name="notification_channel_missing_permission">Missing permission</string>
++    <string name="missing_sensors_permission_title">%1$s tried to access sensors</string>
++    <string name="missing_sensors_permission_message">Tap to ask for permission.</string>
+ </resources>
+diff --git a/proto/src/system_messages.proto b/proto/src/system_messages.proto
+index 968325f2..632fff4e 100644
+--- a/proto/src/system_messages.proto
++++ b/proto/src/system_messages.proto
+@@ -321,3 +321,7 @@ message SystemMessage {
++    // See com.android.server.ext.MissingSpecialRuntimePermissionNotification
++    // Package: android
++    NOTE_MISSING_PERMISSION_OTHER_SENSORS = 500;
++
+     // ADD_NEW_IDS_ABOVE_THIS_LINE
+     // Legacy IDs with arbitrary values appear below
+     // Legacy IDs existed as stable non-conflicting constants prior to the O release
+diff --git a/services/core/java/com/android/server/ext/IntentReceiver.java b/services/core/java/com/android/server/ext/IntentReceiver.java
+new file mode 100644
+index 00000000..99c6bff3
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/IntentReceiver.java
+@@ -0,0 +1,121 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.annotation.Nullable;
++import android.app.PendingIntent;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.os.Bundle;
++import android.os.Handler;
++import android.util.ArrayMap;
++import android.util.Slog;
++
++import com.android.internal.os.BackgroundThread;
++
++import java.util.function.Supplier;
++
++// Note that instances of IntentReceiver subclasses are:
++// - singletons
++// - registered lazily
++// - never unregistered
++// - not automatically re-registered after process restart (doesn't matter in system_server)
++public abstract class IntentReceiver extends BroadcastReceiver {
++    protected final String TAG = getClass().getSimpleName();
++
++    private static final ArrayMap<Class, IntentReceiver> map = new ArrayMap<>();
++
++    public static <T extends IntentReceiver> IntentReceiver getInstance(
++            Class<T> cls, Supplier<T> supplier, Context ctx) {
++        synchronized (map) {
++            IntentReceiver instance = map.get(cls);
++            if (instance == null) {
++                instance = supplier.get();
++                instance.context = ctx;
++                var filter = new IntentFilter(instance.getIntentAction());
++                ctx.registerReceiver(instance, filter, null,
++                        instance.getScheduler(), Context.RECEIVER_NOT_EXPORTED);
++                map.put(cls, instance);
++            }
++            return instance;
++        }
++    }
++
++    private Context context;
++
++    private PendingIntent basePendingIntent;
++    private long prevId;
++
++    private String getIntentAction() {
++        return getClass().getName();
++    }
++
++    private Intent getBaseIntent() {
++        var i = new Intent(getIntentAction());
++        i.setPackage(context.getPackageName());
++        return i;
++    }
++
++    public static <T extends IntentReceiver> PendingIntent getPendingIntent(
++            Class<T> cls, Supplier<T> supplier, @Nullable Bundle args, Context ctx) {
++        return getInstance(cls, supplier, ctx).getPendingIntent(args);
++    }
++
++    public PendingIntent getPendingIntent(@Nullable Bundle args) {
++        if (args == null) {
++            synchronized (this) {
++                PendingIntent base = basePendingIntent;
++                if (base == null) {
++                    base = PendingIntent.getBroadcast(context, 0, getBaseIntent(),
++                            PendingIntent.FLAG_IMMUTABLE);
++                    basePendingIntent = base;
++                }
++                return base;
++            }
++        } else {
++            long id;
++            synchronized (this) {
++                id = prevId++;
++            }
++
++            var i = getBaseIntent();
++            i.setIdentifier(Long.toString(id));
++            i.replaceExtras(args);
++            return PendingIntent.getBroadcast(context, 0, i, PendingIntent.FLAG_IMMUTABLE);
++        }
++    }
++
++    @Override
++    public final void onReceive(Context context, Intent intent) {
++        Slog.d(TAG, "onReceive: " + intent);
++        String idStr = intent.getIdentifier();
++        Bundle args = Bundle.EMPTY;
++        if (idStr != null) {
++            args = intent.getExtras();
++        }
++        onReceive(context, args);
++    }
++
++    public Handler getScheduler() {
++        return BackgroundThread.getHandler();
++    }
++
++    public abstract void onReceive(Context ctx, Bundle args);
++}
+diff --git a/services/core/java/com/android/server/ext/MissingSpecialRuntimePermissionNotification.java b/services/core/java/com/android/server/ext/MissingSpecialRuntimePermissionNotification.java
+new file mode 100644
+index 00000000..00f73b9f
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/MissingSpecialRuntimePermissionNotification.java
+@@ -0,0 +1,178 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.Manifest;
++import android.app.Notification;
++import android.app.NotificationManager;
++import android.app.PendingIntent;
++import android.content.Context;
++import android.content.Intent;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
++import android.content.pm.PackageManagerInternal;
++import android.os.Bundle;
++import android.os.Process;
++import android.os.SystemClock;
++import android.os.UserHandle;
++import android.permission.PermissionManager;
++import android.util.ArrayMap;
++import android.util.Slog;
++import android.util.SparseLongArray;
++
++import com.android.internal.R;
++import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
++import com.android.internal.notification.SystemNotificationChannels;
++import com.android.server.LocalServices;
++
++import java.util.UUID;
++
++import static com.android.server.ext.SseUtils.addNotifAction;
++
++public class MissingSpecialRuntimePermissionNotification {
++    private static final String TAG = "SrPermissionNotif";
++
++    private static final ArrayMap<String, SparseLongArray> lastShownTracker = new ArrayMap<>();
++
++    public static void maybeShow(Context ctx, String permissionName, int uid, String packageName) {
++        final long timestamp = SystemClock.uptimeMillis();
++
++        synchronized (lastShownTracker) {
++            SparseLongArray uids = lastShownTracker.get(permissionName);
++            if (uids == null) {
++                uids = new SparseLongArray();
++                lastShownTracker.put(permissionName, uids);
++            } else {
++                long prevTs = uids.get(uid, 0);
++
++                if (prevTs != 0 && (timestamp - prevTs) < 30_000L) {
++                    // don't spam notifications for the same app and the same permission
++                    return;
++                }
++
++                uids.put(uid, timestamp);
++            }
++        }
++
++        final UserHandle user = UserHandle.of(UserHandle.getUserId(uid));
++
++        var permManager = ctx.getSystemService(PermissionManager.class);
++
++        if (permManager == null) {
++            // might happen during bootup
++            Slog.e(TAG, "PermissionManager is null");
++            return;
++        }
++
++        final int permFlags = permManager.getPermissionFlags(packageName, permissionName, user);
++
++        if ((permFlags & PackageManager.FLAG_PERMISSION_USER_SET) != 0) {
++            return;
++        }
++
++        var nb = new Notification.Builder(ctx, SystemNotificationChannels.MISSING_PERMISSION);
++        nb.setSmallIcon(R.drawable.stat_sys_warning);
++
++        CharSequence appLabel = null;
++        {
++            ApplicationInfo appInfo = LocalServices.getService(PackageManagerInternal.class)
++                    .getApplicationInfo(packageName, 0, Process.SYSTEM_UID,
++                            user.getIdentifier());
++            if (appInfo != null) {
++                appLabel = appInfo.loadLabel(ctx.getPackageManager());
++            } else if (uid < Process.FIRST_APPLICATION_UID) {
++                appLabel = packageName;
++            }
++            if (appLabel == null) {
++                Slog.d(TAG, "appLabel is null; uid: " + uid + ", pkg: " + packageName
++                        + ", perm: " + permissionName);
++                return;
++            }
++        }
++        nb.setContentTitle(ctx.getString(R.string.missing_sensors_permission_title, appLabel));
++
++        nb.setContentText(ctx.getString(notifTextForPermission(permissionName)));
++        {
++            Intent intent = ctx.getPackageManager()
++                    .buildRequestPermissionsIntent(new String[] { permissionName });
++            intent.setAction(PackageManager.ACTION_REQUEST_PERMISSIONS_FOR_OTHER);
++            intent.putExtra(Intent.EXTRA_PACKAGE_NAME, packageName);
++            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++            intent.setIdentifier(UUID.randomUUID().toString());
++
++            var pi = PendingIntent.getActivityAsUser(ctx, 0, intent,
++                    PendingIntent.FLAG_IMMUTABLE, null, user);
++            nb.setContentIntent(pi);
++        }
++        nb.setAutoCancel(true);
++
++        var args = new Bundle();
++        args.putString(Intent.EXTRA_PACKAGE_NAME, packageName);
++        args.putString(Intent.EXTRA_PERMISSION_NAME, permissionName);
++        args.putParcelable(Intent.EXTRA_USER, user);
++
++        PendingIntent dontShowAgainPi = IntentReceiver.getPendingIntent(NotifActionReceiver.class,
++                NotifActionReceiver::new, args, ctx);
++
++        addNotifAction(ctx, dontShowAgainPi, R.string.notification_action_dont_show_again, nb);
++
++        var notifManager = ctx.getSystemService(NotificationManager.class);
++        if (notifManager == null) {
++            // might happen during bootup
++            Slog.e(TAG, "NotificationManager is null");
++            return;
++        }
++
++        notifManager.notifyAsUser(null, notifIdForPermission(permissionName), nb.build(), user);
++    }
++
++    static class NotifActionReceiver extends IntentReceiver {
++        @Override
++        public void onReceive(Context ctx, Bundle args) {
++            String packageName = args.getString(Intent.EXTRA_PACKAGE_NAME);
++            String permissionName = args.getString(Intent.EXTRA_PERMISSION_NAME);
++            var user = args.getParcelable(Intent.EXTRA_USER, UserHandle.class);
++
++            final int flag = PackageManager.FLAG_PERMISSION_USER_SET;
++
++            ctx.getSystemService(PermissionManager.class)
++                    .updatePermissionFlags(packageName, permissionName, flag, flag, user);
++
++            ctx.getSystemService(NotificationManager.class)
++                    .cancelAsUser(null, notifIdForPermission(permissionName), user);
++        }
++    }
++
++    private static int notifTextForPermission(String perm) {
++        switch (perm) {
++            case Manifest.permission.OTHER_SENSORS:
++                return R.string.missing_sensors_permission_message;
++            default:
++                throw new IllegalArgumentException();
++        }
++    }
++
++    private static int notifIdForPermission(String perm) {
++        switch (perm) {
++            case Manifest.permission.OTHER_SENSORS:
++                return SystemMessage.NOTE_MISSING_PERMISSION_OTHER_SENSORS;
++            default:
++                throw new IllegalArgumentException();
++        }
++    }
++}
+diff --git a/services/core/java/com/android/server/ext/SseUtils.java b/services/core/java/com/android/server/ext/SseUtils.java
+new file mode 100644
+index 00000000..42754cb0
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/SseUtils.java
+@@ -0,0 +1,42 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.app.Notification;
++import android.app.PendingIntent;
++import android.content.Context;
++import android.content.Intent;
++
++public class SseUtils {
++
++    public static Notification.Action notifAction(Context ctx, Intent broadcastIntent, int textRes) {
++        return notifActionBuilder(ctx, broadcastIntent, textRes).build();
++    }
++
++    public static Notification.Action.Builder notifActionBuilder(Context ctx,
++            Intent broadcastIntent, int textRes) {
++        var pi = PendingIntent.getBroadcast(ctx, 0, broadcastIntent, PendingIntent.FLAG_IMMUTABLE);
++        return new Notification.Action.Builder(null, ctx.getText(textRes), pi);
++    }
++
++    public static void addNotifAction(Context ctx, PendingIntent intent, int textRes,
++            Notification.Builder dst) {
++        var nb = new Notification.Action.Builder(null, ctx.getText(textRes), intent);
++        dst.addAction(nb.build());
++    }
++}
+diff --git a/services/core/java/com/android/server/pm/PackageManagerNative.java b/services/core/java/com/android/server/pm/PackageManagerNative.java
+index 2252e6fb..d4334be9 100644
+--- a/services/core/java/com/android/server/pm/PackageManagerNative.java
++++ b/services/core/java/com/android/server/pm/PackageManagerNative.java
+@@ -251,4 +251,15 @@ final class PackageManagerNative extends IPackageManagerNative.Stub {
+         return mPm.mInstallerService.getStagingManager().getStagedApexInfos().toArray(
+                 new StagedApexInfo[0]);
+     }
++
++    @Override
++    public void onDeniedSpecialRuntimePermissionOp(String permissionName, int uid,
++            String packageName) {
++        if (Binder.getCallingUid() != android.os.Process.SYSTEM_UID) {
++            throw new SecurityException();
++        }
++
++        com.android.server.ext.MissingSpecialRuntimePermissionNotification
++                .maybeShow(mPm.mContext, permissionName, uid, packageName);
++    }
+ }

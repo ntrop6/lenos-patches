@@ -139,12 +139,13 @@ class TestNetworkPermissionFramework(LenosPatchTest):
             'if ("runtime".equals(metadata.getString(key))) {',
             "Manifest.permission.INTERNET, VirtualDeviceManager.PERSISTENT_DEVICE_ID_DEFAULT,",
             "userId) != PackageManager.PERMISSION_GRANTED;")
-        # Tier 2's OTHER_SENSORS permission is not ported yet (it is only
-        # mentioned in the comments explaining what is left out).
+        # The SRT registry is shared with the sensors permission (fwb/0026):
+        # it is declared here so the sensors patch only adds its enforcement.
         text = self.text(self.SRPU)
         start = text.index("specialRuntimePermissions = new ArraySet<>")
         block = text[start:text.index("});", start)]
-        self.assertNotIn("OTHER_SENSORS", block)
+        self.assertIn("Manifest.permission.INTERNET,", block)
+        self.assertIn("Manifest.permission.OTHER_SENSORS,", block)
 
     def test_auto_grant_only_on_new_install(self):
         # The framework carries "newly installed in user" through the install
