@@ -12,3 +12,5 @@
 0012-lenos-lockscreen-notification-privacy.patch
 0013-lenos-screenshot-exif-privacy.patch
 0014-lenos-delay-usb-adb-allow.patch
+0015-lenos-secure-paste.patch
+0016-lenos-cross-profile-clipboard.patch

@@ -1,0 +1,128 @@
+diff --git a/services/core/java/com/android/server/clipboard/ClipboardService.java b/services/core/java/com/android/server/clipboard/ClipboardService.java
+index fe037070..5aca854a 100644
+--- a/services/core/java/com/android/server/clipboard/ClipboardService.java
++++ b/services/core/java/com/android/server/clipboard/ClipboardService.java
+@@ -62,9 +62,11 @@ import android.content.Context;
+ import android.content.IClipboard;
+ import android.content.IOnPrimaryClipChangedListener;
+ import android.content.Intent;
++import android.content.pm.ApplicationInfo;
+ import android.content.pm.PackageManager;
+ import android.content.pm.PackageManagerInternal;
+ import android.content.pm.UserInfo;
++import android.ext.settings.ExtSettings;
+ import android.graphics.drawable.Drawable;
+ import android.hardware.display.DisplayManager;
+ import android.net.Uri;
+@@ -682,6 +684,15 @@ public class ClipboardService extends SystemService {
+                 return null;
+             }
+             synchronized (mLock) {
++                // lenOS: Secure Paste. When ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT is
++                // off, an app may only read clipboard content it owns; system apps and the
++                // default IME keep their access (see clipboardReadAllowedForPackage).
++                final boolean readAllowedForPackage = clipboardReadAllowedForPackage(
++                        pkg, intendingUid, intendingUserId, isDefaultIme(intendingUserId, pkg));
++                Clipboard clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
++                if (!readAllowedForPackage && !isClipOwnerLocked(clipboard, intendingUid)) {
++                    return null;
++                }
+                 try {
+                     addActiveOwnerLocked(intendingUid, intendingDeviceId, pkg);
+                 } catch (SecurityException e) {
+@@ -691,7 +702,7 @@ public class ClipboardService extends SystemService {
+                     return null;
+                 }
+ 
+-                Clipboard clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
++                clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
+                 if (clipboard == null) {
+                     return null;
+                 }
+@@ -725,9 +736,27 @@ public class ClipboardService extends SystemService {
+                 return null;
+             }
+             synchronized (mLock) {
++                // lenOS: Secure Paste — see getPrimaryClip().
++                final boolean readAllowedForPackage = clipboardReadAllowedForPackage(
++                        callingPackage, intendingUid, intendingUserId,
++                        isDefaultIme(intendingUserId, callingPackage));
+                 Clipboard clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
+-                return (clipboard != null && clipboard.primaryClip != null)
++                final ClipDescription description = (clipboard != null && clipboard.primaryClip != null)
+                         ? clipboard.primaryClip.getDescription() : null;
++                if (description == null || readAllowedForPackage
++                        || isClipOwnerLocked(clipboard, intendingUid)) {
++                    return description;
++                }
++                // Keep the mime types so paste affordances still work, but hide the clip
++                // label (GrapheneOS does the same in ClipboardAccess).
++                final String[] mimeTypes = new String[description.getMimeTypeCount()];
++                for (int i = 0; i < mimeTypes.length; i++) {
++                    mimeTypes[i] = description.getMimeType(i);
++                }
++                final ClipDescription descriptionWithoutLabel =
++                        new ClipDescription(null, mimeTypes);
++                descriptionWithoutLabel.setTimestamp(description.getTimestamp());
++                return descriptionWithoutLabel;
+             }
+         }
+ 
+@@ -824,8 +853,17 @@ public class ClipboardService extends SystemService {
+                 return false;
+             }
+             synchronized (mLock) {
++                // lenOS: Secure Paste — see getPrimaryClip(). Note that GOS returns true
++                // here for a denied read when a clip exists: apps use this query to decide
++                // whether to offer a Paste action, and it does not expose clip content.
++                final boolean readAllowedForPackage = clipboardReadAllowedForPackage(
++                        callingPackage, intendingUid, intendingUserId,
++                        isDefaultIme(intendingUserId, callingPackage));
+                 Clipboard clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
+                 if (clipboard != null && clipboard.primaryClip != null) {
++                    if (!readAllowedForPackage && !isClipOwnerLocked(clipboard, intendingUid)) {
++                        return true;
++                    }
+                     CharSequence text = clipboard.primaryClip.getItemAt(0).getText();
+                     return text != null && text.length() > 0;
+                 }
+@@ -1471,6 +1522,39 @@ public class ClipboardService extends SystemService {
+         return false;
+     }
+ 
++    /**
++     * lenOS: Secure Paste policy for clipboard reads, derived from the GrapheneOS
++     * per-app clipboard access switch (stage 1: the global default only).
++     *
++     * <p>When {@link ExtSettings#ALLOW_CLIPBOARD_READ_BY_DEFAULT} is enabled (the default,
++     * matching GrapheneOS), reads are not restricted further. When it is disabled, only
++     * the clip owner (checked separately at read time), the default IME and system apps
++     * may read clipboard content set by another app.
++     */
++    private boolean clipboardReadAllowedForPackage(String packageName, int intendingUid,
++            @UserIdInt int userId, boolean isDefaultIme) {
++        if (isDefaultIme) {
++            return true;
++        }
++        final ApplicationInfo appInfo;
++        try {
++            appInfo = mPm.getApplicationInfoAsUser(packageName, 0, userId);
++        } catch (PackageManager.NameNotFoundException e) {
++            return false;
++        }
++        if (appInfo.isSystemApp()) {
++            return true;
++        }
++        return ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT.get(getContext());
++    }
++
++    /** lenOS: whether the caller owns the primary clip it is trying to read. */
++    @GuardedBy("mLock")
++    private static boolean isClipOwnerLocked(@Nullable Clipboard clipboard, int uid) {
++        return clipboard != null && clipboard.primaryClip != null
++                && clipboard.primaryClipUid == uid;
++    }
++
+     @GuardedBy("mLock")
+     private boolean shouldSuppressAccessNotificationForUidLocked(int uid) {
+         long elapsedRealtime = SystemClock.elapsedRealtime();

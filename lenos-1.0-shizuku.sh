@@ -240,6 +240,24 @@ cmd_apply() {
   grep -q 'accidental Allow button tap' \
     "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/usb/UsbDebuggingActivity.java" \
     || die "USB debugging Allow button not delayed"
+  grep -q 'clipboardReadAllowedForPackage' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/clipboard/ClipboardService.java" \
+    || die "Secure Paste clipboard read gate missing"
+  grep -q 'privacy_secure_paste' \
+    "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
+    || die "Secure Paste setting row missing from Settings"
+  grep -q 'isExportAccessAllowed' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/clipboard/ClipboardService.java" \
+    || die "cross-profile clipboard export gate missing"
+  grep -q 'CROSS_PROFILE_CLIPBOARD_ACCESS_SETTINGS' \
+    "$SRC/frameworks/base/core/java/android/ext/settings/CrossProfileClipboardAccessSettings.java" \
+    || die "cross-profile clipboard policy class missing"
+  grep -q 'cross_profile_clipboard_access' \
+    "$SRC/frameworks/base/core/java/android/provider/Settings.java" \
+    || die "cross-profile clipboard setting key missing"
+  grep -q 'privacy_cross_profile_clipboard' \
+    "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
+    || die "cross-profile clipboard setting row missing from Settings"
   info "apply OK - tree carries the lenOS patch series"
 }
 

@@ -466,6 +466,16 @@ and keyboard-shortcut paths. Android only shows a notice *after* a read; Secure 
 **Verdict: port now (stage 1), port later (per-app).** Stage 1 closes the "any focused app reads
 clipboard" hole cheaply; the AppOps route looks like the pragmatic lenOS-flavoured implementation.
 
+**Implemented in 1.0** (`frameworks_base/0015-lenos-secure-paste` + the Settings row in
+`packages_apps_Settings/0001`): `ClipboardService` reads the GrapheneOS
+`ALLOW_CLIPBOARD_READ_BY_DEFAULT` ExtSetting (default `true`, as in GrapheneOS). When the setting is
+off, third-party apps may only read content they own; the default IME and system apps keep access;
+`getPrimaryClipDescription` returns a label-less description (mime types preserved) and
+`hasClipboardText` keeps the presence signal, matching GrapheneOS. Stage 2 (per-app AppOps,
+denial notifications, SystemUI paste grants/toolbar) is not ported; the feature is opt-in, so stock
+paste keeps working until the user enables it.
+
+
 ---
 
 ## 9. Delayed "Allow" action on permission + ADB prompts
@@ -696,7 +706,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Contact Scopes (alternative to the Contacts permission) | `CONTACT_SCOPES_ENABLED = 5`; API/storage `core/java/android/ext/cscopes/ContactScopesApi.java` + `ContactScopesStorage.java`, `core/java/com/android/internal/app/ContactScopes.java`; provider filtering `ContactsProvider/src/.../ScopedContactsProvider.java` + `ContactScopesUiHelper.java` (design notes `ContactScopes.md`); UI `.../permissioncontroller/cscopes/ContactScopesActivity.kt` + Settings `AppContactScopesPreference.kt` | same GosPackageState dependency + ContactsProvider fork | L | port later (after GosPackageState) |
 | Battery charge limit (80 %) | `core/java/android/ext/power/BatteryChargeLimit.java` — `CHARGE_LEVEL=80`, `Settings.Global.BATTERY_CHARGE_LIMIT`, gated by **`isGoogleDevice()`** (mechanism is Pixel-specific); Settings `BatteryChargingOptimizationPrefController/Fragment` | mechanism would need Nothing charger/kernel support; UI alone does nothing | S (stub), device support = L | not feasible now |
 | LTE-only mode | Settings app `EnabledNetworkModePreferenceController.java` (LTE-only entry :655/:745-747/:831/:946-949), `PreferredNetworkModePreferenceController.java:222`, `NetworkModes.kt:28`; LineageOS 23.2 only has the mode mapping (:579/:669), no explicit LTE-only choice | Settings app patch + strings | S–M | port later (device/0004 already defaults 5G/LTE/3G, no 2G) |
-| Cross-profile clipboard control | `android/ext/settings/CrossProfileClipboardAccessSettings.java`; read at `ClipboardService.java:1064/:1099` and `DragState.java:517` | fwb patch, per-profile setting | S–M | port later |
+| Cross-profile clipboard control | `android/ext/settings/CrossProfileClipboardAccessSettings.java`; read at `ClipboardService.java:1064/:1099` and `DragState.java:517` | class + all three gates + Settings row | S–M | **done** (`fwb/0016` + `packages_apps_Settings/0001`) |
 | Alt touchscreen mode | `android/ext/settings/AltTouchscreenMode.java`; used in `PhoneWindowManager.java:5549/:5643` (display state prop) | depends on touch controller/firmware behavior on SM7635 | M | port later / verify hardware |
 | Removing auto location grant to system browsers | Helper `core/java/android/ext/BrowserUtils.java` (26 lines) exists; grant site not pinned in this scan (likely `DefaultPermissionGrantPolicy`) | verify, then small fwb patch | S–M | port later (verify) |
 | PIN scrambling (incl. SIM PIN/PUK) + other SIM/eSIM protections | GrapheneOS base-view `setupPinScrambling` (SecureRandom shuffle + digit→view remap); keyguard reads the primary ExtSettings key, SIM PIN/PUK views read the SIM key; Settings UI via `com.android.settings.ext` controllers | **Done in the fidelity redo:** `frameworks_base/0008` (SystemUI) + `packages_apps_Settings/0001` (Settings: lock-picker switch, SIM-lock switch, controller infra) + primary default flipped ON in `frameworks_base/0006` (documented lenOS deviation — GrapheneOS ships it off). Old Lineage plumbing deleted (`PinScramblePreferenceController`, device/0005, lineage_sdk/0001). Duress is *not* accepted as a SIM PIN in GrapheneOS either (same upstream — nothing to port); duress wipes eSIM profiles (§3, done) | done | — | **done** |
@@ -773,7 +783,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 | 1 | Network permission | M–L | fwb, Connectivity, Permission, PackageInstaller | user-revocable INTERNET with "network is down" semantics; AOSP 16 already ships the eBPF machinery, so this is mostly policy + UI |
 | 2 | Sensors permission | L | fwn, fwb, Permission (+Settings) | zeroed-out accelerometer/gyro/compass/etc. for apps — the largest remaining privacy hole after network |
 | 3 | VPN leak-blocking set | M | netd, Connectivity, fwb | 4 surgical netd fixes (DNS/RA/multicast/SockDiag) + NSD-under-lockdown — hardens the always-on VPN feature we already ship |
-| 4 | Secure Paste, stage 1 (global default) | M | fwb (+Permission/Settings UI) | cross-app clipboard reads off by default; staging avoids the GosPackageState backport (per-app later via AppOps) |
+| 4 | Secure Paste, stage 1 (global default) | M | fwb (+Permission/Settings UI) | cross-app clipboard reads off by default; staging avoids the GosPackageState backport (per-app later via AppOps) — **done** (`frameworks_base/0015` + Settings row; per-app/toolbar stage 2 pending) |
 | 5 | FBE filename padding 32 B | S | system/extras | one-line policy change in libfscrypt; metadata-length privacy (new installs / post-wipe) |
 | 6 | Wi-Fi/Bluetooth auto-off timers | S–M | fwb (+Settings; NFC variant in the Nfc app) | radios power down after idle; constants already seeded in `fwb/0006` |
 | 7 | Fingerprint lockout after 5 attempts | S | fwb | parity with GrapheneOS (LineageOS still allows 20 before permanent lockout) |
@@ -859,7 +869,7 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `fwb/0003` + `system_core/0001` auto-reboot | GrapheneOS init-based design (`trigger_shutdown`, dedicated `auto_reboot_ctl_prop`, `KeyguardServiceDelegate` hook) | (a) callback calls `HandlePowerctlMessage("reboot")` vs GOS `trigger_shutdown("reboot")` — both init-internal reboot paths, equivalent; (b) SELinux: no dedicated type — stock `sys.` → `system_prop` prefix rule applies (LOS `private/property_contexts:23`; GOS `property_contexts:29` declares `auto_reboot_ctl_prop`), so the context is coarser but no sepolicy patch is needed and system_server has system_prop write access; (c) hooked in A16's `KeyguardStateMonitor.onShowingStateChanged` vs GOS's KeyguardServiceDelegate (same keyguard events); (d) no call-in-progress deferral — same as GOS | **Faithful** — two benign environment deltas; revisit (b) only if sepolicy is tightened |
 | `fwb/0004` QS unlock gating | GrapheneOS design (`QSTileImpl` gate + 11-tile allow-list + QSHost accessor) | None found | **Faithful** |
 | `fwb/0005` duress credentials | GrapheneOS duress | Same class set, same `LockSettingsStorage` key (`duress_credentials`), same verify-result hook, same owner-credential enrolment rules | **Faithful** |
-| `fwb/0006` ExtSettings | GrapheneOS `android.ext.settings` registry | Trimmed to the subset used; several constants are seeded but inert (AUTO_GRANT_OTHER_SENSORS_PERMISSION, WIFI/BLUETOOTH/NFC_AUTO_OFF, SCREENSHOT_TIMESTAMP_EXIF, ALLOW_CLIPBOARD_READ_BY_DEFAULT, RESTRICT_*_DYN_CODE_LOADING, FORCE_APP_MEMTAG, ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG). PIN scramble is *not* inert anymore (fwb/0008 + Settings/0001). One deliberate default change: `SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY` defaults to `true` (GrapheneOS ships `false`; lenOS hardening choice, commented in the patch; SIM layout inherits it) | **Deliberate** — keep trim + documented scramble default; do not surface UI for the other inert constants before enforcement lands |
+| `fwb/0006` ExtSettings | GrapheneOS `android.ext.settings` registry | Trimmed to the subset used; several constants are seeded but inert (AUTO_GRANT_OTHER_SENSORS_PERMISSION, WIFI/BLUETOOTH/NFC_AUTO_OFF, SCREENSHOT_TIMESTAMP_EXIF, RESTRICT_*_DYN_CODE_LOADING, FORCE_APP_MEMTAG, ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG). PIN scramble is *not* inert anymore (fwb/0008 + Settings/0001), and `ALLOW_CLIPBOARD_READ_BY_DEFAULT` is now enforced by `fwb/0015`; the regenerated patch also adds the GrapheneOS `Settings.Secure.CROSS_PROFILE_CLIPBOARD_ACCESS` constant used by `fwb/0016`. One deliberate default change: `SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY` defaults to `true` (GrapheneOS ships `false`; lenOS hardening choice, commented in the patch; SIM layout inherits it) | **Deliberate** — keep trim + documented scramble default; do not surface UI for the other inert constants before enforcement lands |
 | `fwb/0007` + `frameworks_opt_telephony/0001` eSIM duress wipe | GrapheneOS eSIM duress (same flag constant, SYSTEM_UID gate, carrier-notification suppression) | None found; the AIDL change is internal and the public `resetMemory` keeps its signature (hidden overload) | **Faithful** |
 | `device/0001` lenOS product | n/a | Adds `lenos_asteroids.mk`; strips Gallery2 via `LENOS_STRIP_PACKAGES`, disables AudioFX | **Plumbing** |
 | `device/0002` Wi-Fi privacy hardening | No exact GrapheneOS counterpart | Enterprise Wi-Fi without certificate validation disallowed (stock Nothing overlay sets the AOSP "STRONGLY RECOMMENDED false" value to true); default tether SSID "Nothing Phone (3a)" → "AndroidAP" | **Deliberate** — strict improvements; keep |
@@ -878,27 +888,30 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `packages_apps_CellBroadcastReceiver/0001` wireless alerts optional | GrapheneOS commits "allow toggling presidential alerts" (`11e3a8c`, 8 files) and "always allow disabling extreme alerts" (`59d96c7`, `res/values-mcc724/config.xml`) | Both are ported file-for-file: default `show_presidential_alerts_settings=true`, the override summary string, the presidential preference un-disabled in both preferences XMLs, the alert path reading `KEY_ENABLE_CMAS_PRESIDENTIAL_ALERTS` (default true), the `mAlwaysOn` parse commented out exactly as GrapheneOS writes it, the CDMA category set/clear mapping, the settings-fragment wiring, and Brazil's forced-on extreme override removed. lenOS deltas: the stale "the user is never allowed to change the preference" comment GrapheneOS left behind is dropped (and replaced with a short note), plus a lenOS marker comment on the config bool. The legacy `CellBroadcastSettingsOldFragment` (pre-S/watch path, unreachable here: `hideToolbar = !SdkLevel.isAtLeastS() || isWatch`) is left untouched, same as GrapheneOS. All alert types stay on by default | **Faithful** (comment deltas documented) — keep |
 | `packages_modules_Permission/0001` delayed Allow (permission dialogs) | GrapheneOS commit "delay activation of Allow button(s) in runtime permission dialog" (`f51d118d6`, Dec 2024) | `GrantPermissionsActivity.isAllowButton()` recognises the same six allow button IDs as GrapheneOS (matching is by constant, so upstream's `NEXT_BUTTON` drift is irrelevant), and `GrantPermissionsViewHandlerImpl.kt` disables the button whenever it is visible and an allow variant, then re-enables it via `postDelayed(action, 1000)`. lenOS delta: the debug log suffix drops the app package (`mAppPackageName`), which this branch no longer passes into the handheld handler — GrapheneOS logs it. Deny/Cancel paths untouched | **Faithful** (log suffix delta documented) — keep |
 | `frameworks_base/0014` delayed Allow (USB ADB prompt) | GrapheneOS commit "delay activation of the Allow button in USB ADB confirmation dialog" (`f9fc573b1`, Dec 2024) | The same five lines in `UsbDebuggingActivity.onCreate`: disable the dialog's positive button after `setupAlert()` and re-enable it via `getMainThreadHandler().postDelayed(…, 1000)`; the `android.widget.Button` import is added. No lenOS deltas | **Faithful** — keep |
+| `fwb/0015` Secure Paste stage 1 | GrapheneOS `ClipboardAccess.java` + `AswAllowClipboardRead` (per-app `GosPackageState` state, denial notifications, paste grants) integrated with the SystemUI paste toolbars | Framework part that does not need `GosPackageState`: `ClipboardService` reads `ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT`, exempts the default IME and system apps, lets the clip owner always read, strips the label from denied `getPrimaryClipDescription` calls while keeping mime types, and keeps the `hasClipboardText` presence signal — all matching GrapheneOS. Not ported: per-app overrides, the denial notification/`SUPPRESS_CLIPBOARD_ACCESS_DENIAL_NOTIF`, paste grants and the SystemUI toolbar (stage 2, AppOps route per §8). The global default stays `true`, so stock paste is unchanged unless the user opts in; when enabled without stage 2, cross-app paste is blocked by design (documented in features.md). Settings row uses explicit-controller registration instead of GOS's `boolSettingField` auto-wiring | **Deliberate (staged)** — stage 2 follows; keep |
+| `fwb/0016` cross-profile clipboard | GrapheneOS `CrossProfileClipboardAccessSettings` (`FOLLOW_DEFAULT`/import-only/export-only/block) read at `ClipboardService.java:1064` (export) and `:1099` (import), plus `DragState.java:517` | Class ported verbatim (same `Settings.Secure` key and four values); both `ClipboardService` gates match GOS — export returns before the related-profile loop and import skips per related profile — and the drag gate clears `mCrossProfileCopyAllowed` as in GOS. `Settings.Secure.CROSS_PROFILE_CLIPBOARD_ACCESS` is added through the regenerated `fwb/0006`. Settings UI is a plain `ListPreference` with an explicit controller (GOS uses `RadioButtonPickerFragment2`/`IntSettingPrefController`), same four policies and strings, editing the current profile's per-user value. Default follows stock Android | **Faithful** (UI mechanism substitution) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 29 patches: **20 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 31 patches: **21 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
 auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
+cross-profile clipboard policy (`fwb/0016`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
 auto-reboot pair carries the two benign environment
-deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
+deltas listed above, the Settings port the LockDomain removal + registration mechanism; **6 are
 deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
-scramble default ON, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several stricter than
-anything GrapheneOS ships (enterprise Wi-Fi, SUPL-off, scramble default); **2 are lenOS-original**
-(SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are line-level
-faithful; earlier inventory text that called them (or the Wi-Fi privacy defaults) deviations is
-superseded by this audit.
+scramble default ON, Secure Paste stage 1, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several
+stricter than anything GrapheneOS ships (enterprise Wi-Fi, SUPL-off, scramble default); **2 are
+lenOS-original** (SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are
+line-level faithful; earlier inventory text that called them (or the Wi-Fi privacy defaults) deviations
+is superseded by this audit.
 
 **Watch list (revisit conditions):**
 1. Auto-reboot SELinux context — if sepolicy is ever tightened, add a dedicated `auto_reboot_ctl_prop`
@@ -906,8 +919,8 @@ superseded by this audit.
 2. SUPL-off — if GNSS first-fix UX complaints appear, convert `device/0003` into a user toggle
    (GrapheneOS-style) rather than reverting the default.
 3. Seeded-but-inert ExtSettings constants — do not expose UI for auto-off timers, sensors auto-grant,
-   clipboard default, memtag/DCL toggles until their enforcement lands (§14). PIN scramble is the
-   exception (wired, UI shipped).
+   memtag/DCL toggles until their enforcement lands (§14). PIN scramble and the clipboard default are
+   the exceptions (wired, UI shipped).
 4. PIN scramble default-ON — the one lenOS hardening deviation with a plausible accessibility
    trade-off (the keypad relayouts on every setup). The per-user switch exists; if feedback is bad,
    flip the `ExtSettings` default back to GrapheneOS's `false` instead of patching SystemUI.

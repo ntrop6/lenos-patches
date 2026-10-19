@@ -3,6 +3,40 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (eighth session) — Tier 1 start: clipboard privacy
+
+First batch of the approved GrapheneOS Tier 1–3 roadmap (Tier 4 deferred).
+Two clipboard leaks closed end-to-end; both are opt-in, matching GrapheneOS's
+defaults.
+
+* **Secure Paste, stage 1** (`frameworks_base/0015-lenos-secure-paste`):
+  `ClipboardService` reads the GrapheneOS `ALLOW_CLIPBOARD_READ_BY_DEFAULT`
+  ExtSetting (already seeded by `frameworks_base/0006`, default `true`). When
+  the user enables "Secure paste", a package may only read content it owns;
+  the default IME and system apps keep access; `getPrimaryClipDescription`
+  returns mime types without the label; `hasClipboardText` keeps the
+  existence signal so paste affordances survive (both GrapheneOS behaviours).
+  Not ported yet: the per-app `GosPackageState` switch, denial notification
+  and the SystemUI/text-selection paste toolbar (stage 2).
+* **Cross-profile shared clipboard** (`frameworks_base/0016-lenos-cross-profile-clipboard`):
+  GrapheneOS `CrossProfileClipboardAccessSettings` ported verbatim (key
+  `cross_profile_clipboard_access`, per-user Secure setting; four policies).
+  Enforced on export in `setPrimaryClipInternalLocked`, on import per related
+  profile, and on cross-profile drag-and-drop (`DragState`). `Settings.java`
+  gains the GrapheneOS constant via the regenerated `frameworks_base/0006`.
+* **Settings UI** (`packages_apps_Settings/0001` regenerated): "Secure paste"
+  switch and "Cross-profile shared clipboard" list row in Security & privacy →
+  More security & privacy, with new `SecurePastePrefController` and
+  `CrossProfileClipboardPrefController`; GOS strings reused for the four
+  policies. Explicit registration because lenOS does not port GrapheneOS's
+  `settings:boolSettingField` auto-wiring.
+* Patch hygiene: the two features share `ClipboardService.java`, so the diff
+  was split by hunk into independent patches; each is `git apply --check`
+  clean against the pristine tree and the test classes apply them separately.
+* Tests: new `tests/test_clipboard_privacy.py` (framework gates, policy class,
+  drag-and-drop, Settings rows/controllers); full series re-applies.
+* Not verified on a device (VM still unavailable).
+
 ## 2026-10-18 (seventh session) — GrapheneOS fidelity redos: Wi-Fi privacy + PIN scrambling
 
 Audit-driven redo of the two features that were approximating GrapheneOS

@@ -148,7 +148,7 @@ index 00000000..eb0e41e0
 +}
 diff --git a/core/java/android/ext/settings/ExtSettings.java b/core/java/android/ext/settings/ExtSettings.java
 new file mode 100644
-index 00000000..bf47b35d
+index 00000000..20f5653b
 --- /dev/null
 +++ b/core/java/android/ext/settings/ExtSettings.java
 @@ -0,0 +1,141 @@
@@ -827,10 +827,10 @@ index 00000000..773f4bc2
 +    }
 +}
 diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
-index 36e2193c..06e0b197 100644
+index 36e2193c..5b174fe5 100644
 --- a/core/java/android/provider/Settings.java
 +++ b/core/java/android/provider/Settings.java
-@@ -7237,6 +7237,31 @@ public final class Settings {
+@@ -7237,6 +7237,34 @@ public final class Settings {
       * or by calling the "put" methods that this class contains.
       */
      public static final class Secure extends NameValueTable {
@@ -857,12 +857,15 @@ index 36e2193c..06e0b197 100644
 +        /** @hide */
 +        public static final String DISALLOW_DELAYED_LOCKING_ON_USER_STOP = "disallow_delayed_locking_on_user_stop";
 +
++        /** @hide */
++        public static final String CROSS_PROFILE_CLIPBOARD_ACCESS = "cross_profile_clipboard_access";
++
 +        // ExtSettings END
 +
          // NOTE: If you add new settings here, be sure to add them to
          // com.android.providers.settings.SettingsProtoDumpUtil#dumpProtoSecureSettingsLocked.
  
-@@ -13902,6 +13927,46 @@ public final class Settings {
+@@ -13902,6 +13930,46 @@ public final class Settings {
       * explicitly modify through the system UI or specialized APIs for those values.
       */
      public static final class Global extends NameValueTable {

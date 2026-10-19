@@ -79,10 +79,12 @@ their content until the user explicitly allows it.
 
 | Feature | Where | Notes |
 |---|---|---|
-| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble is enforced — see the lock section |
+| `android.ext.settings` (GrapheneOS) | `frameworks_base/0006` | `Setting`/`BoolSetting`/`IntSetting`/`StringSetting` plus the system-property variants, and `ExtSettings` with the GrapheneOS key set (auto-reboot timeout, Wi-Fi/BT/NFC auto-off, clipboard read, sensor permission grant, screenshot EXIF, PIN scramble, DCL/memtag defaults). Defaults are `core/res/res/values/config_ext.xml` resources and `Settings.Global`/`Settings.Secure` keys with GrapheneOS-identical literals, so later ports can drop in without redefining storage. Entries whose enforcement code is not ported yet are inert (no UI is surfaced for them); PIN scramble and the clipboard defaults are enforced — see the lock and clipboard sections |
 | PendingIntent immutability warp | `frameworks_base/0011` | GrapheneOS port: once the S+ compat change is enforced, an app that omitted `FLAG_IMMUTABLE`/`FLAG_MUTABLE` no longer crashes with `IllegalArgumentException` — the framework logs and forces `FLAG_IMMUTABLE`; every creation path (`getActivity`, `getActivities`, `getBroadcast`, `getService`/foreground service) honours the returned flags. Passing both flags still throws |
 | Clock-drift warning at 250 ms | `frameworks_base/0010` | GrapheneOS value: the time detector logs a warning when something other than itself moves the system clock by more than 250 ms (AOSP 2 s) |
 | Delayed Allow buttons | `packages_modules_Permission/0001` + `frameworks_base/0014` | GrapheneOS port: the Allow button in runtime permission dialogs (all six allow variants) and in the USB-debugging authorization prompt only becomes clickable one second after the dialog appears, so accidental taps cannot confirm a grant instantly; Deny/Cancel stay immediate |
+| Secure paste (stage 1) | `frameworks_base/0015` + `packages_apps_Settings/0001` | GrapheneOS clipboard read gate: with "Secure paste" enabled in More security & privacy, third-party apps may only read clipboard items they copied themselves; the default IME and system apps keep access, and denied readers get the mime types without the clip label so paste affordances survive. Off by default (GrapheneOS default); enabling it without the stage-2 per-app UI and SystemUI paste toolbar intentionally stops cross-app paste. Stage 1 uses the global `ALLOW_CLIPBOARD_READ_BY_DEFAULT` default only |
+| Cross-profile shared clipboard | `frameworks_base/0016` + `packages_apps_Settings/0001` | GrapheneOS setting `cross_profile_clipboard_access` (per user; literal key): follow defaults / import-only / export-only / disallow. Gates clipboard propagation between related profiles and cross-profile drag-and-drop. Default follows stock Android, so the control is opt-in |
 
 ## Apps and UI
 
@@ -95,9 +97,9 @@ their content until the user explicitly allows it.
 
 ## Not in the 1.0 series
 
-Anything not listed above (sensors permission, Secure Paste, LTE-only toggle,
-2nd PIN, safe recovery, signed OTA/updater, reproducible builds, custom AVB
-key) is **not implemented yet**.
+Anything not listed above (sensors permission, LTE-only toggle, 2nd PIN, safe
+recovery, signed OTA/updater, reproducible builds, custom AVB key) is **not
+implemented yet**.
 
 ## Honest limits
 
@@ -116,6 +118,11 @@ key) is **not implemented yet**.
   needs the device name must be opted in per network in its Wi-Fi network
   details (Advanced). There is no global switch, by design: a global clamp
   would override explicit per-network user choices.
+* **Secure paste is stage 1.** It ships the global default and the framework
+  enforcement, but not GrapheneOS's per-app switch or the SystemUI/text-selection
+  paste toolbar. Enabling it blocks third-party apps from reading another app's
+  clip; cross-app paste then depends on the receiving app or on turning the
+  toggle back off. The per-app UI, paste grants and toolbar are stage 2.
 * **PIN scramble is on by default** — a lenOS deviation from GrapheneOS
   (which ships it off). The keypad relayouts on every setup, which can
   disorient screen-reader/accessibility users; switch it off in Settings →
@@ -207,7 +214,11 @@ secure screenshot_timestamp_exif` unset means off),
 `ls /system/etc/security/cacerts | grep -E "53a1b57a|60afe812|9d6523ce"`
 prints nothing, Settings > Safety & emergency > Wireless emergency alerts
 lists a working "Presidential alerts" switch, a fresh permission dialog keeps
-its Allow button inactive for a moment (the GrapheneOS delay), and on
+its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
+one app is readable in another app with Secure paste off (the default), enabling
+"Secure paste" in More security & privacy makes a third-party app see an empty
+clipboard for the other app's item while the keyboard still pastes, the
+cross-profile clipboard row accepts the four GrapheneOS policies, and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

@@ -1,9 +1,9 @@
 diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
 new file mode 100644
-index 0000000..383ac85
+index 0000000..108d243
 --- /dev/null
 +++ b/res/values/strings_ext.xml
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,27 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Copyright (C) 2022 GrapheneOS
@@ -17,12 +17,25 @@ index 0000000..383ac85
 +    <!-- Save screenshot timestamp to EXIF (GrapheneOS strings_ext.xml). -->
 +    <string name="screenshot_timestamp_exif_title">Save screenshot timestamp to EXIF</string>
 +    <string name="screenshot_timestamp_exif_summary">Enables adding a timestamp to screenshot EXIF metadata</string>
++    <!-- Clipboard read protection (GrapheneOS strings_ext.xml). -->
++    <string name="secure_paste_title">Secure paste</string>
++    <string name="secure_paste_summary">Block third-party apps from reading clipboard items copied by other apps. System apps and the keyboard always keep access.</string>
++    <!-- Cross-profile shared clipboard (GrapheneOS strings_ext.xml). -->
++    <string name="cross_profile_clipboard_access_title">Cross-profile shared clipboard</string>
++    <string name="cross_profile_clipboard_access_allow_defaults_title">Follow defaults</string>
++    <string name="cross_profile_clipboard_access_allow_defaults_summary">Allow system defaults sharing the clipboard from and to the parent user and its other child profiles.</string>
++    <string name="cross_profile_clipboard_access_allow_import_defaults_title">Follow import defaults</string>
++    <string name="cross_profile_clipboard_access_allow_import_defaults_summary">Allow system defaults sharing the clipboard from the parent user and its other child profiles.</string>
++    <string name="cross_profile_clipboard_access_allow_export_defaults_title">Follow export defaults</string>
++    <string name="cross_profile_clipboard_access_allow_export_defaults_summary">Allow system defaults sharing the clipboard to the parent user and its other child profiles.</string>
++    <string name="cross_profile_clipboard_access_disallow_title">Disallowed</string>
++    <string name="cross_profile_clipboard_access_disallow_summary">Disallow sharing the clipboard from and to the parent user and its other child profiles.</string>
 +</resources>
 diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
-index 0068872..2546802 100644
+index 0068872..a08b39f 100644
 --- a/res/xml/more_security_privacy_settings.xml
 +++ b/res/xml/more_security_privacy_settings.xml
-@@ -97,6 +97,14 @@
+@@ -97,6 +97,27 @@
              settings:controller=
                  "com.android.settings.sound.MediaControlsLockScreenPreferenceController" />
  
@@ -33,6 +46,19 @@ index 0068872..2546802 100644
 +            android:key="privacy_screenshot_timestamp_exif"
 +            android:title="@string/screenshot_timestamp_exif_title"
 +            android:summary="@string/screenshot_timestamp_exif_summary" />
++
++        <!-- lenOS: clipboard read protection (GrapheneOS Secure Paste global default)
++             and cross-profile clipboard policy. Controllers registered in
++             MoreSecurityPrivacyFragment. -->
++        <SwitchPreferenceCompat
++            android:key="privacy_secure_paste"
++            android:title="@string/secure_paste_title"
++            android:summary="@string/secure_paste_summary" />
++
++        <ListPreference
++            android:key="privacy_cross_profile_clipboard"
++            android:title="@string/cross_profile_clipboard_access_title"
++            settings:searchable="false" />
 +
          <!-- Allow software fallback for camera extensions -->
          <SwitchPreferenceCompat
@@ -263,6 +289,120 @@ index 0000000..a4f736b
 +        }
 +    }
 +}
+diff --git a/src/com/android/settings/ext/CrossProfileClipboardPrefController.java b/src/com/android/settings/ext/CrossProfileClipboardPrefController.java
+new file mode 100644
+index 0000000..92c613a
+--- /dev/null
++++ b/src/com/android/settings/ext/CrossProfileClipboardPrefController.java
+@@ -0,0 +1,108 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.ext.settings.CrossProfileClipboardAccessSettings;
++
++import androidx.preference.ListPreference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.R;
++import com.android.settings.core.BasePreferenceController;
++
++/**
++ * lenOS: per-user cross-profile clipboard policy, ported from GrapheneOS
++ * (PsCrossProfileClipboardAccessPrefCtrl, adapted to a plain ListPreference).
++ */
++public class CrossProfileClipboardPrefController extends BasePreferenceController {
++    private static final String KEY = "privacy_cross_profile_clipboard";
++
++    private ListPreference preference;
++
++    public CrossProfileClipboardPrefController(Context ctx) {
++        super(ctx, KEY);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        return AVAILABLE;
++    }
++
++    @Override
++    public void displayPreference(PreferenceScreen screen) {
++        super.displayPreference(screen);
++        preference = screen.findPreference(KEY);
++        if (preference == null) {
++            return;
++        }
++        preference.setPersistent(false);
++        preference.setEntries(new CharSequence[] {
++                mContext.getString(R.string.cross_profile_clipboard_access_allow_defaults_title),
++                mContext.getString(
++                        R.string.cross_profile_clipboard_access_allow_import_defaults_title),
++                mContext.getString(
++                        R.string.cross_profile_clipboard_access_allow_export_defaults_title),
++                mContext.getString(R.string.cross_profile_clipboard_access_disallow_title),
++        });
++        preference.setEntryValues(new CharSequence[] {
++                Integer.toString(CrossProfileClipboardAccessSettings.FOLLOW_DEFAULT),
++                Integer.toString(CrossProfileClipboardAccessSettings.ALLOW_IMPORT_DEFAULTS_ONLY),
++                Integer.toString(CrossProfileClipboardAccessSettings.ALLOW_EXPORT_DEFAULTS_ONLY),
++                Integer.toString(CrossProfileClipboardAccessSettings.BLOCK),
++        });
++        preference.setOnPreferenceChangeListener((p, newValue) -> {
++            final int value;
++            try {
++                value = Integer.parseInt((String) newValue);
++            } catch (NumberFormatException e) {
++                return false;
++            }
++            return CrossProfileClipboardAccessSettings.CROSS_PROFILE_CLIPBOARD_ACCESS_SETTINGS
++                    .put(mContext, value);
++        });
++        updateState();
++    }
++
++    private void updateState() {
++        if (preference == null) {
++            return;
++        }
++        final int value = CrossProfileClipboardAccessSettings
++                .CROSS_PROFILE_CLIPBOARD_ACCESS_SETTINGS.get(mContext);
++        preference.setValue(Integer.toString(value));
++        preference.setSummary(getSummaryForValue(value));
++    }
++
++    private CharSequence getSummaryForValue(int value) {
++        switch (value) {
++            case CrossProfileClipboardAccessSettings.ALLOW_IMPORT_DEFAULTS_ONLY:
++                return mContext.getString(
++                        R.string.cross_profile_clipboard_access_allow_import_defaults_summary);
++            case CrossProfileClipboardAccessSettings.ALLOW_EXPORT_DEFAULTS_ONLY:
++                return mContext.getString(
++                        R.string.cross_profile_clipboard_access_allow_export_defaults_summary);
++            case CrossProfileClipboardAccessSettings.BLOCK:
++                return mContext.getString(
++                        R.string.cross_profile_clipboard_access_disallow_summary);
++            default:
++                return mContext.getString(
++                        R.string.cross_profile_clipboard_access_allow_defaults_summary);
++        }
++    }
++}
 diff --git a/src/com/android/settings/ext/ExtSettingControllerHelper.java b/src/com/android/settings/ext/ExtSettingControllerHelper.java
 new file mode 100644
 index 0000000..730333f
@@ -388,6 +528,64 @@ index 0000000..4a8a2a7
 +
 +interface ExtSettingPrefController<T extends Setting> extends DefaultLifecycleObserver, Consumer<T> {
 +}
+diff --git a/src/com/android/settings/ext/SecurePastePrefController.java b/src/com/android/settings/ext/SecurePastePrefController.java
+new file mode 100644
+index 0000000..f99963e
+--- /dev/null
++++ b/src/com/android/settings/ext/SecurePastePrefController.java
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (C) 2024 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.ext.settings.ExtSettings;
++
++/**
++ * lenOS: global "Secure paste" toggle. Inverted view of the GrapheneOS
++ * {@link ExtSettings#ALLOW_CLIPBOARD_READ_BY_DEFAULT} setting: checked means clipboard
++ * reads by third-party apps are restricted to content they copied themselves (and to
++ * explicit paste actions once the system paste toolbar exists). Stage 1 exposes the
++ * global default only; the per-app GrapheneOS UI is not ported yet.
++ */
++public class SecurePastePrefController extends AbstractTogglePrefController {
++    private static final String KEY = "privacy_secure_paste";
++
++    public SecurePastePrefController(Context ctx) {
++        super(ctx, KEY);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        // Device-wide setting (ExtSettings.Scope.GLOBAL), like in GrapheneOS.
++        return ExtSettingControllerHelper.getGlobalSettingAvailability(mContext);
++    }
++
++    @Override
++    public boolean isChecked() {
++        return !ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT.get(mContext);
++    }
++
++    @Override
++    public boolean setChecked(boolean isChecked) {
++        return ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT.put(mContext, !isChecked);
++    }
++}
 diff --git a/src/com/android/settings/password/ChooseLockGeneric.java b/src/com/android/settings/password/ChooseLockGeneric.java
 index 2867cd9..0644b6b 100644
 --- a/src/com/android/settings/password/ChooseLockGeneric.java
@@ -420,7 +618,7 @@ index 2867cd9..0644b6b 100644
  
          private void setUpUnlockSettingsPreference() {
 diff --git a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
-index 34f8a53..326c5b2 100644
+index 34f8a53..1e70efe 100644
 --- a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
 +++ b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
 @@ -19,6 +19,7 @@ package com.android.settings.safetycenter;
@@ -431,15 +629,17 @@ index 34f8a53..326c5b2 100644
  import android.os.Bundle;
  import android.os.UserHandle;
  import android.os.UserManager;
-@@ -27,6 +28,7 @@ import android.provider.SearchIndexableResource;
+@@ -27,6 +28,9 @@ import android.provider.SearchIndexableResource;
  import com.android.settings.R;
  import com.android.settings.Utils;
  import com.android.settings.dashboard.DashboardFragment;
 +import com.android.settings.ext.BoolSettingPrefController;
++import com.android.settings.ext.CrossProfileClipboardPrefController;
++import com.android.settings.ext.SecurePastePrefController;
  import com.android.settings.search.BaseSearchIndexProvider;
  import com.android.settings.security.LockUnificationPreferenceController;
  import com.android.settings.security.trustagent.TrustAgentListPreferenceController;
-@@ -48,6 +50,8 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+@@ -48,6 +52,8 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
      private static final String TAG = "MoreSecurityPrivacyFragment";
      private static final String KEY_NOTIFICATION_WORK_PROFILE_NOTIFICATIONS =
              "privacy_lock_screen_work_profile_notifications";
@@ -448,7 +648,7 @@ index 34f8a53..326c5b2 100644
  
      @Override
      public int getMetricsCategory() {
-@@ -101,6 +105,10 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+@@ -101,6 +107,12 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
          controllers.addAll(SafetyCenterUtils.getControllersForAdvancedPrivacy(context, lifecycle));
          controllers.addAll(
                  SafetyCenterUtils.getControllersForAdvancedSecurity(context, lifecycle, host));
@@ -456,6 +656,8 @@ index 34f8a53..326c5b2 100644
 +        // the settings:boolSettingField XML attribute.
 +        controllers.add(new BoolSettingPrefController(context, KEY_SCREENSHOT_TIMESTAMP_EXIF,
 +                ExtSettings.SCREENSHOT_TIMESTAMP_EXIF));
++        controllers.add(new SecurePastePrefController(context));
++        controllers.add(new CrossProfileClipboardPrefController(context));
          return controllers;
      }
  
