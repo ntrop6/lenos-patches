@@ -100,6 +100,12 @@ their content until the user explicitly allows it.
 | Prototype/EVT device warning | `frameworks_base/0023` (GrapheneOS port) | a persistent boot-time notification warns when the unit is an engineering prototype, which typically has relaxed security controls (secure-boot fuse not blown). The Pixel logic is ported verbatim (`ro.revision` / `ro.boot.secure_boot`); for other OEMs lenOS only treats an explicit EVT/PVT/DVT marker in the bootloader hardware-phase properties (`ro.boot.hwlevel`, `ro.boot.hardware.revision`, `ro.boot.device_release`) as a prototype, so unknown or numeric revisions never create a false warning. AOSP's serial-console notification already ships in LineageOS and is unchanged |
 | Bootloader version field | `packages_apps_Settings/0001` (GrapheneOS port) | Settings → About phone → Firmware version shows the bootloader version (`ro.bootloader`) next to baseband/kernel/security patch; Google removed the field from AOSP and GrapheneOS re-adds it, so the persistent firmware state stays visible. The pre-Treble `ro.build.expect.bootloader`/`expect.baseband` checks GrapheneOS enabled in 2017 were superseded by the VINTF build-consistency check (`Build.isBuildConsistent()`) and its mismatch dialog, both already present in LineageOS |
 
+## Privacy indicators
+
+| Feature | Where | Notes |
+|---|---|---|
+| Location privacy indicator | `frameworks_base/0027` + `vendor/lenos/release/` (GrapheneOS port) | the status-bar privacy chip now covers location, not only camera and microphone: SystemUI's `AppOpsPrivacyItemMonitor` watches `OP_COARSE_LOCATION` in addition to `OP_FINE_LOCATION`, so an app granted only approximate location lights the indicator, and the coarse op maps to the location privacy type like the fine one. Stock LineageOS 23.2 never shows it because AOSP's `bp4a` release config leaves `android.location.flags.location_indicators_enabled` disabled; lenOS turns the released AOSP code on with its own release-config value set (merged into the platform's `bp4a` config, `READ_ONLY` — no AOSP or LineageOS file is patched). Display rules match camera/microphone: system-app and background accesses are tracked but not shown; no user-facing toggle, matching GrapheneOS |
+
 ## Apps and UI
 
 | Item | Status |
@@ -247,7 +253,10 @@ tags unless "Save screenshot timestamp to EXIF" is enabled (`settings get
 secure screenshot_timestamp_exif` unset means off),
 `ls /system/etc/security/cacerts | grep -E "53a1b57a|60afe812|9d6523ce"`
 prints nothing, Settings > Safety & emergency > Wireless emergency alerts
-lists a working "Presidential alerts" switch, a fresh permission dialog keeps
+lists a working "Presidential alerts" switch, an app using location (even
+approximate-only) lights the status-bar privacy chip's location indicator
+while it is accessing and the indicator clears a few seconds after it stops,
+a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty

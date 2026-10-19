@@ -134,18 +134,19 @@ require_pristine() {
   fi
 }
 
-# Build inputs only (config/, app/, rro/). The patchkit, tests and docs stay
-# in $VENDOR outside the tree; nothing else is compiled.
+# Build inputs only (config/, app/, rro/, release/). The patchkit, tests and
+# docs stay in $VENDOR outside the tree; nothing else is compiled.
 install_vendor_lenos() {
   local part
   info "install vendor/lenos build inputs -> $SRC/vendor/lenos"
   rm -rf "$SRC/vendor/lenos"
   mkdir -p "$SRC/vendor/lenos"
-  for part in config app rro; do
+  for part in config app rro release; do
     cp -a "$VENDOR/$part" "$SRC/vendor/lenos/"
   done
   need_file "$SRC/vendor/lenos/config/lenos.mk"
   need_file "$SRC/vendor/lenos/config/privapp-permissions-org.lenos.security.xml"
+  need_file "$SRC/vendor/lenos/release/release_config_map.textproto"
 }
 
 cmd_apply() {
@@ -363,6 +364,12 @@ cmd_apply() {
   grep -q 'NOTE_MISSING_PERMISSION_OTHER_SENSORS = 500;' \
     "$SRC/frameworks/base/proto/src/system_messages.proto" \
     || die "sensors permission system message id missing"
+  grep -q 'OP_COARSE_LOCATION' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/privacy/AppOpsPrivacyItemMonitor.kt" \
+    || die "location indicator coarse-op coverage missing"
+  grep -q 'name: "location_indicators_enabled"' \
+    "$SRC/vendor/lenos/release/aconfig/bp4a/android.location.flags/location_indicators_enabled_flag_values.textproto" \
+    || die "location indicator release config value missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

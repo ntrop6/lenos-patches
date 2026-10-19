@@ -3,6 +3,50 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-20 (seventeenth session) — location privacy indicator (Tier 2 #16)
+
+* **The location indicator is in** — Tier 2 #16, and the first lenOS feature
+  that needs an aconfig flag flipped. Two halves:
+  * `frameworks_base/0027` — `AppOpsPrivacyItemMonitor` now watches
+    `OP_COARSE_LOCATION` next to `OP_FINE_LOCATION` (op array, item filter,
+    privacy-type mapping and the display check — GrapheneOS's exact four-hunk
+    delta), so an app holding only approximate location lights the status-bar
+    privacy chip. GrapheneOS's `LocationAccumulatedLogger` and the A17
+    `getUidImportance` refactor in the same file are separate features and stay
+    unported.
+  * `vendor/lenos/release/` — **new mechanism, first use.** The feature was
+    dark for a non-obvious reason: `PrivacyConfig.locationAvailable` reads
+    `android.location.flags.location_indicators_enabled`, and AOSP's `bp4a`
+    release config (the one LineageOS 23.2 selects through
+    `vendor/lineage/vars/aosp_target_release`) ships **no** value file for that
+    flag, i.e. it defaults to disabled — stock LineageOS 23.2 shows only
+    camera/mic indicators. lenOS now ships a release-config map
+    (`vendor/lenos/release/release_config_map.textproto`, discovered by
+    build/make's `vendor/*/release/` wildcard), a `bp4a` declaration that adds
+    `aconfig_value_set-lenos-bp4a`, and one value
+    (`location_indicators_enabled`, `ENABLED`, `READ_ONLY`). Release config
+    names may appear in several maps (AOSP, `vendor/lineage`, lenOS) and are
+    merged, so no AOSP or LineageOS file is patched. Future Tier 2/3 flags can
+    be flipped the same way; `docs/graphene-porting.md` §18 carries the audit
+    row.
+* Evidence trail: `platform/build/release` on `android16-qpr2-release` — the
+  location flag directory for `bp4a`/`bp3a`/`bp2a` has no
+  `location_indicators_enabled` file, while `trunk_staging` has it
+  (`ENABLED`/`READ_WRITE`). The A16 SystemUI gate and the
+  `TIME_TO_HOLD_INDICATORS_FOR_LOCATION` hold time are stock code, so enabling
+  the flag is sufficient.
+* Tests: `tests/test_location_indicator.py` (13 checks: patch content, no
+  fine-only filters left, release-config plumbing shape, and the flag name
+  cross-checked against `frameworks/base`'s `location.aconfig` through the git
+  object store when the sparse checkout lacks the file). Suite 310 green; all
+  48 patches `--check` clean against pristine; driver markers added to
+  `lenos-1.0-shizuku.sh` (coarse op + flag value).
+* Docs: features.md gained a "Privacy indicators" section and a checklist line;
+  §14.1 marks the item done; §18 is now a 48-patch audit (39 faithful).
+* Not done: on-device verification (VM still unavailable) and no Settings
+  change (the indicator has no toggle — matches GrapheneOS). Next in the Tier 2
+  order is #17 (log viewer), which needs a separate GrapheneOS UI app.
+
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 
 * **The sensors permission is in** — Tier 1 #2, closing the Tier 1 set. It

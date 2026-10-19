@@ -834,7 +834,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | JIT disabled base OS / dynamic code blocked for base OS | ART + seccomp work | none | XL | not feasible now |
 | "User-created directories not listable without storage permission" | GrapheneOS `72492da1c` (Storage Scopes): `MediaProvider.getFilesInDirectoryForFuse` suffix + `jni/MediaProviderWrapper.cpp` `skip_add_dirs`; apps with READ_MEDIA_* and `Android/` keep upstream behavior | **Done:** `packages_providers_MediaProvider/0001` (directory-listing part). Storage Scopes themselves (`GosPackageState`, `StorageScope`, scope UI) stay unported; `StorageScopesHooks` keeps GrapheneOS's name/shape for the later scope loop | M | done (scopes later) |
 | Screenshot shutter sound toggle | SystemUI `ScreenshotSoundPolicy.kt`/`ScreenshotSoundController.kt`: GOS drops AOSP-16's `screenshotForceShutterSound` aconfig gate and gates the non-forced sound on `Settings.System.SOUND_EFFECTS_ENABLED` (`ScreenshotSoundController.kt:86-89`); forced-shutter regions unchanged (`MediaActionSound.mustPlayShutterSound()` identical) | fwb SystemUI refactor (~40 LOC) | S–M | port later (cosmetic) |
-| Location privacy indicator | SystemUI `HeaderPrivacyIconsController.kt` + `PrivacyItemController.locationAvailable`; enables indicator for all location APIs (not just GNSS) | port the controller enablement + fixes | M | port later (nice-to-have) |
+| Location privacy indicator | SystemUI `HeaderPrivacyIconsController.kt` + `PrivacyItemController.locationAvailable`; enables indicator for all location APIs (not just GNSS) | **Done:** `fwb/0027` ports GrapheneOS's four-hunk `AppOpsPrivacyItemMonitor.kt` delta verbatim (`OPS_LOCATION` gains `OP_COARSE_LOCATION`; item filter, privacy-type mapping and display check use the array), so coarse-only location access lights the chip. The enablement half is new lenOS plumbing: AOSP's `bp4a` release config leaves `android.location.flags.location_indicators_enabled` disabled (only `trunk_staging` sets it), so `vendor/lenos/release/` merges a lenOS value set into the platform's `bp4a` config with `location_indicators_enabled = ENABLED`, `READ_ONLY`. GrapheneOS's `LocationAccumulatedLogger` and the A17 controller/animation refactors are not part of this port | S–M | done |
 
 ### 14.2 Privacy / identifier items
 
@@ -995,12 +995,12 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 47 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 48 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`,
 `PackageInstaller`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **45** patches (the fidelity redos; the quick-win
+`GrapheneOS/*` fetches. Note: this series now has **48** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
@@ -1012,7 +1012,8 @@ firmware-visibility batch `fwb/0023` + the Settings bootloader field; the memory
 `fwb/0024`; the user-app disable support `packages_apps_Settings/0002`; and the network-permission
 set `fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`;
 and the sensors-permission set `fwb/0026` + `frameworks_native/0001`, whose registry/declaration half
-lives in `fwb/0025`). Verdicts:
+lives in `fwb/0025`; and the location-indicator port `fwb/0027` + the first `vendor/lenos/release/`
+release-config value set, whose enablement half is lenOS mechanism). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -1062,11 +1063,12 @@ lives in `fwb/0025`). Verdicts:
 | `packages_modules_Permission/0002` network permission UI | GrapheneOS PermissionController SRT integration: `PermissionMapping` (NETWORK group), `KotlinUtils`, `Permission.isGrantedIncludingAppOp`, `AppPermissionGroup`, `PermissionUsageControlPreferenceUtils`, `HibernationSettingStateLiveData`, `AutoRevokePermissions` | Seven files, line-level ports; the only non-behavioral delta is one GrapheneOS line over 100 columns wrapped to AOSP style in `AppPermissionGroup`. The install-time toggle assumed by the original §5 analysis does not exist in GrapheneOS either — their branch-17 `PackageInstaller` has no SRT/INTERNET references (checked), so installs auto-grant and app info is the toggle | **Faithful** — keep |
 | `fwb/0026` sensors-permission notification stack | GrapheneOS `MissingSpecialRuntimePermissionNotification` + `IntentReceiver` + `SseUtils`, the `MISSING_PERMISSION` notification channel, the `NOTE_MISSING_PERMISSION_OTHER_SENSORS = 500` proto id and `PackageManagerNative.onDeniedSpecialRuntimePermissionOp` (+ the AIDL method in `frameworks_native`) | Verbatim port; deviations are mechanism-only: the channel is created inline in `SystemNotificationChannels.createAll` (GrapheneOS refactored around an `extraChannels()` hook), the `<java-symbol>` duplicates next to the strings are omitted (framework-internal references only), the notification builder resolves the app context as `mPm.mContext` (A16 `PackageManagerService` has no `getContext()`), and the 500 proto id is inserted with a trailing-context-only hunk so it co-applies with `fwb/0023`'s 400 at the same spot | **Faithful** (mechanism deltas documented) — keep |
 | `frameworks_native/0001` sensors permission enforcement | GrapheneOS `libs/sensor/Sensor.cpp:67` (`mRequiredPermission = OTHER_SENSORS` for every sensor without a more specific permission) and `services/sensorservice/SensorService.cpp:2540-2583` (`canAccessSensor`: `OTHER_SENSORS` check, `AID_APP_START` exemption for system daemons, pre-Q step-counter fallback to `OTHER_SENSORS`, denial → `package_native.onDeniedSpecialRuntimePermissionOp`) + the A16 `libs/binder/aidl/.../IPackageManagerNative.aidl` method | Line-level port. A16 adaptation: the pre-Q step-sensor branch (which upstream allowed unconditionally) moves into the non-permission branch and enforces `OTHER_SENSORS` exactly like GrapheneOS; the AIDL lives at `libs/binder/aidl/` on A16 with the same interface and signature as GrapheneOS's `native/android/aidl/` copy | **Faithful** — keep |
+| `fwb/0027` location-indicator coverage + `vendor/lenos/release/` flag value | GrapheneOS `AppOpsPrivacyItemMonitor.kt`: `OPS_LOCATION = intArrayOf(OP_FINE_LOCATION, OP_COARSE_LOCATION)` (:82-83), `.filter { item.code in OPS_LOCATION }` (:272), `OP_FINE_LOCATION, OP_COARSE_LOCATION -> PrivacyType.TYPE_LOCATION` (:387-388) and `if (item.code in OPS_LOCATION)` (:429) | Line-level port of the four-hunk delta (plus one lenOS comment); the other deltas in that file (`LocationAccumulatedLogger`, the `getUidImportance` refactor) are separate GrapheneOS features and are untouched. The enablement half is lenOS mechanism, not a deviation in behavior: AOSP's `bp4a` release-config values leave `android.location.flags.location_indicators_enabled` disabled (checked against `platform/build/release` on `android16-qpr2-release`; only `trunk_staging` enables it), so the new `vendor/lenos/release/` map + value set ships `ENABLED`/`READ_ONLY`, merged into the same `bp4a` config LineageOS selects (`vendor/lineage/vars/aosp_target_release`). No AOSP or LineageOS file is patched for it | **Faithful** (enablement is lenOS plumbing) — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 47 patches: **38 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 48 patches: **39 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -1082,6 +1084,7 @@ batch (`fwb/0023`, non-Pixel detection extension documented), the memory hygiene
 (`packages_apps_Settings/0002`, SPA-only like GrapheneOS), the network-permission set
 (`fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`, the
 A16-only `isNewlyInstalledInUserId` addition documented), the sensors-permission set (`fwb/0026` + `frameworks_native/0001`, notification-stack mechanism deltas documented), the
+location-indicator port (`fwb/0027` + `vendor/lenos/release/`, flag-enablement plumbing documented), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
