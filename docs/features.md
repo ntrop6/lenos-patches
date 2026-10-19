@@ -82,6 +82,7 @@ their content until the user explicitly allows it.
 | Lock-screen notification content hidden | `frameworks_base/0012` | GrapheneOS default: content stays hidden on the lock screen until the user allows private notifications (see first-boot defaults) |
 | FBE filename padding | `system_extras/0001` (GrapheneOS port) | every encryption policy created by this build pads filenames to 32 bytes instead of AOSP's 16 (GrapheneOS commit "pad filenames to 32 bytes instead of 16 or 4 bytes"), hiding filename lengths better. The pre-R 4-byte compatibility branch is dropped (`PRODUCT_SHIPPING_API_LEVEL := 35` makes it unreachable); `vold` picks the flags up through `libfscrypt`. Only applies to policies created after flashing (see limits) |
 | Memory hygiene on lock | `frameworks_base/0024` (GrapheneOS port) | when the keyguard starts showing, both SystemUI and system_server run a full compacting GC (`System.gc(); System.runFinalization(); System.gc();`), releasing memory that is no longer reachable and reducing how long sensitive data (lock credentials, derived keys) sits in the heap — the complement to the auto-reboot timer. SystemUI runs it in `handleShowInner`; A16 has no showing-state callback into system_server, so it runs on the `setLockScreenShown` binder thread right after the lock transition (documented adaptation) |
+| Lock-screen end session hidden | `frameworks_base/0028` (GrapheneOS port) | the lock screen never offers the "End session" (logout) button: GrapheneOS short-circuits `KeyguardIndicationController.updateLockScreenLogoutView()` with `if (false && …)`, because anyone holding the locked device could otherwise terminate the session and close every app without credentials. The action stays available from the power menu, where the lock-screen restrictions apply. GrapheneOS's A17 DevicePolicyManager logout split (`isPolicyManagerLogoutEnabled`) is an A17-only refactor and is not ported |
 
 ## Framework infrastructure
 
@@ -259,7 +260,8 @@ approximate-only) lights the status-bar privacy chip's location indicator
 while it is accessing and the indicator clears a few seconds after it stops,
 reconnecting to a per-connection-randomized network shows a fresh DHCP
 DISCOVER instead of a renewal of the previous address
-(`adb logcat -b all -s DhcpClient`), a fresh permission dialog keeps
+(`adb logcat -b all -s DhcpClient`), a secondary user's lock screen offers no
+End session button (the power menu still has it), a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty

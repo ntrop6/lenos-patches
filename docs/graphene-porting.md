@@ -868,7 +868,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
 | More profiles (32 = 31+guest) | fwb `core/res/res/values/config.xml:3288` (32); LineageOS raw = 1 + Lineage vendor overlay = 4 | device/vendor RRO override `config_multiuserMaximumUsers` | S | quick win |
-| End session (logout) without a device manager | AOSP 16 already has `logoutUser`; GrapheneOS enables the UI path and disables the lockscreen logout button (`KeyguardIndicationController` `if (false && …)`); `UserLogoutInteractor.kt` near-identical (GOS adds `isPolicyManagerLogoutEnabled`) | Settings enablement + small fwb check | S–M | port later |
+| End session (logout) without a device manager | AOSP 16 already has `logoutUser`; GrapheneOS enables the UI path and disables the lockscreen logout button (`KeyguardIndicationController` `if (false && …)`); `UserLogoutInteractor.kt` near-identical (GOS adds `isPolicyManagerLogoutEnabled`) | **Done:** `fwb/0028` ports the lock-screen disable verbatim (`if (false && mUserLogoutInteractor.isLogoutEnabled().getValue())` plus a lenOS comment), so the end session button never appears on the lock screen where it would need no credentials. A16 already shows the power-menu End session action gated by the same `UserLogoutInteractor`; GrapheneOS's A17 `isPolicyManagerLogoutEnabled` split (DevicePolicyManager-driven logout) is a refactor of that tree only and is not needed on A16 | S–M | done |
 | Disabling app installation for secondary users | Settings users screens (standard device-management restriction exposed to the owner) | Settings app patch | M | port later |
 | Install available apps | `UserSystemPackageInstaller.java` (fwb) + config **not enabled in AOSP/Pixel** per GrapheneOS; enable + UI | fwb config + Settings UI | M | port later |
 | Notification forwarding (cross-profile) | Not located in this fwb scan (verify their Settings/notification service changes) | verify | M–L (est.) | port later (verify) |
@@ -995,12 +995,12 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 49 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 50 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`,
 `PackageInstaller`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **49** patches (the fidelity redos; the quick-win
+`GrapheneOS/*` fetches. Note: this series now has **50** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
@@ -1014,7 +1014,8 @@ set `fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permis
 and the sensors-permission set `fwb/0026` + `frameworks_native/0001`, whose registry/declaration half
 lives in `fwb/0025`; and the location-indicator port `fwb/0027` + the first `vendor/lenos/release/`
 release-config value set, whose enablement half is lenOS mechanism; and `packages_modules_NetworkStack/0001`,
-GrapheneOS's DHCP lease-reuse fix for per-connection MAC randomization). Verdicts:
+GrapheneOS's DHCP lease-reuse fix for per-connection MAC randomization; and `fwb/0028`, the
+lock-screen end session disable). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -1066,11 +1067,12 @@ GrapheneOS's DHCP lease-reuse fix for per-connection MAC randomization). Verdict
 | `frameworks_native/0001` sensors permission enforcement | GrapheneOS `libs/sensor/Sensor.cpp:67` (`mRequiredPermission = OTHER_SENSORS` for every sensor without a more specific permission) and `services/sensorservice/SensorService.cpp:2540-2583` (`canAccessSensor`: `OTHER_SENSORS` check, `AID_APP_START` exemption for system daemons, pre-Q step-counter fallback to `OTHER_SENSORS`, denial → `package_native.onDeniedSpecialRuntimePermissionOp`) + the A16 `libs/binder/aidl/.../IPackageManagerNative.aidl` method | Line-level port. A16 adaptation: the pre-Q step-sensor branch (which upstream allowed unconditionally) moves into the non-permission branch and enforces `OTHER_SENSORS` exactly like GrapheneOS; the AIDL lives at `libs/binder/aidl/` on A16 with the same interface and signature as GrapheneOS's `native/android/aidl/` copy | **Faithful** — keep |
 | `fwb/0027` location-indicator coverage + `vendor/lenos/release/` flag value | GrapheneOS `AppOpsPrivacyItemMonitor.kt`: `OPS_LOCATION = intArrayOf(OP_FINE_LOCATION, OP_COARSE_LOCATION)` (:82-83), `.filter { item.code in OPS_LOCATION }` (:272), `OP_FINE_LOCATION, OP_COARSE_LOCATION -> PrivacyType.TYPE_LOCATION` (:387-388) and `if (item.code in OPS_LOCATION)` (:429) | Line-level port of the four-hunk delta (plus one lenOS comment); the other deltas in that file (`LocationAccumulatedLogger`, the `getUidImportance` refactor) are separate GrapheneOS features and are untouched. The enablement half is lenOS mechanism, not a deviation in behavior: AOSP's `bp4a` release-config values leave `android.location.flags.location_indicators_enabled` disabled (checked against `platform/build/release` on `android16-qpr2-release`; only `trunk_staging` enables it), so the new `vendor/lenos/release/` map + value set ships `ENABLED`/`READ_ONLY`, merged into the same `bp4a` config LineageOS selects (`vendor/lineage/vars/aosp_target_release`). No AOSP or LineageOS file is patched for it | **Faithful** (enablement is lenOS plumbing) — keep |
 | `packages_modules_NetworkStack/0001` DHCP lease reuse | GrapheneOS `platform_packages_modules_NetworkStack` `62d70edb46` "avoid reusing DHCP state for full MAC randomization" (2021-05-20): `DhcpClient` checks the connected network's `WifiConfiguration.macRandomizationSetting` when a non-expired lease comes back from `IpMemoryStore`, and transitions to `mDhcpInitState` (fresh DISCOVER) instead of `mDhcpInitRebootState` (renew) for `RANDOMIZATION_ALWAYS` (GOS still ships the hunks on branch 17, `DhcpClient.java:1309`/`:1342-1366`) | Line-level port; the only delta is a lenOS comment above the method. A16 adaptation: none needed — the `EVENT_CONFIGURATION_OBTAINED`/`IpMemoryStore` path is identical and the `NETWORK_STACK` UID passes Wi-Fi's `enforceCanAccessScanResults` bypass (checked in `WifiPermissionsUtil.java:572-577`), so the configured-network lookup works without location permission; any lookup failure returns `true` (avoid reuse), GrapheneOS's own fail-safe | **Faithful** — keep |
+| `fwb/0028` lock-screen end session | GrapheneOS `KeyguardIndicationController.updateLockScreenLogoutView()`: `if (false && mUserLogoutInteractor.isPolicyManagerLogoutEnabled().getValue())` (branch 17; the only difference from AOSP in that method — the surrounding logout wiring is unchanged) | Line-level port with the A16 accessor (`isLogoutEnabled()` instead of the A17 `isPolicyManagerLogoutEnabled()`) plus a lenOS comment. A16 keeps the power-menu End session action stock; GrapheneOS's DPM logout split is A17-only plumbing | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 49 patches: **40 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 50 patches: **41 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -1088,6 +1090,7 @@ batch (`fwb/0023`, non-Pixel detection extension documented), the memory hygiene
 A16-only `isNewlyInstalledInUserId` addition documented), the sensors-permission set (`fwb/0026` + `frameworks_native/0001`, notification-stack mechanism deltas documented), the
 location-indicator port (`fwb/0027` + `vendor/lenos/release/`, flag-enablement plumbing documented), the
 DHCP lease-reuse fix (`packages_modules_NetworkStack/0001`, faithful on A16), the
+lock-screen end session disable (`fwb/0028`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the

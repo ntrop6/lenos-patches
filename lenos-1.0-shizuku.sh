@@ -373,6 +373,9 @@ cmd_apply() {
   grep -q 'shouldAvoidStateReuse' \
     "$SRC/packages/modules/NetworkStack/src/android/net/dhcp/DhcpClient.java" \
     || die "DHCP lease-reuse fix for per-connection MAC randomization missing"
+  grep -q 'if (false && mUserLogoutInteractor.isLogoutEnabled' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java" \
+    || die "lock screen end session button not disabled"
   info "apply OK - tree carries the lenOS patch series"
 }
 

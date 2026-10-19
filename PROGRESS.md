@@ -60,11 +60,23 @@ One entry per working session. "Verified" = seen working on a booted device
   privacy row is now verified in-tree (EUI64 `ClientModeImpl:8417`, netd
   `InterfaceController:73,203-213,287`) and marked done; §18 is a 49-patch
   audit (40 faithful).
+* **#18 is in** — the lock-screen "End session" (logout) button is gone.
+  GrapheneOS's only change to `KeyguardIndicationController` is the
+  short-circuited guard `if (false && …)`, so anyone holding the locked device
+  can no longer terminate the session (closing every app) without
+  credentials. The power-menu End session action stays stock A16 (same
+  `UserLogoutInteractor` gate) and the disabled builder is kept for fidelity;
+  GrapheneOS's A17 DevicePolicyManager logout split
+  (`isPolicyManagerLogoutEnabled`) is an A17-only refactor. `fwb/0028`, driver
+  marker, `tests/test_lock_screen_logout.py` (5 checks).
+* Suite is now 322 green; all 50 patches `--check` clean; §18 is a 50-patch
+  audit (41 faithful); §14.3's end session row is marked done.
 * Not done: on-device verification (VM still unavailable), and the DHCP fix
   stays unexercised until the first build (it is a runtime path, not a build
   input). No Settings change for the indicator (it has no toggle — matches
-  GrapheneOS). Next in the Tier 2 order is #17 (log viewer), which needs a
-  separate GrapheneOS UI app.
+  GrapheneOS). Next in the Tier 2 order is #19 (disable app installation for
+  secondary users), which adds Settings `users/` files; #17 (log viewer) stays
+  deferred until a separate GrapheneOS UI app exists.
 
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 
