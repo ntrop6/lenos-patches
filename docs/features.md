@@ -57,6 +57,7 @@ their content until the user explicitly allows it.
 | NTP without Google | first-boot default + frameworks RRO | `pool.ntp.org` is a central pool; SNTP is unauthenticated either way |
 | Connectivity checks without Google | `rro/LenosNetworkStackOverlay` | `cp.cloudflare.com/generate_204`; the check still uses a third party (Cloudflare), it is just not Google (see limits) |
 | DHCP hostname blocked by default | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks never send the hostname (XML tag renamed `SendDhcpHostname` → `SendDhcpHostname2`, so values written by stock Android are ignored after upgrade); per-network opt-in in the Wi-Fi network details — no global override |
+| DHCP lease not reused under per-connection MAC randomization | `packages_modules_NetworkStack/0001` (GrapheneOS port) | when a network uses per-connection randomized MACs (the default), the DHCP client starts from DISCOVER instead of renewing the lease it cached for that network, so the DHCP server cannot link two connections as the same device (GrapheneOS `62d70edb46`, still shipped on their branch 17). The check asks Wi-Fi for the connected network's randomization mode and conservatively avoids reuse if that lookup fails; the other randomization modes keep the upstream fast-renewal path |
 | VPN lockdown DNS leak fixed | `system_netd/0001` (GrapheneOS port) | the system resolver no longer marks every query as VPN-protected; with all VPNs down under "Block connections without VPN", DNS falls into the blocked path instead of the default network's resolvers (GrapheneOS `82da9204`) |
 | VPN multicast firewall | `system_netd/0001` (GrapheneOS port) | drops multicast, IGMP and MLD in/out/through `tun+` interfaces, closing the cross-profile VPN side channel; inbound router advertisements stay allowed (GrapheneOS `dcef5ccb` + `d57ea8dc`) |
 | NSD blocked under VPN lockdown | `packages_modules_Connectivity/0001` + `frameworks_base/0017` (GrapheneOS port) | regular apps get no NSD connector while an always-on VPN with lockdown is active, so mDNS discovery can't bypass the tunnel; system apps keep access (`android.ext.ConnectivityUtil`) |
@@ -256,7 +257,9 @@ prints nothing, Settings > Safety & emergency > Wireless emergency alerts
 lists a working "Presidential alerts" switch, an app using location (even
 approximate-only) lights the status-bar privacy chip's location indicator
 while it is accessing and the indicator clears a few seconds after it stops,
-a fresh permission dialog keeps
+reconnecting to a per-connection-randomized network shows a fresh DHCP
+DISCOVER instead of a renewal of the previous address
+(`adb logcat -b all -s DhcpClient`), a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty

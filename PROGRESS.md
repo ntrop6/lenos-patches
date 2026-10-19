@@ -43,9 +43,28 @@ One entry per working session. "Verified" = seen working on a booted device
   `lenos-1.0-shizuku.sh` (coarse op + flag value).
 * Docs: features.md gained a "Privacy indicators" section and a checklist line;
   §14.1 marks the item done; §18 is now a 48-patch audit (39 faithful).
-* Not done: on-device verification (VM still unavailable) and no Settings
-  change (the indicator has no toggle — matches GrapheneOS). Next in the Tier 2
-  order is #17 (log viewer), which needs a separate GrapheneOS UI app.
+* **#14 loose end closed** — the DHCP-state-reuse half of the Wi-Fi privacy
+  row had no port. GrapheneOS's `62d70edb46` ("avoid reusing DHCP state for
+  full MAC randomization", 2021, still shipped on their branch 17) was missing
+  from LineageOS 23.2: `DhcpClient` renews the lease cached in `IpMemoryStore`
+  for the same L2 network even when the MAC changed, so under lenOS's default
+  per-connection randomization the DHCP server could still recognize the
+  device. The new `packages_modules_NetworkStack/0001` adds
+  `shouldAvoidStateReuse()` (asks Wi-Fi for the connected network's
+  `macRandomizationSetting`; any lookup failure conservatively starts from
+  DISCOVER). The project was already in the tree, so no repo sync was needed;
+  the `NETWORK_STACK` UID holds the scan-results bypass, so the lookup works
+  without location permission.
+* Tests: `tests/test_dhcp_state_reuse.py` (7 checks); suite 317 green; all 49
+  patches `--check` clean; driver marker for the DHCP hunk. §14.5's Wi-Fi
+  privacy row is now verified in-tree (EUI64 `ClientModeImpl:8417`, netd
+  `InterfaceController:73,203-213,287`) and marked done; §18 is a 49-patch
+  audit (40 faithful).
+* Not done: on-device verification (VM still unavailable), and the DHCP fix
+  stays unexercised until the first build (it is a runtime path, not a build
+  input). No Settings change for the indicator (it has no toggle — matches
+  GrapheneOS). Next in the Tier 2 order is #17 (log viewer), which needs a
+  separate GrapheneOS UI app.
 
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 

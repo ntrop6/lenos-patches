@@ -370,6 +370,9 @@ cmd_apply() {
   grep -q 'name: "location_indicators_enabled"' \
     "$SRC/vendor/lenos/release/aconfig/bp4a/android.location.flags/location_indicators_enabled_flag_values.textproto" \
     || die "location indicator release config value missing"
+  grep -q 'shouldAvoidStateReuse' \
+    "$SRC/packages/modules/NetworkStack/src/android/net/dhcp/DhcpClient.java" \
+    || die "DHCP lease-reuse fix for per-connection MAC randomization missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

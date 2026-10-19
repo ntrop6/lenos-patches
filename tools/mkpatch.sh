@@ -20,7 +20,8 @@ for p in frameworks/base frameworks/opt/telephony packages/apps/Settings \
          packages/apps/Updater packages/apps/LineageParts \
          packages/apps/CellBroadcastReceiver \
          packages/modules/Connectivity packages/modules/Permission \
-         packages/modules/Wifi system/netd system/vold system/core \
+         packages/modules/Wifi packages/modules/NetworkStack \
+         system/netd system/vold system/core \
          system/ca-certificates system/extras \
          packages/services/Telephony lineage-sdk vendor/lineage \
          device/nothing/asteroids; do

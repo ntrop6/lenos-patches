@@ -897,7 +897,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
-| Wi-Fi privacy parity | per-connection MAC randomization (new networks default to `RANDOMIZATION_ALWAYS`), per-network DHCP hostname off by default (`SendDhcpHostname2` tag rename ignores stock-written values); EUI64 link-local generation when the MAC is randomized (AOSP `ClientModeImpl`), RFC 7217 stable-privacy addresses for non-randomized networks (netd `InterfaceController`), IPv6 privacy-address kernel support | **Done + verified:** `wifi/0001-privacy-mac-and-dhcp-defaults` ports GrapheneOS's exact 4-file change set. The remaining "verify" items are all upstream, not GrapheneOS deltas: the EUI64 path is present in LineageOS `ClientModeImpl` (`provisioningConfiguration.withRandomMacAddress()`, "Use EUI64 address generation for link-local IPv6 addresses"), netd keeps the RFC 7217 `stable_secret` handling, the SockDiag IPv4/6 leak fix (`40c47da2`) is in LineageOS 23.2, and the stable-privacy kernel commits are upstream mainline (2015, carried by any 6.6 LTS tree). No extra patch needed; kernel-adjacent work stays in the kernel workstream (§17) | — | **done** |
+| Wi-Fi privacy parity | per-connection MAC randomization (new networks default to `RANDOMIZATION_ALWAYS`), per-network DHCP hostname off by default (`SendDhcpHostname2` tag rename ignores stock-written values), no DHCP lease reuse across connections under per-connection randomization (GrapheneOS `62d70edb46`); EUI64 link-local generation when the MAC is randomized (AOSP `ClientModeImpl`), RFC 7217 stable-privacy addresses for non-randomized networks (netd `InterfaceController`), IPv6 privacy-address kernel support | **Done:** `wifi/0001-privacy-mac-and-dhcp-defaults` ports GrapheneOS's exact 4-file Wi-Fi change set, and `packages_modules_NetworkStack/0001` closes the last gap — GrapheneOS's "avoid reusing DHCP state for full MAC randomization" patch was the one piece LineageOS 23.2 lacked: AOSP renews the `IpMemoryStore` lease for the same L2 network even after the MAC changed, letting the DHCP server correlate connections (GOS still ships the fix on branch 17). The remaining "verify" items are upstream, not GrapheneOS deltas, checked in-tree: the EUI64 path is present in `packages/modules/Wifi/.../ClientModeImpl.java:8417` ("Use EUI64 address generation for link-local IPv6 addresses"), netd keeps the RFC 7217 `stable_secret` handling (`system/netd/server/InterfaceController.cpp:73,203-213,287`), the SockDiag IPv4/6 leak fix (`40c47da2`) is in LineageOS 23.2 (§12), and the stable-privacy kernel commits are upstream mainline (2015, carried by any 6.6 LTS tree). Kernel-adjacent work stays in the kernel workstream (§17) | — | **done** |
 | Closed device identifier leaks | restriction tightening for legacy-target apps + exec spawning removes mitigation secrets as identifiers | exec spawning = §17 runtime cluster; legacy-target restrictions not pinned in this scan | M (verify) | port later (verify) |
 | Improved sandboxing | SELinux + seccomp-bpf policy hardening, app and WebView renderer sandbox paths | program-level (see §17); no itemized patch surfaced | XL | infeasible now |
 | More complete patching | fast kernel LTS point releases + missed-patch backports | operational: kernel workstream (§17) + release cadence, not a patch | n/a | process (not a patch) |
@@ -995,12 +995,12 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 48 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 49 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`,
 `PackageInstaller`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **48** patches (the fidelity redos; the quick-win
+`GrapheneOS/*` fetches. Note: this series now has **49** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
@@ -1013,7 +1013,8 @@ firmware-visibility batch `fwb/0023` + the Settings bootloader field; the memory
 set `fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`;
 and the sensors-permission set `fwb/0026` + `frameworks_native/0001`, whose registry/declaration half
 lives in `fwb/0025`; and the location-indicator port `fwb/0027` + the first `vendor/lenos/release/`
-release-config value set, whose enablement half is lenOS mechanism). Verdicts:
+release-config value set, whose enablement half is lenOS mechanism; and `packages_modules_NetworkStack/0001`,
+GrapheneOS's DHCP lease-reuse fix for per-connection MAC randomization). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -1064,11 +1065,12 @@ release-config value set, whose enablement half is lenOS mechanism). Verdicts:
 | `fwb/0026` sensors-permission notification stack | GrapheneOS `MissingSpecialRuntimePermissionNotification` + `IntentReceiver` + `SseUtils`, the `MISSING_PERMISSION` notification channel, the `NOTE_MISSING_PERMISSION_OTHER_SENSORS = 500` proto id and `PackageManagerNative.onDeniedSpecialRuntimePermissionOp` (+ the AIDL method in `frameworks_native`) | Verbatim port; deviations are mechanism-only: the channel is created inline in `SystemNotificationChannels.createAll` (GrapheneOS refactored around an `extraChannels()` hook), the `<java-symbol>` duplicates next to the strings are omitted (framework-internal references only), the notification builder resolves the app context as `mPm.mContext` (A16 `PackageManagerService` has no `getContext()`), and the 500 proto id is inserted with a trailing-context-only hunk so it co-applies with `fwb/0023`'s 400 at the same spot | **Faithful** (mechanism deltas documented) — keep |
 | `frameworks_native/0001` sensors permission enforcement | GrapheneOS `libs/sensor/Sensor.cpp:67` (`mRequiredPermission = OTHER_SENSORS` for every sensor without a more specific permission) and `services/sensorservice/SensorService.cpp:2540-2583` (`canAccessSensor`: `OTHER_SENSORS` check, `AID_APP_START` exemption for system daemons, pre-Q step-counter fallback to `OTHER_SENSORS`, denial → `package_native.onDeniedSpecialRuntimePermissionOp`) + the A16 `libs/binder/aidl/.../IPackageManagerNative.aidl` method | Line-level port. A16 adaptation: the pre-Q step-sensor branch (which upstream allowed unconditionally) moves into the non-permission branch and enforces `OTHER_SENSORS` exactly like GrapheneOS; the AIDL lives at `libs/binder/aidl/` on A16 with the same interface and signature as GrapheneOS's `native/android/aidl/` copy | **Faithful** — keep |
 | `fwb/0027` location-indicator coverage + `vendor/lenos/release/` flag value | GrapheneOS `AppOpsPrivacyItemMonitor.kt`: `OPS_LOCATION = intArrayOf(OP_FINE_LOCATION, OP_COARSE_LOCATION)` (:82-83), `.filter { item.code in OPS_LOCATION }` (:272), `OP_FINE_LOCATION, OP_COARSE_LOCATION -> PrivacyType.TYPE_LOCATION` (:387-388) and `if (item.code in OPS_LOCATION)` (:429) | Line-level port of the four-hunk delta (plus one lenOS comment); the other deltas in that file (`LocationAccumulatedLogger`, the `getUidImportance` refactor) are separate GrapheneOS features and are untouched. The enablement half is lenOS mechanism, not a deviation in behavior: AOSP's `bp4a` release-config values leave `android.location.flags.location_indicators_enabled` disabled (checked against `platform/build/release` on `android16-qpr2-release`; only `trunk_staging` enables it), so the new `vendor/lenos/release/` map + value set ships `ENABLED`/`READ_ONLY`, merged into the same `bp4a` config LineageOS selects (`vendor/lineage/vars/aosp_target_release`). No AOSP or LineageOS file is patched for it | **Faithful** (enablement is lenOS plumbing) — keep |
+| `packages_modules_NetworkStack/0001` DHCP lease reuse | GrapheneOS `platform_packages_modules_NetworkStack` `62d70edb46` "avoid reusing DHCP state for full MAC randomization" (2021-05-20): `DhcpClient` checks the connected network's `WifiConfiguration.macRandomizationSetting` when a non-expired lease comes back from `IpMemoryStore`, and transitions to `mDhcpInitState` (fresh DISCOVER) instead of `mDhcpInitRebootState` (renew) for `RANDOMIZATION_ALWAYS` (GOS still ships the hunks on branch 17, `DhcpClient.java:1309`/`:1342-1366`) | Line-level port; the only delta is a lenOS comment above the method. A16 adaptation: none needed — the `EVENT_CONFIGURATION_OBTAINED`/`IpMemoryStore` path is identical and the `NETWORK_STACK` UID passes Wi-Fi's `enforceCanAccessScanResults` bypass (checked in `WifiPermissionsUtil.java:572-577`), so the configured-network lookup works without location permission; any lookup failure returns `true` (avoid reuse), GrapheneOS's own fail-safe | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 48 patches: **39 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 49 patches: **40 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -1085,6 +1087,7 @@ batch (`fwb/0023`, non-Pixel detection extension documented), the memory hygiene
 (`fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`, the
 A16-only `isNewlyInstalledInUserId` addition documented), the sensors-permission set (`fwb/0026` + `frameworks_native/0001`, notification-stack mechanism deltas documented), the
 location-indicator port (`fwb/0027` + `vendor/lenos/release/`, flag-enablement plumbing documented), the
+DHCP lease-reuse fix (`packages_modules_NetworkStack/0001`, faithful on A16), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
