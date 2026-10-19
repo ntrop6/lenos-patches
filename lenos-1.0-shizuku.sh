@@ -294,6 +294,27 @@ cmd_apply() {
   grep -q 'android:key="bluetooth_auto_off"' \
     "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
     || die "Bluetooth auto-off setting row missing"
+  grep -q 'private void addLteOnlyEntry()' \
+    "$SRC/packages/apps/Settings/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java" \
+    || die "LTE-only network mode entry missing"
+  grep -q 'private void addNrOnlyEntry()' \
+    "$SRC/packages/apps/Settings/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java" \
+    || die "5G-only network mode entry missing"
+  grep -q 'name="preferred_network_mode_lte_only_summary"' \
+    "$SRC/packages/apps/Settings/res/values/strings_ext.xml" \
+    || die "LTE-only summary string missing"
+  grep -q 'private static void applyConfigOverrides' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/location/gnss/GnssConfiguration.java" \
+    || die "GNSS SUPL/PSDS privacy overrides missing"
+  grep -q 'SUPL_DISABLED, // lenOS: disabled by default' \
+    "$SRC/frameworks/base/core/java/android/ext/settings/GnssSettings.java" \
+    || die "GNSS settings defaults missing"
+  grep -q 'private boolean isPsdsEnabled()' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/location/gnss/GnssLocationProvider.java" \
+    || die "PSDS download gate missing"
+  grep -q 'android:key="gnss_supl"' \
+    "$SRC/packages/apps/Settings/res/xml/location_settings.xml" \
+    || die "GNSS network-assistance settings rows missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

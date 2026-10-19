@@ -4,7 +4,6 @@ Feature contract (see docs/features.md):
 * Enterprise Wi-Fi without certificate validation cannot be configured from
   Settings/SetupWizard.
 * Tethering does not advertise a device-identifying SSID.
-* No SUPL/AGPS network assistance (no location data sent to a SUPL server).
 * Default radio mode has no 2G (stingray/IMSI-catcher attack surface), and does
   not hard-disable any other RAT.
 * The default device name (Bluetooth adapter / Wi-Fi Direct) is generic, not
@@ -24,14 +23,12 @@ class TestDeviceConfig(LenosPatchTest):
     PATCHES = [
         "0001-add-lenos-product.patch",
         "0002-wifi-privacy-hardening.patch",
-        "0003-disable-supl-network-assistance.patch",
         "0004-default-network-without-2g.patch",
         "0006-privacy-device-name.patch",
         "0007-multiuser-max-users.patch",
     ]
     PRODUCT = "lenos_asteroids.mk"
     WIFI = "rro_overlays/AsteroidsWifiOverlay/res/values/config.xml"
-    CARRIER = "rro_overlays/CarrierConfigResCommon_Vendor/res/xml/vendor.xml"
     PROPS = "system_ext.prop"
     DEVICE_NAME = "rro_overlays/AsteroidsSettingsProviderOverlay/res/values/defaults.xml"
     DEVICE_NAME_PRO = "rro_overlays/AsteroidsProSettingsProviderOverlay/res/values/defaults.xml"
@@ -39,7 +36,6 @@ class TestDeviceConfig(LenosPatchTest):
 
     def test_xml_files_are_well_formed(self):
         self.assert_xml(self.WIFI)
-        self.assert_xml(self.CARRIER)
         self.assert_xml(self.DEVICE_NAME)
         self.assert_xml(self.DEVICE_NAME_PRO)
         self.assert_xml(self.MULTIUSER)
@@ -91,10 +87,6 @@ class TestDeviceConfig(LenosPatchTest):
             self.WIFI,
             '<string translatable="false" name="wifi_tether_configure_ssid_default">AndroidAP</string>',
         )
-
-    def test_supl_assistance_is_off(self):
-        self.assert_contains(self.CARRIER, '<string name="gps.supl_host"></string>')
-        self.assert_not_contains(self.CARRIER, "<string name=\"gps.supl_host\">supl.google.com</string>")
 
     def test_default_network_mode_excludes_2g(self):
         # 28 = NR+LTE+WCDMA: no GSM/2G, WCDMA kept so roaming still works.

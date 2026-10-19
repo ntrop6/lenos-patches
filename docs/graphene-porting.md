@@ -16,19 +16,19 @@ Evidence sources:
   `opt_telephony`, `system_sepolicy`, `external_seedvault`, `providers_ContactsProvider`,
   `platform_system_extras`, `platform_system_ca-certificates` @ 17
   (clone dirs under `/tmp/opencode/graphene-repos/`).
-- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **18 patches**
-  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **8× frameworks_base**, system_core,
-  frameworks_opt_telephony, packages_modules_Wifi, packages_apps_Settings, vendor_lineage), documented in
-  `vendor/lenos/docs/features.md` (kept in sync by the redo; it lists the duress eSIM patches 0007 +
-  frameworks_opt_telephony/0001). Status 2026-10 (redo landed): ExtSettings infrastructure
+- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **37 patches**
+  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **21× frameworks_base**, system_core,
+  frameworks_opt_telephony, packages_modules_Wifi, packages_apps_Settings, vendor_lineage,
+  system_netd, packages_modules_Connectivity, packages_modules_Permission,
+  packages_apps_CellBroadcastReceiver, system_ca-certificates, system_extras), documented in
+  `vendor/lenos/docs/features.md` (kept in sync). Status 2026-10: ExtSettings infrastructure
   (frameworks_base/0006), the init-based auto-reboot port (system_core/0001 + frameworks_base/0003), the
   GrapheneOS-design quick-tile unlock gating (frameworks_base/0004), the duress feature incl. eSIM
   wipe (frameworks_base/0005+0007, frameworks_opt_telephony/0001), the GrapheneOS-faithful Wi-Fi privacy
-  defaults (packages_modules_Wifi/0001) and the GrapheneOS PIN scrambling port
-  (frameworks_base/0008 + packages_apps_Settings/0001) are all **done**; sections 1–3 below
-  carry status notes. The counts elsewhere in this document were written against the pre-redo series
-  (16 patches); the deviations audit in §18 covers the 18 current patches (device/0005 + lineage_sdk/0001
-  were deleted; frameworks_base/0008 and packages_apps_Settings/0001 were added).
+  defaults (packages_modules_Wifi/0001), the GrapheneOS PIN scrambling port
+  (frameworks_base/0008 + packages_apps_Settings/0001), the LTE-only / 5G-only Settings port, and the
+  GNSS SUPL/PSDS privacy toggles (frameworks_base/0021 + packages_apps_Settings/0001) are all **done**;
+  sections 1–3 below carry status notes. §18 audits all 37 current patches.
 
 Caveat: GrapheneOS is on Android 17; lenOS is Android 16 (LineageOS 23.2). Where a GrapheneOS file uses
 APIs only present in 17, that is called out as "API risk". Line numbers/paths are branch-17 paths.
@@ -722,7 +722,8 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Storage Scopes (alternative to storage permissions) | `GosPackageStateFlag.STORAGE_SCOPES_ENABLED = 0`; scope model `core/java/android/app/StorageScope.java`; fake permission grants `services/core/java/com/android/server/pm/GosPackageStatePermissions.java`; MediaProvider enforcement `src/com/android/providers/media/StorageScopesHooks.java` (`callingIdentity.getStorageScopes()`); app hooks `core/java/com/android/internal/app/StorageScopesAppHooks.java`; UI in Permission module `.../permissioncontroller/sscopes/` (Activity/Fragment/Utils + `strings_sscopes.xml`) + Settings `AppStorageScopesPreference.kt` | requires the GosPackageState core first (`GosPackageState*` + `PackageManagerHooks`), then scope model + MediaProvider hooks + Permission/Settings UI | L–XL | port later (after GosPackageState) |
 | Contact Scopes (alternative to the Contacts permission) | `CONTACT_SCOPES_ENABLED = 5`; API/storage `core/java/android/ext/cscopes/ContactScopesApi.java` + `ContactScopesStorage.java`, `core/java/com/android/internal/app/ContactScopes.java`; provider filtering `ContactsProvider/src/.../ScopedContactsProvider.java` + `ContactScopesUiHelper.java` (design notes `ContactScopes.md`); UI `.../permissioncontroller/cscopes/ContactScopesActivity.kt` + Settings `AppContactScopesPreference.kt` | same GosPackageState dependency + ContactsProvider fork | L | port later (after GosPackageState) |
 | Battery charge limit (80 %) | `core/java/android/ext/power/BatteryChargeLimit.java` — `CHARGE_LEVEL=80`, `Settings.Global.BATTERY_CHARGE_LIMIT`, gated by **`isGoogleDevice()`** (mechanism is Pixel-specific); Settings `BatteryChargingOptimizationPrefController/Fragment` | mechanism would need Nothing charger/kernel support; UI alone does nothing | S (stub), device support = L | not feasible now |
-| LTE-only mode | Settings app `EnabledNetworkModePreferenceController.java` (LTE-only entry :655/:745-747/:831/:946-949), `PreferredNetworkModePreferenceController.java:222`, `NetworkModes.kt:28`; LineageOS 23.2 only has the mode mapping (:579/:669), no explicit LTE-only choice | Settings app patch + strings | S–M | port later (device/0004 already defaults 5G/LTE/3G, no 2G) |
+| LTE-only mode | Settings app `EnabledNetworkModePreferenceController.java`, `PreferredNetworkModePreferenceController.java:222`, `NetworkModes.kt:28`; GrapheneOS commits `5310142ccc` (2022, "LTE Only Mode") + `8d37b32db6` (2025, "5G Only / 4G or 5G only") | **Done:** `packages_apps_Settings/0001` adds the "LTE only" entry plus "5G or LTE only"/"5G only" when the carrier/baseband exposes NR (the latter also needs NR standalone), splits the summary switch cases and adds the strings. Deliberate deviation: GrapheneOS also flips the row-availability guard from `== EnabledNetworkMode` to `!= PreferredNetworkMode`, which exposes the row when the carrier hides network settings (type `None`); lenOS keeps the stock guard. GrapheneOS's `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is kept verbatim | S–M | **done** |
+| SUPL / PSDS network-assistance toggles | `core/java/android/ext/settings/GnssSettings.java`; `GnssConfiguration.applyConfigOverrides` (applied after carrier/debug properties); `GnssLocationProvider` observers + PSDS gate; Settings `GnssSuplPrefController`/`GnssPsdsPrefController` | **Done:** `frameworks_base/0021` + `packages_apps_Settings/0001`. Setting keys and numeric values match GrapheneOS (`force_disable_supl`, `psds_server`). GrapheneOS defaults both to its own proxies; lenOS has no proxy infrastructure, so only "Off"/"Standard server" are offered and both default to **Off**. The old `device/0003` blank-`gps.supl_host` patch was removed so "Standard server" is functional. Rows live in a "Network assistance" category on the Location screen | S–M | **done** |
 | Cross-profile clipboard control | `android/ext/settings/CrossProfileClipboardAccessSettings.java`; read at `ClipboardService.java:1064/:1099` and `DragState.java:517` | class + all three gates + Settings row | S–M | **done** (`fwb/0016` + `packages_apps_Settings/0001`) |
 | Alt touchscreen mode | `android/ext/settings/AltTouchscreenMode.java`; used in `PhoneWindowManager.java:5549/:5643` (display state prop) | depends on touch controller/firmware behavior on SM7635 | M | port later / verify hardware |
 | Removing auto location grant to system browsers | GrapheneOS `DefaultPermissionGrantPolicy` has no browser block: the stock `PACKAGE_BROWSER` role holder / `CATEGORY_APP_BROWSER` system handler never receives `FOREGROUND_LOCATION_PERMISSIONS` (the `BrowserUtils` helper is unrelated — it backs GrapheneOS SELinux flag handling) | remove the block; browsers need an explicit user grant | S | **done** (`frameworks_base/0019`) |
@@ -771,7 +772,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
-| Wi-Fi privacy parity | per-connection MAC randomization (new networks default to `RANDOMIZATION_ALWAYS`), per-network DHCP hostname off by default (`SendDhcpHostname2` tag rename ignores stock-written values); DHCP client state flushed on reconnect (netd), IPv6 privacy-address kernel fixes | **Done (redo):** `wifi/0001-privacy-mac-and-dhcp-defaults` ports GrapheneOS's exact change set; DHCP-state flush + IPv6 fixes not pinned in this scan — verify against netd/kernel | S–M (verify) | defaults done; verify the rest |
+| Wi-Fi privacy parity | per-connection MAC randomization (new networks default to `RANDOMIZATION_ALWAYS`), per-network DHCP hostname off by default (`SendDhcpHostname2` tag rename ignores stock-written values); EUI64 link-local generation when the MAC is randomized (AOSP `ClientModeImpl`), RFC 7217 stable-privacy addresses for non-randomized networks (netd `InterfaceController`), IPv6 privacy-address kernel support | **Done + verified:** `wifi/0001-privacy-mac-and-dhcp-defaults` ports GrapheneOS's exact 4-file change set. The remaining "verify" items are all upstream, not GrapheneOS deltas: the EUI64 path is present in LineageOS `ClientModeImpl` (`provisioningConfiguration.withRandomMacAddress()`, "Use EUI64 address generation for link-local IPv6 addresses"), netd keeps the RFC 7217 `stable_secret` handling, the SockDiag IPv4/6 leak fix (`40c47da2`) is in LineageOS 23.2, and the stable-privacy kernel commits are upstream mainline (2015, carried by any 6.6 LTS tree). No extra patch needed; kernel-adjacent work stays in the kernel workstream (§17) | — | **done** |
 | Closed device identifier leaks | restriction tightening for legacy-target apps + exec spawning removes mitigation secrets as identifiers | exec spawning = §17 runtime cluster; legacy-target restrictions not pinned in this scan | M (verify) | port later (verify) |
 | Improved sandboxing | SELinux + seccomp-bpf policy hardening, app and WebView renderer sandbox paths | program-level (see §17); no itemized patch surfaced | XL | infeasible now |
 | More complete patching | fast kernel LTS point releases + missed-patch backports | operational: kernel workstream (§17) + release cadence, not a patch | n/a | process (not a patch) |
@@ -814,9 +815,10 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 | 15 | More profiles (32) | S | vendor/device overlays | multiuser max 4 → 32; no framework work (fscrypt/quota paths already support it) |
 
 **Runners-up (all small):** removal of Chunghwa Telecom + Netlock CAs (S), prototype-device warning (S),
-LTE-only mode UI in Settings (S–M), GNSS/SUPL settings toggles (S–M), SIM-PIN scrambling (S–M),
-cross-profile clipboard setting (S–M), sensitive-notification default (S), "remove auto location
-grant to system browsers" (**done**, `frameworks_base/0019`).
+SIM-PIN scrambling (S–M — **done**), cross-profile clipboard setting (S–M — **done**),
+sensitive-notification default (S), "remove auto location
+grant to system browsers" (**done**, `frameworks_base/0019`), LTE-only mode UI and GNSS/SUPL/PSDS
+toggles (**done**, `packages_apps_Settings/0001` + `frameworks_base/0021`).
 
 **Sequencing suggestion.** Land the §16 quick-win batch first (zero design risk). Then the VPN set
 (§12) and Secure Paste stage 1 (§8). Network (§5) and sensors (§6) each deserve their own release and
@@ -874,9 +876,9 @@ from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `P
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
-`packages_modules_Connectivity/0001` + `fwb/0017`/`0018`; the browser-location removal `fwb/0019`; and
-the radio auto-off set `fwb/0020` + Settings rows; earlier notes said
-18). Verdicts:
+`packages_modules_Connectivity/0001` + `fwb/0017`/`0018`; the browser-location removal `fwb/0019`; the
+radio auto-off set `fwb/0020` + Settings rows; and the LTE-only + GNSS batch `fwb/0021` + Settings rows,
+which also deleted the superseded `device/0003` so SUPL is controlled by the new framework toggle). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -891,7 +893,6 @@ the radio auto-off set `fwb/0020` + Settings rows; earlier notes said
 | `fwb/0007` + `frameworks_opt_telephony/0001` eSIM duress wipe | GrapheneOS eSIM duress (same flag constant, SYSTEM_UID gate, carrier-notification suppression) | None found; the AIDL change is internal and the public `resetMemory` keeps its signature (hidden overload) | **Faithful** |
 | `device/0001` lenOS product | n/a | Adds `lenos_asteroids.mk`; strips Gallery2 via `LENOS_STRIP_PACKAGES`, disables AudioFX | **Plumbing** |
 | `device/0002` Wi-Fi privacy hardening | No exact GrapheneOS counterpart | Enterprise Wi-Fi without certificate validation disallowed (stock Nothing overlay sets the AOSP "STRONGLY RECOMMENDED false" value to true); default tether SSID "Nothing Phone (3a)" → "AndroidAP" | **Deliberate** — strict improvements; keep |
-| `device/0003` SUPL off | GrapheneOS keeps A-GPS via their SUPL proxy with user toggles | Disables SUPL entirely (`gps.supl_host` emptied) | **Deliberate/stricter** — slower first fix, no A-GPS; revisit as a toggle if GNSS UX matters |
 | `device/0004` default network without 2G | GrapheneOS exposes an LTE-only setting and strips carrier configs that forbid disabling 2G, but does not change the device default | `ro.telephony.default_network` 26 → 28 (26 = `NETWORK_MODE_NR_LTE_GSM_WCDMA`, includes 2G; 28 = `NETWORK_MODE_NR_LTE_WCDMA`, no 2G — verified against branch-17 `RILConstants.java:226/232/238`) | **Deliberate/stricter** — user-changeable in Settings; keep |
 | `device/0005` + `lineage_sdk/0001` PIN scramble default | n/a — superseded by the GrapheneOS port | **Both patches deleted** in the fidelity redo: the Lineage scramble implementation they configured was replaced by GrapheneOS's (`frameworks_base/0008` + `packages_apps_Settings/0001`); the lenOS default-ON now rides `ExtSettings` (`fwb/0006`, commented deviation) | **Removed** — no longer part of the series |
 | `device/0006` device name | None | Default `def_device_name` / `def_device_name_simple` → "Android" (Bluetooth / Wi-Fi Direct / hotspot display name) | **Original** — keep |
@@ -914,27 +915,30 @@ the radio auto-off set `fwb/0020` + Settings rows; earlier notes said
 | `fwb/0018` always-on VPN survival | GrapheneOS `Vpn.startAlwaysOnVpn()`: log and `return false` for an unsupported always-on package without clearing the setting | Same log message and control flow; LineageOS 23.2's safe-mode-only `setAlwaysOnPackage(null, false, null)` guard is removed together with the normal-mode unset, so the always-on + lockdown configuration survives any temporary package unavailability and resumes when the package returns | **Faithful** — keep |
 | `fwb/0019` no browser location grant | GrapheneOS `DefaultPermissionGrantPolicy` has no browser location block | The stock block (browser role holder or `CATEGORY_APP_BROWSER` system handler → `FOREGROUND_LOCATION_PERMISSIONS`) is deleted; one lenOS comment marks the spot (GrapheneOS's tree has no comment). Every other default grant is untouched | **Faithful** — keep |
 | `fwb/0020` radio auto-off timers | GrapheneOS `DelayedConditionalAction` (122), `WifiAutoOff` (141), `BluetoothAutoOff` (125), wired from `SystemServerExt.init` in `SystemServer#startOtherServices` just before `mActivityManagerService.systemReady` returns | The three service classes are line-level ports (same alarm semantics, same Wi-Fi/GATT-connected predicates, same `adapter.disable(true)` and `setWifiEnabled(false)` calls, same extras logging). Deviations: `SystemServerExt` is a trimmed lenOS version that keeps the same `context`/`bgHandler`/`packageManager` shape and wiring point but only calls the auto-off `maybeInit`s (GrapheneOS's class also bootstraps AppCompatConf and dev-build diagnostics, neither ported); Apache headers on the new files. The Settings rows use GrapheneOS's `AutoOffSetting` choices and millisecond values with a plain `ListPreference` instead of a `RadioButtonPickerFragment2` sub-screen (UI mechanism substitution, §14.1). `WIFI_AUTO_OFF`/`BLUETOOTH_AUTO_OFF` were already seeded by `fwb/0006` | **Faithful** (wiring trim + UI mechanism documented) — keep |
+| `fwb/0021` GNSS SUPL/PSDS privacy | GrapheneOS `android/ext/settings/GnssSettings.java` (keys `force_disable_supl` / `psds_server`, values 0/1/2), `GnssConfiguration.applyConfigOverrides` applied after carrier + debug properties, and `GnssLocationProvider` SUPL/PSDS observers plus the `isPsdsEnabled()` download gate | Ported file-for-file with the proxy modes omitted: GrapheneOS defaults to its own SUPL/PSDS proxies and offers them in the UI; lenOS has no proxy infrastructure, so only `STANDARD`/`DISABLED` are valid and both settings default to `DISABLED` (documented deviation, privacy-max). The enforcement order, property names, SUPL mode 0 + host/port removal, PSDS server clearing and `ENABLE_PSDS_PERIODIC_DOWNLOAD=0` match GrapheneOS. `device/0003` (empty `gps.supl_host`) was deleted because it made the new "Standard server" choice a no-op | **Faithful** (proxy modes/defaults documented; stricter defaults) — keep |
+| `packages_apps_Settings/0001` LTE/5G-only entries | GrapheneOS commits `5310142ccc` ("LTE Only Mode") and `8d37b32db6` ("5G Only / 4G or 5G only") | Entries, `lteOnlyUnsupported` cases, NR-standalone detection, summary switch and strings are line-level ports (the atomic `is5GSupported` flag included, as GrapheneOS writes it). Deliberate deviation: GrapheneOS's commit also flips `getAvailabilityStatus` from `== EnabledNetworkMode` to `!= PreferredNetworkMode`, exposing the row when the carrier hides network settings (`None`); lenOS keeps the stock guard. GrapheneOS's non-world-mode `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is preserved verbatim | **Faithful** (availability guard deviation documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 37 patches: **27 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 37 patches: **28 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
-Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
-single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
-auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
+Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
+entries, single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's
+XML auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
 cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
 (`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0018`), the
-browser-location removal (`fwb/0019`), the radio auto-off set (`fwb/0020`), the
+browser-location removal (`fwb/0019`), the radio auto-off set (`fwb/0020`), the GNSS SUPL/PSDS
+set (`fwb/0021`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
 auto-reboot pair carries the two benign environment
-deltas listed above, the Settings port the LockDomain removal + registration mechanism; **6 are
+deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
 deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
-scramble default ON, Secure Paste stage 1, Wi-Fi enterprise hardening, SUPL-off, no-2G default) — several
-stricter than anything GrapheneOS ships (enterprise Wi-Fi, SUPL-off, scramble default); **2 are
+scramble default ON, Secure Paste stage 1, Wi-Fi enterprise hardening, no-2G default) — several
+stricter than anything GrapheneOS ships (enterprise Wi-Fi, SUPL/PSDS-off defaults, scramble default); **2 are
 lenOS-original** (SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are
 line-level faithful; earlier inventory text that called them (or the Wi-Fi privacy defaults) deviations
 is superseded by this audit.
@@ -942,8 +946,9 @@ is superseded by this audit.
 **Watch list (revisit conditions):**
 1. Auto-reboot SELinux context — if sepolicy is ever tightened, add a dedicated `auto_reboot_ctl_prop`
    type like GrapheneOS instead of relying on the `sys.` prefix rule.
-2. SUPL-off — if GNSS first-fix UX complaints appear, convert `device/0003` into a user toggle
-   (GrapheneOS-style) rather than reverting the default.
+2. SUPL/PSDS defaults — if first-fix UX complaints appear, keep the defaults off and point users at the
+   Location → Network assistance toggles (standard server); do not reintroduce a device-level blank
+   `gps.supl_host`, which defeats the toggle.
 3. Seeded-but-inert ExtSettings constants — do not expose UI for the sensors auto-grant,
    NFC auto-off, memtag/DCL toggles until their enforcement lands (§14). PIN scramble, the clipboard
    default, screenshot EXIF and the Wi-Fi/Bluetooth auto-off timers are the exceptions (wired, UI

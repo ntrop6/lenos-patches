@@ -293,6 +293,84 @@ index 00000000..20f5653b
 +        return ctx -> ctx.getString(res);
 +    }
 +}
+diff --git a/core/java/android/ext/settings/GnssSettings.java b/core/java/android/ext/settings/GnssSettings.java
+new file mode 100644
+index 00000000..2c751137
+--- /dev/null
++++ b/core/java/android/ext/settings/GnssSettings.java
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext.settings;
++
++import android.content.Context;
++import android.provider.Settings;
++
++/**
++ * GNSS network-assistance privacy settings, ported from GrapheneOS
++ * {@code core/java/android/ext/settings/GnssSettings.java}.
++ *
++ * <p>GrapheneOS adds two extra modes that route SUPL and PSDS through its own
++ * proxies. lenOS has no such proxy infrastructure, so only the standard and
++ * disabled modes are offered. The setting keys and numeric values match
++ * GrapheneOS, so the proxy modes can be added later without a data
++ * migration.</p>
++ *
++ * <p>Both settings default to disabled: the device never contacts a SUPL or
++ * PSDS server unless the user explicitly turns the standard server back on.
++ * Disabling them makes a location fix slower (especially the first one) but
++ * avoids sending the device's IP address and cell-derived location to a
++ * third-party assistance server.</p>
++ *
++ * @hide
++ */
++public class GnssSettings {
++
++    // Values match GrapheneOS. SUPL mode 2 (GrapheneOS proxy) is reserved but
++    // not offered by lenOS.
++    public static final int SUPL_SERVER_STANDARD = 0;
++    public static final int SUPL_DISABLED = 1;
++
++    public static final IntSetting SUPL_SETTING = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.GNSS_SUPL,
++            SUPL_DISABLED, // lenOS: disabled by default (GrapheneOS: proxy)
++            SUPL_SERVER_STANDARD, SUPL_DISABLED // valid values
++    );
++
++    // Keep in sync with bionic/libc/bionic/gnss_psds_setting.c in GrapheneOS.
++    public static final int PSDS_SERVER_GRAPHENEOS = 0; // reserved, not offered
++    public static final int PSDS_SERVER_STANDARD = 1;
++    public static final int PSDS_DISABLED = 2;
++
++    public static final IntSetting STANDARD_PSDS_SETTING = new IntSetting(
++            Setting.Scope.GLOBAL, Settings.Global.GNSS_PSDS_STANDARD,
++            PSDS_DISABLED, // lenOS: disabled by default (GrapheneOS: their server)
++            PSDS_SERVER_STANDARD, PSDS_DISABLED // valid values
++    );
++
++    public static IntSetting getPsdsSetting(Context ctx) {
++        return STANDARD_PSDS_SETTING;
++    }
++
++    public static boolean isStandardPsds(Context ctx) {
++        return getPsdsSetting(ctx) == STANDARD_PSDS_SETTING;
++    }
++}
 diff --git a/core/java/android/ext/settings/IntSetting.java b/core/java/android/ext/settings/IntSetting.java
 new file mode 100644
 index 00000000..b027ba4b
@@ -827,7 +905,7 @@ index 00000000..773f4bc2
 +    }
 +}
 diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
-index 36e2193c..5b174fe5 100644
+index 36e2193c..08628fe7 100644
 --- a/core/java/android/provider/Settings.java
 +++ b/core/java/android/provider/Settings.java
 @@ -7237,6 +7237,34 @@ public final class Settings {
@@ -865,7 +943,7 @@ index 36e2193c..5b174fe5 100644
          // NOTE: If you add new settings here, be sure to add them to
          // com.android.providers.settings.SettingsProtoDumpUtil#dumpProtoSecureSettingsLocked.
  
-@@ -13902,6 +13930,46 @@ public final class Settings {
+@@ -13902,6 +13930,52 @@ public final class Settings {
       * explicitly modify through the system UI or specialized APIs for those values.
       */
      public static final class Global extends NameValueTable {
@@ -879,6 +957,12 @@ index 36e2193c..5b174fe5 100644
 +
 +        /** @hide */
 +        public static final String AUTO_REBOOT_TIMEOUT = "settings_reboot_after_timeout";
++
++        /** @hide */
++        public static final String GNSS_SUPL = "force_disable_supl"; // historical name
++
++        /** @hide */
++        public static final String GNSS_PSDS_STANDARD = "psds_server"; // historical name
 +
 +        /** @hide */
 +        public static final String WIFI_AUTO_OFF = "wifi_off_timeout";

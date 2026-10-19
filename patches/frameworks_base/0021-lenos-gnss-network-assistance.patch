@@ -1,0 +1,168 @@
+diff --git a/services/core/java/com/android/server/location/gnss/GnssConfiguration.java b/services/core/java/com/android/server/location/gnss/GnssConfiguration.java
+index 04b11c0e..c77b2378 100644
+--- a/services/core/java/com/android/server/location/gnss/GnssConfiguration.java
++++ b/services/core/java/com/android/server/location/gnss/GnssConfiguration.java
+@@ -17,6 +17,7 @@
+ package com.android.server.location.gnss;
+ 
+ import android.content.Context;
++import android.ext.settings.GnssSettings;
+ import android.os.PersistableBundle;
+ import android.os.SystemProperties;
+ import android.telephony.CarrierConfigManager;
+@@ -296,6 +297,11 @@ public class GnssConfiguration {
+         loadPropertiesFromGpsDebugConfig(mProperties, DEBUG_PROPERTIES_SYSTEM_FILE);
+         mEsExtensionSec = getRangeCheckedConfigEsExtensionSec();
+ 
++        // lenOS: apply the GrapheneOS SUPL/PSDS privacy settings after all
++        // other property sources, so they cannot be overridden by carrier or
++        // debug configuration.
++        applyConfigOverrides(mContext, mProperties);
++
+         logConfigurations();
+ 
+         final HalInterfaceVersion gnssConfigurationIfaceVersion = getHalInterfaceVersion();
+@@ -493,6 +499,67 @@ public class GnssConfiguration {
+         return phone.getSimState() == TelephonyManager.SIM_STATE_ABSENT;
+     }
+ 
++    /**
++     * lenOS: port of GrapheneOS {@code GnssConfiguration.applyConfigOverrides}.
++     * SUPL and PSDS are network assistance services that reveal the device's IP
++     * address (and cell-derived location) to a third party. The settings are
++     * applied last so carrier/debug configuration cannot re-enable them behind
++     * the user's back.
++     */
++    private static void applyConfigOverrides(Context ctx, Properties props) {
++        final int suplMode = GnssSettings.SUPL_SETTING.get(ctx);
++
++        switch (suplMode) {
++            case GnssSettings.SUPL_SERVER_STANDARD:
++                Log.d(TAG, "SUPL: using the standard server");
++                break;
++            case GnssSettings.SUPL_DISABLED:
++                Log.d(TAG, "SUPL is disabled");
++                // SUPL mode is a bitmask, see
++                // hardware/interfaces/gnss/aidl/android/hardware/gnss/IGnssConfiguration.aidl
++                props.setProperty(CONFIG_SUPL_MODE, "0");
++                props.remove(CONFIG_SUPL_HOST);
++                props.remove(CONFIG_SUPL_PORT);
++                break;
++        }
++
++        applyPsdsConfigOverrides(ctx, props);
++    }
++
++    private static void applyPsdsConfigOverrides(Context ctx, Properties props) {
++        final int psdsMode = GnssSettings.STANDARD_PSDS_SETTING.get(ctx);
++
++        switch (psdsMode) {
++            case GnssSettings.PSDS_SERVER_STANDARD:
++                Log.d(TAG, "PSDS: using the standard servers");
++                break;
++            case GnssSettings.PSDS_DISABLED:
++            default:
++                Log.d(TAG, "PSDS is disabled");
++                // a precaution, GnssLocationProvider.mSupportsPsds is set to
++                // false when PSDS is disabled, which should disable PSDS entirely
++                clearPsdsServerProps(props);
++                props.setProperty(CONFIG_ENABLE_PSDS_PERIODIC_DOWNLOAD, "0");
++                break;
++        }
++    }
++
++    private static void clearPsdsServerProps(Properties props) {
++        for (String n : getPsdsPropNames()) {
++            props.remove(n);
++        }
++    }
++
++    private static String[] getPsdsPropNames() {
++        return new String[] {
++                CONFIG_LONGTERM_PSDS_SERVER_1,
++                CONFIG_LONGTERM_PSDS_SERVER_2,
++                CONFIG_LONGTERM_PSDS_SERVER_3,
++                CONFIG_NORMAL_PSDS_SERVER,
++                CONFIG_REALTIME_PSDS_SERVER,
++        };
++    }
++
+     private static native HalInterfaceVersion native_get_gnss_configuration_version();
+ 
+     private static native boolean native_set_supl_version(int version);
+diff --git a/services/core/java/com/android/server/location/gnss/GnssLocationProvider.java b/services/core/java/com/android/server/location/gnss/GnssLocationProvider.java
+index 602f3823..7b9ba86a 100644
+--- a/services/core/java/com/android/server/location/gnss/GnssLocationProvider.java
++++ b/services/core/java/com/android/server/location/gnss/GnssLocationProvider.java
+@@ -60,6 +60,7 @@ import android.content.Intent;
+ import android.content.IntentFilter;
+ import android.content.pm.PackageManager;
+ import android.database.ContentObserver;
++import android.ext.settings.GnssSettings;
+ import android.location.GnssCapabilities;
+ import android.location.GnssStatus;
+ import android.location.Location;
+@@ -495,6 +496,21 @@ public class GnssLocationProvider extends AbstractLocationProvider implements
+         mGnssNative.setNotificationCallbacks(this);
+         mGnssNative.setLocationRequestCallbacks(this);
+         mGnssNative.setTimeCallbacks(this);
++
++        // lenOS: react to the GrapheneOS SUPL/PSDS privacy settings without a
++        // reboot (ported from GrapheneOS GnssLocationProvider).
++        GnssSettings.SUPL_SETTING.registerObserver(mContext, mHandler, setting -> {
++            Log.d(TAG, "SUPL setting changed, value: " + setting.get(mContext));
++            reloadGpsProperties();
++        });
++
++        GnssSettings.STANDARD_PSDS_SETTING.registerObserver(mContext, mHandler, setting -> {
++            Log.d(TAG, "PSDS setting changed, value: " + setting.get(mContext));
++            if (!isPsdsEnabled()) {
++                Log.d(TAG, "PSDS is disabled");
++            }
++            reloadGpsProperties();
++        });
+     }
+ 
+     /** Called when system is ready. */
+@@ -679,7 +695,7 @@ public class GnssLocationProvider extends AbstractLocationProvider implements
+     private void onNetworkAvailable() {
+         mNetworkTimeHelper.onNetworkAvailable();
+         // Download only if supported, (prevents an unnecessary on-boot download)
+-        if (mSupportsPsds && isAssistedGpsEnabled()) {
++        if (mSupportsPsds && isPsdsEnabled()) {
+             synchronized (mLock) {
+                 for (int psdsType : mPendingDownloadPsdsTypes) {
+                     postWithWakeLockHeld(() -> handleDownloadPsdsData(psdsType));
+@@ -774,9 +790,8 @@ public class GnssLocationProvider extends AbstractLocationProvider implements
+             Log.d(TAG, "handleDownloadPsdsData() called when PSDS not supported");
+             return;
+         }
+-        if (!isAssistedGpsEnabled()) {
+-            // PSDS download disabled by system setting, don't try
+-            Log.d(TAG, "handleDownloadPsdsData() called when PSDS disabled by system setting");
++        if (!isPsdsEnabled()) {
++            Log.d(TAG, "handleDownloadPsdsData() called when PSDS is disabled");
+             return;
+         }
+         if (!mNetworkConnectivityHandler.isDataNetworkConnected()) {
+@@ -1180,7 +1195,7 @@ public class GnssLocationProvider extends AbstractLocationProvider implements
+         } else if ("force_time_injection".equals(command)) {
+             demandUtcTimeInjection();
+         } else if ("force_psds_injection".equals(command)) {
+-            if (mSupportsPsds && isAssistedGpsEnabled()) {
++            if (mSupportsPsds) {
+                 postWithWakeLockHeld(() -> handleDownloadPsdsData(
+                         GnssPsdsDownloader.LONG_TERM_PSDS_SERVER_INDEX));
+             }
+@@ -1888,6 +1903,11 @@ public class GnssLocationProvider extends AbstractLocationProvider implements
+                 isCachedLocation);
+     }
+ 
++    private boolean isPsdsEnabled() {
++        return GnssSettings.isStandardPsds(mContext)
++                && GnssSettings.STANDARD_PSDS_SETTING.get(mContext) != GnssSettings.PSDS_DISABLED;
++    }
++
+     private boolean isAssistedGpsEnabled() {
+         final Boolean isEmergency = mNIHandler.getInEmergency();
+         if (isEmergency) {

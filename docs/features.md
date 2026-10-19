@@ -64,7 +64,8 @@ their content until the user explicitly allows it.
 | Distrusted root CAs removed | `system_ca-certificates/0001` | Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and NetLock Arany (Class Gold) roots are deleted from the system trust store, matching GrapheneOS commit `14ad6bb` and Google's 2025 root-store distrust; user-installed CAs and app-pinned trust are unaffected (see limits) |
 | Wireless alerts optional | `packages_apps_CellBroadcastReceiver/0001` (GrapheneOS port) | presidential alerts and (in Brazil) extreme alerts become user-toggleable: the presidential preference is visible, runs the config service and is read by the alert path (GrapheneOS commits "allow toggling presidential alerts" + "always allow disabling extreme alerts"). Every alert type stays enabled by default — nothing is silently forced on or off |
 | Default radio mode without 2G | `device_nothing_asteroids/0004` | `ro.telephony.default_network=28,28` (NR+LTE+WCDMA); no GSM/2G fallback, user can change |
-| SUPL / AGPS network assistance off | `device_nothing_asteroids/0003` | no location data to a SUPL server; slower GPS first fix (trade-off, documented) |
+| LTE-only / 5G-only network mode | `packages_apps_Settings/0001` (GrapheneOS port) | the preferred-network-type list gains "LTE only" (always) and "5G or LTE only" / "5G only" (when the carrier and baseband expose NR; "5G only" also requires NR standalone). Picking one strips 2G/3G (or LTE) from the modem's allowed RATs, shrinking the baseband attack surface. Ports GrapheneOS `5310142ccc` + `8d37b32db6`; the carrier-hidden-settings guard is kept (see deviations) |
+| SUPL / PSDS network assistance off | `frameworks_base/0021` + `packages_apps_Settings/0001` (GrapheneOS port) | SUPL (A-GNSS) and PSDS (predicted satellite data) default to **off**, so the device does not send its IP address and cell-derived location to an assistance server. Settings → Location → Network assistance offers "Off"/"Standard server" for each. The old device-level `gps.supl_host` blanking (`device/0003`) was removed so "Standard server" actually works; GrapheneOS's own proxies are not offered (no proxy infrastructure) |
 | Modem/radio logging and snapshot props off | `config/lenos.mk` | `persist.vendor.radio.*` logging off, small radio log buffer, `persist.traced.enable=0` |
 
 ## Lock, data and recovery
@@ -103,7 +104,7 @@ their content until the user explicitly allows it.
 
 ## Not in the 1.0 series
 
-Anything not listed above (sensors permission, LTE-only toggle, 2nd PIN, safe
+Anything not listed above (sensors permission, 2nd PIN, safe
 recovery, signed OTA/updater, reproducible builds, custom AVB key) is **not
 implemented yet**.
 
@@ -118,8 +119,9 @@ implemented yet**.
   via the same RRO.
 * **Strict DoT (Quad9) is a central service** and breaks on networks that
   block DoT. Users can switch to opportunistic/off in Settings.
-* **No SUPL means slower GPS first fixes** (minutes outdoors, longer indoors);
-  GNSS itself still works.
+* **No network assistance by default means slower GPS first fixes** (minutes
+  outdoors, longer indoors); GNSS itself still works. SUPL and PSDS can each be
+  switched to the standard server in Settings → Location → Network assistance.
 * **DHCP hostname is off by default** (GrapheneOS-faithful). A network that
   needs the device name must be opted in per network in its Wi-Fi network
   details (Advanced). There is no global switch, by design: a global clamp

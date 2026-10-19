@@ -3,6 +3,61 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (twelfth session) — LTE-only mode + GNSS network-assistance privacy
+
+* **Settings — LTE-only / 5G-only** (`packages_apps_Settings/0001`, regenerated;
+  ports GrapheneOS `5310142ccc` + `8d37b32db6`):
+  * `EnabledNetworkModePreferenceController`: adds the "LTE only" entry
+    (before the stock entries, skipping the CDMA/no-LTE/except-LTE configs)
+    and, when the carrier config exposes NR and NR is currently allowed,
+    "5G or LTE only" plus "5G only" (the latter only when the carrier config
+    advertises NR standalone). Selection writes the normal
+    `ALLOWED_NETWORK_TYPES_REASON_USER` bitmask, so the modem drops 2G/3G (or
+    LTE) from its allowed RATs.
+  * `PreferredNetworkModePreferenceController` (world-mode path) gets the
+    matching LTE-only summary string; new strings in `strings_ext.xml`.
+  * Deliberate deviation: GrapheneOS's commit also flips the row availability
+    guard (`== EnabledNetworkMode` → `!= PreferredNetworkMode`), which exposes
+    the row when the carrier hides network settings (`None`); lenOS keeps the
+    stock guard (documented in §18). GrapheneOS's non-world-mode
+    `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is kept verbatim.
+* **GNSS SUPL/PSDS privacy** (`frameworks_base/0021-lenos-gnss-network-assistance`
+  + `packages_apps_Settings/0001`; ports GrapheneOS `GnssSettings`,
+  `GnssConfiguration.applyConfigOverrides` and the `GnssLocationProvider`
+  observers/gate):
+  * New `android.ext.settings.GnssSettings`; keys and numeric values match
+    GrapheneOS (`force_disable_supl` = 0 standard / 1 disabled, `psds_server`
+    = 1 standard / 2 disabled). GrapheneOS's own proxy modes are not offered
+    (lenOS has no proxy infrastructure) and both settings default to
+    **disabled** — the privacy-preserving default without a proxy.
+  * Overrides are applied after carrier config and debug properties, so
+    neither can silently re-enable assistance: SUPL mode 0 + host/port removal;
+    PSDS server properties removed + periodic download off. Runtime setting
+    changes reload the GNSS configuration; PSDS downloads are additionally
+    gated by `isPsdsEnabled()`.
+  * Settings: "Network assistance" category on the Location screen with SUPL
+    and PSDS rows (Off / Standard server), using a plain `ListPreference`
+    controller (GrapheneOS uses a radio-button sub-screen; documented
+    substitution). Rows are system-user-only and GPS-feature-gated.
+  * Deleted the superseded `device/0003-disable-supl-network-assistance`
+    patch: blanking `gps.supl_host` at the device level would have made the
+    new "Standard server" choice a no-op. The framework default (off) keeps
+    the previous privacy behavior; a user who opts into "Standard server"
+    now gets the carrier/device-configured server.
+* Tests: new `tests/test_lte_only_mode.py` (9 checks) and
+  `tests/test_gnss_privacy.py` (14 checks); `test_device_config.py` updated
+  for the removed SUPL patch. Full suite **226 tests green**, all 37 patches
+  apply cleanly from pristine. Driver markers added for the LTE entries and
+  the GNSS overrides/settings rows.
+* Docs: features.md (LTE/5G row, SUPL/PSDS row, limits), §14.2, §15, §18
+  (device/0003 row replaced by `fwb/0021` + Settings LTE row; counts 28
+  faithful / 5 deliberate) and this log updated.
+* Not verified on a device (VM still unavailable). On first boot check: the
+  LTE-only row appears and selecting it keeps the modem off 2G/3G; the
+  Location → Network assistance rows show "Off" by default and switching to
+  "Standard server" survives a reboot; a `dumpsys location` GNSS config dump
+  shows no SUPL host while off.
+
 ## 2026-10-19 (eleventh session) — radio auto-off timers
 
 * **framework** (`frameworks_base/0020-lenos-radio-auto-off`): ports
@@ -499,6 +554,11 @@ the approximations as faithful ports and lay shared infrastructure.
    state change; flashlight works; unlocked device unaffected).
 6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
-7. Framework work still out of the series: sensor permission, Secure Paste,
-   delayed allow buttons, LTE-only toggle, 2nd PIN, vold FBE filename padding
-   (auto reboot to BFU, QS-tile gating and the duress backend are done).
+7. Framework work still out of the series: network permission, sensor
+   permission, 2nd PIN, prototype/EVT warning, memory hygiene on lock,
+   MediaProvider directory listing, package-installer disabled-state
+   persistence (auto reboot to BFU, QS-tile gating, duress, LTE-only and the
+   GNSS toggles are done).
+8. First-boot checks for the new rows: LTE-only entry order/selection,
+   Network assistance defaults = Off, SUPL/PSDS switch survives reboot, and
+   `dumpsys location` shows no SUPL/PSDS servers while off.

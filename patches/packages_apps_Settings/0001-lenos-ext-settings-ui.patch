@@ -1,9 +1,9 @@
 diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
 new file mode 100644
-index 0000000..e3ecd8e
+index 0000000..a398e75
 --- /dev/null
 +++ b/res/values/strings_ext.xml
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,54 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Copyright (C) 2022 GrapheneOS
@@ -36,7 +36,58 @@ index 0000000..e3ecd8e
 +    <string name="wifi_auto_off_footer">If Wi-Fi is disconnected, it will be turned off after the selected timeout.</string>
 +    <string name="bluetooth_auto_off_title">Turn off Bluetooth automatically</string>
 +    <string name="bluetooth_auto_off_footer">If there are no connected devices, Bluetooth will turn off after the selected timeout.</string>
++
++    <!-- GrapheneOS "LTE Only Mode" + "5G Only" network mode entries (ports of
++         GrapheneOS commits 5310142ccc and 8d37b32db6). -->
++    <string name="preferred_network_mode_lte_only_summary">Preferred network mode: LTE only</string>
++    <string name="network_lte_only">LTE only</string>
++    <string name="network_4G_only">4G only</string>
++    <string name="network_5g_only">5G only</string>
++    <string name="network_5g_or_lte_only">5G or LTE only</string>
++    <string name="network_5g_or_4g_only">5G or 4G only</string>
++
++    <!-- GrapheneOS GNSS network-assistance privacy settings (ports of
++         GnssSettings / GnssSuplPrefController / GnssPsdsPrefController). -->
++    <string name="gnss_privacy_category_title">Network assistance</string>
++    <string name="pref_gnss_supl_title">Secure User Plane Location (SUPL)</string>
++    <string name="supl_enabled_standard_server">Standard server</string>
++    <string name="supl_disabled">Off</string>
++    <string name="supl_disabled_summary">Will make acquiring location lock significantly slower, especially if PSDS is turned off too</string>
++    <string name="pref_gnss_psds_title">Predicted Satellite Data Service (PSDS)</string>
++    <string name="psds_enabled_standard_server">Standard server</string>
++    <string name="psds_disabled">Off</string>
++    <string name="psds_disabled_summary">Will make acquiring location lock significantly slower, especially if SUPL is turned off too</string>
 +</resources>
+diff --git a/res/xml/location_settings.xml b/res/xml/location_settings.xml
+index 74bc00b..7c21fc8 100644
+--- a/res/xml/location_settings.xml
++++ b/res/xml/location_settings.xml
+@@ -85,6 +85,25 @@
+ 
+     </com.android.settingslib.widget.UntitledPreferenceCategory>
+ 
++    <!-- lenOS: GrapheneOS network-assistance privacy settings. Kept outside
++         location_advanced_settings because that category is removed when the
++         new recent-location UI is disabled. -->
++    <PreferenceCategory
++        android:key="gnss_privacy_category"
++        android:title="@string/gnss_privacy_category_title">
++
++        <Preference
++            android:key="gnss_supl"
++            android:title="@string/pref_gnss_supl_title"
++            settings:controller="com.android.settings.ext.GnssSuplPrefController"/>
++
++        <Preference
++            android:key="gnss_psds"
++            android:title="@string/pref_gnss_psds_title"
++            settings:controller="com.android.settings.ext.GnssPsdsPrefController"/>
++
++    </PreferenceCategory>
++
+     <com.android.settingslib.widget.FooterPreference
+         android:title="@string/location_settings_footer_general"
+         android:key="location_footer"
 diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
 index 0068872..d4de26b 100644
 --- a/res/xml/more_security_privacy_settings.xml
@@ -711,6 +762,253 @@ index 0000000..4a8a2a7
 +
 +interface ExtSettingPrefController<T extends Setting> extends DefaultLifecycleObserver, Consumer<T> {
 +}
+diff --git a/src/com/android/settings/ext/GnssPsdsPrefController.java b/src/com/android/settings/ext/GnssPsdsPrefController.java
+new file mode 100644
+index 0000000..cd92284
+--- /dev/null
++++ b/src/com/android/settings/ext/GnssPsdsPrefController.java
+@@ -0,0 +1,51 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.content.pm.PackageManager;
++import android.ext.settings.GnssSettings;
++
++import com.android.settings.R;
++
++/**
++ * lenOS: PSDS (predicted satellite data) choice. Port of GrapheneOS
++ * {@code location/GnssPsdsPrefController} without the GrapheneOS proxy
++ * option and without GrapheneOS's {@code config_gnssPsdsType} availability
++ * check: lenOS only switches between the device's vendor-configured PSDS
++ * servers and "off", so the row is useful whenever the device has a GPS.
++ */
++public class GnssPsdsPrefController extends IntSettingListPrefController {
++
++    public GnssPsdsPrefController(Context ctx, String key) {
++        super(ctx, key, GnssSettings.STANDARD_PSDS_SETTING, PackageManager.FEATURE_LOCATION_GPS);
++        setChoices(
++                new int[] {
++                        GnssSettings.PSDS_DISABLED,
++                        GnssSettings.PSDS_SERVER_STANDARD,
++                },
++                new int[] {
++                        R.string.psds_disabled,
++                        R.string.psds_enabled_standard_server,
++                },
++                new int[] {
++                        R.string.psds_disabled_summary,
++                        0,
++                });
++    }
++}
+diff --git a/src/com/android/settings/ext/GnssSuplPrefController.java b/src/com/android/settings/ext/GnssSuplPrefController.java
+new file mode 100644
+index 0000000..5d865e8
+--- /dev/null
++++ b/src/com/android/settings/ext/GnssSuplPrefController.java
+@@ -0,0 +1,49 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.content.pm.PackageManager;
++import android.ext.settings.GnssSettings;
++
++import com.android.settings.R;
++
++/**
++ * lenOS: SUPL (A-GNSS network assistance) choice. Port of GrapheneOS
++ * {@code location/GnssSuplPrefController} without the GrapheneOS proxy
++ * option, which requires infrastructure lenOS does not run.
++ */
++public class GnssSuplPrefController extends IntSettingListPrefController {
++
++    public GnssSuplPrefController(Context ctx, String key) {
++        super(ctx, key, GnssSettings.SUPL_SETTING, PackageManager.FEATURE_LOCATION_GPS);
++        setChoices(
++                new int[] {
++                        GnssSettings.SUPL_DISABLED,
++                        GnssSettings.SUPL_SERVER_STANDARD,
++                },
++                new int[] {
++                        R.string.supl_disabled,
++                        R.string.supl_enabled_standard_server,
++                },
++                new int[] {
++                        R.string.supl_disabled_summary,
++                        0,
++                });
++    }
++}
+diff --git a/src/com/android/settings/ext/IntSettingListPrefController.java b/src/com/android/settings/ext/IntSettingListPrefController.java
+new file mode 100644
+index 0000000..c4bbdaf
+--- /dev/null
++++ b/src/com/android/settings/ext/IntSettingListPrefController.java
+@@ -0,0 +1,129 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.ext.settings.IntSetting;
++
++import androidx.preference.ListPreference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.core.BasePreferenceController;
++
++/**
++ * lenOS: small list-style control for an {@link IntSetting}.
++ *
++ * <p>GrapheneOS drives integer settings through {@code IntSettingPrefController}
++ * with a {@code RadioButtonPickerFragment2} sub-screen. lenOS uses a plain
++ * {@link ListPreference} dialog with the same setting keys and values
++ * (documented UI substitution, like the radio auto-off timers).</p>
++ */
++public abstract class IntSettingListPrefController extends BasePreferenceController {
++
++    private final IntSetting setting;
++    private final String requiredFeature;
++
++    private int[] values;
++    private int[] labels;
++    private int[] summaries;
++
++    private ListPreference preference;
++
++    protected IntSettingListPrefController(Context ctx, String key, IntSetting setting,
++            String requiredFeature) {
++        super(ctx, key);
++        this.setting = setting;
++        this.requiredFeature = requiredFeature;
++    }
++
++    /**
++     * @param values    setting values, in display order
++     * @param labels    string resources shown in the dialog, parallel to values
++     * @param summaries optional summary resources, parallel to values; use 0
++     *                  to reuse the label as the summary
++     */
++    protected final void setChoices(int[] values, int[] labels, int[] summaries) {
++        this.values = values;
++        this.labels = labels;
++        this.summaries = summaries;
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        if (requiredFeature != null
++                && !mContext.getPackageManager().hasSystemFeature(requiredFeature)) {
++            return UNSUPPORTED_ON_DEVICE;
++        }
++        // Device-wide (Settings.Global) setting: only the system user can edit it.
++        return ExtSettingControllerHelper.getGlobalSettingAvailability(mContext);
++    }
++
++    @Override
++    public void displayPreference(PreferenceScreen screen) {
++        super.displayPreference(screen);
++        preference = screen.findPreference(getPreferenceKey());
++        if (preference == null) {
++            return;
++        }
++        final CharSequence[] entries = new CharSequence[values.length];
++        final CharSequence[] entryValues = new CharSequence[values.length];
++        for (int i = 0; i < values.length; i++) {
++            entries[i] = mContext.getText(labels[i]);
++            entryValues[i] = Integer.toString(values[i]);
++        }
++        preference.setPersistent(false);
++        preference.setEntries(entries);
++        preference.setEntryValues(entryValues);
++        preference.setOnPreferenceChangeListener((p, newValue) -> {
++            final int value;
++            try {
++                value = Integer.parseInt((String) newValue);
++            } catch (NumberFormatException e) {
++                return false;
++            }
++            if (!setting.put(mContext, value)) {
++                return false;
++            }
++            updateState();
++            return true;
++        });
++        updateState();
++    }
++
++    private void updateState() {
++        if (preference == null) {
++            return;
++        }
++        final int value = setting.get(mContext);
++        int index = 0;
++        for (int i = 0; i < values.length; i++) {
++            if (values[i] == value) {
++                index = i;
++                break;
++            }
++        }
++        final CharSequence summary;
++        if (summaries != null && summaries[index] != 0) {
++            summary = mContext.getText(summaries[index]);
++        } else {
++            summary = mContext.getText(labels[index]);
++        }
++        preference.setSummary(summary);
++        preference.setValue(Integer.toString(value));
++    }
++}
 diff --git a/src/com/android/settings/ext/SecurePastePrefController.java b/src/com/android/settings/ext/SecurePastePrefController.java
 new file mode 100644
 index 0000000..f99963e
@@ -769,6 +1067,196 @@ index 0000000..f99963e
 +        return ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT.put(mContext, !isChecked);
 +    }
 +}
+diff --git a/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java b/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java
+index 932897e..0ce49d7 100644
+--- a/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java
++++ b/src/com/android/settings/network/telephony/EnabledNetworkModePreferenceController.java
+@@ -62,6 +62,7 @@ import com.android.settingslib.RestrictedLockUtilsInternal;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
++import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.stream.IntStream;
+ import java.util.stream.Stream;
+ 
+@@ -296,6 +297,8 @@ public class EnabledNetworkModePreferenceController extends
+         private boolean mDisplay2gOptions;
+         private boolean mDisplay3gOptions;
+         private boolean mLteEnabled;
++        // lenOS: whether the carrier/baseband exposes NR standalone (GrapheneOS "5G Only" mode)
++        private boolean isNrSaAvailable;
+         private int mSelectedEntry;
+         private int mSubId;
+         private String mSummary;
+@@ -364,6 +367,17 @@ public class EnabledNetworkModePreferenceController extends
+                 }
+ 
+                 mLteEnabled = carrierConfig.getBoolean(CarrierConfigManager.KEY_LTE_ENABLED_BOOL);
++
++                // lenOS: GrapheneOS "5G Only" mode availability (NR standalone).
++                int[] supported5gOptions = carrierConfig.getIntArray(
++                        CarrierConfigManager.KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY);
++                long allowedNetworkTypes =
++                        mTelephonyManager.getAllowedNetworkTypesForReason(
++                                TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER);
++                isNrSaAvailable = supported5gOptions != null
++                        && com.google.common.primitives.Ints.contains(supported5gOptions,
++                                CarrierConfigManager.CARRIER_NR_AVAILABILITY_SA)
++                        && (allowedNetworkTypes & TelephonyManager.NETWORK_TYPE_BITMASK_NR) != 0;
+             }
+             Log.d(LOG_TAG, "PreferenceEntriesBuilder: subId" + mSubId
+                     + " ,Supported5gRadioAccessFamily :" + mSupported5gRadioAccessFamily
+@@ -385,6 +399,7 @@ public class EnabledNetworkModePreferenceController extends
+         }
+ 
+         void setPreferenceEntries() {
++            boolean lteOnlyUnsupported = false;
+             mTelephonyManager = mTelephonyManager.createForSubscriptionId(mSubId);
+ 
+             clearAllEntries();
+@@ -400,6 +415,7 @@ public class EnabledNetworkModePreferenceController extends
+                             .addFormat(UiOptions.PresentFormat.addGlobalEntry);
+                     break;
+                 case ENABLED_NETWORKS_CDMA_NO_LTE_CHOICES:
++                    lteOnlyUnsupported = true;
+                     uiOptions = uiOptions
+                             .setChoices(R.array.enabled_networks_cdma_no_lte_values)
+                             .addFormat(UiOptions.PresentFormat.add3gEntry)
+@@ -419,6 +435,7 @@ public class EnabledNetworkModePreferenceController extends
+                             .addFormat(UiOptions.PresentFormat.add2gEntry);
+                     break;
+                 case ENABLED_NETWORKS_EXCEPT_GSM_LTE_CHOICES:
++                    lteOnlyUnsupported = true;
+                     uiOptions = uiOptions
+                             .setChoices(R.array.enabled_networks_except_gsm_lte_values)
+                             .addFormat(UiOptions.PresentFormat.add3gEntry);
+@@ -436,6 +453,7 @@ public class EnabledNetworkModePreferenceController extends
+                             .addFormat(UiOptions.PresentFormat.add3gEntry);
+                     break;
+                 case ENABLED_NETWORKS_EXCEPT_LTE_CHOICES:
++                    lteOnlyUnsupported = true;
+                     uiOptions = uiOptions
+                             .setChoices(R.array.enabled_networks_except_lte_values)
+                             .addFormat(UiOptions.PresentFormat.add3gEntry)
+@@ -484,6 +502,14 @@ public class EnabledNetworkModePreferenceController extends
+                 throw new IllegalArgumentException(
+                         uiOptions.getType().name() + " index error.");
+             }
++
++            // lenOS: GrapheneOS LTE-only / 5G-only network mode entries.
++            if (!lteOnlyUnsupported) {
++                addLteOnlyEntry();
++            }
++
++            AtomicBoolean is5GSupported = new AtomicBoolean(false);
++
+             // Compose options based on given values and formats.
+             IntStream.range(0, formatList.size()).forEach(entryIndex -> {
+                 switch (formatList.get(entryIndex)) {
+@@ -525,19 +551,29 @@ public class EnabledNetworkModePreferenceController extends
+                         break;
+                     case add5gEntry:
+                         add5gEntry(addNrToLteNetworkMode(entryValuesInt[entryIndex]));
++                        is5GSupported.set(true);
+                         break;
+                     case add5gAnd4gEntry:
+                         add5gEntry(addNrToLteNetworkMode(entryValuesInt[entryIndex]));
+                         add4gEntry(entryValuesInt[entryIndex]);
++                        is5GSupported.set(true);
+                         break;
+                     case add5gAndLteEntry:
+                         add5gEntry(addNrToLteNetworkMode(entryValuesInt[entryIndex]));
+                         addLteEntry(entryValuesInt[entryIndex]);
++                        is5GSupported.set(true);
+                         break;
+                     default:
+                         throw new IllegalArgumentException("Not supported ui options format.");
+                 }
+             });
++
++            if (!lteOnlyUnsupported && is5GSupported.get()) {
++                addNrOrLteOnlyEntry();
++                if (isNrSaAvailable) {
++                    addNrOnlyEntry();
++                }
++            }
+         }
+ 
+         private int getPreferredNetworkMode() {
+@@ -667,6 +703,10 @@ public class EnabledNetworkModePreferenceController extends
+                         break;
+                     }
+                 case TelephonyManager.NETWORK_MODE_LTE_ONLY:
++                    // lenOS: GrapheneOS "LTE only" entry summary.
++                    setSummary(mShow4gForLTE
++                            ? R.string.network_4G_only : R.string.network_lte_only);
++                    break;
+                 case TelephonyManager.NETWORK_MODE_LTE_WCDMA:
+                     if (!mIsGlobalCdma) {
+                         setSelectedEntry(TelephonyManager.NETWORK_MODE_LTE_GSM_WCDMA);
+@@ -741,7 +781,17 @@ public class EnabledNetworkModePreferenceController extends
+                     break;
+ 
+                 case TelephonyManager.NETWORK_MODE_NR_ONLY:
++                    setSelectedEntry(
++                            TelephonyManager.NETWORK_MODE_NR_ONLY);
++                    setSummary(getResourcesForSubId().getString(R.string.network_5g_only));
++                    break;
+                 case TelephonyManager.NETWORK_MODE_NR_LTE:
++                    setSelectedEntry(
++                            TelephonyManager.NETWORK_MODE_NR_LTE);
++                    setSummary(getResourcesForSubId().getString(mShow4gForLTE ?
++                            R.string.network_5g_or_4g_only : R.string.network_5g_or_lte_only)
++                    );
++                    break;
+                 case TelephonyManager.NETWORK_MODE_NR_LTE_GSM_WCDMA:
+                 case TelephonyManager.NETWORK_MODE_NR_LTE_WCDMA:
+                     setSelectedEntry(TelephonyManager.NETWORK_MODE_NR_LTE_GSM_WCDMA);
+@@ -843,6 +893,31 @@ public class EnabledNetworkModePreferenceController extends
+             mEntriesValue.add(value);
+         }
+ 
++        private void addLteOnlyEntry() {
++            if (mShow4gForLTE) {
++                mEntries.add(mContext.getString(R.string.network_4G_only));
++                mEntriesValue.add(TelephonyManager.NETWORK_MODE_LTE_ONLY);
++            } else {
++                mEntries.add(mContext.getString(R.string.network_lte_only));
++                mEntriesValue.add(TelephonyManager.NETWORK_MODE_LTE_ONLY);
++            }
++        }
++
++        private void addNrOnlyEntry() {
++            mEntries.add(mContext.getString(R.string.network_5g_only));
++            mEntriesValue.add(TelephonyManager.NETWORK_MODE_NR_ONLY);
++        }
++
++        private void addNrOrLteOnlyEntry() {
++            if (mShow4gForLTE) {
++                mEntries.add(mContext.getString(R.string.network_5g_or_4g_only));
++                mEntriesValue.add(TelephonyManager.NETWORK_MODE_NR_LTE);
++            } else {
++                mEntries.add(mContext.getString(R.string.network_5g_or_lte_only));
++                mEntriesValue.add(TelephonyManager.NETWORK_MODE_NR_LTE);
++            }
++        }
++
+         private void add3gEntry(int value) {
+             mEntries.add(getResourcesForSubId().getString(R.string.network_3G));
+             mEntriesValue.add(value);
+diff --git a/src/com/android/settings/network/telephony/PreferredNetworkModePreferenceController.java b/src/com/android/settings/network/telephony/PreferredNetworkModePreferenceController.java
+index 1ee1b31..d70b1ed 100644
+--- a/src/com/android/settings/network/telephony/PreferredNetworkModePreferenceController.java
++++ b/src/com/android/settings/network/telephony/PreferredNetworkModePreferenceController.java
+@@ -220,7 +220,7 @@ public class PreferredNetworkModePreferenceController extends BasePreferenceCont
+             case TelephonyManager.NETWORK_MODE_LTE_TDSCDMA:
+                 return R.string.preferred_network_mode_lte_tdscdma_summary;
+             case TelephonyManager.NETWORK_MODE_LTE_ONLY:
+-                return R.string.preferred_network_mode_lte_summary;
++                return R.string.preferred_network_mode_lte_only_summary;
+             case TelephonyManager.NETWORK_MODE_LTE_TDSCDMA_GSM:
+                 return R.string.preferred_network_mode_lte_tdscdma_gsm_summary;
+             case TelephonyManager.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA:
 diff --git a/src/com/android/settings/password/ChooseLockGeneric.java b/src/com/android/settings/password/ChooseLockGeneric.java
 index 2867cd9..0644b6b 100644
 --- a/src/com/android/settings/password/ChooseLockGeneric.java
