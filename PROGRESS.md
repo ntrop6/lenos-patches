@@ -3,6 +3,45 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (ninth session) — VPN leak blocking / lockdown hardening
+
+Second Tier 1 batch: the GrapheneOS "improved VPN leak blocking" set (§12).
+All pieces target the always-on VPN + "Block connections without VPN" mode.
+
+* **netd** (`system_netd/0001-lenos-vpn-leak-blocking`):
+  * DNS lockdown leak (GrapheneOS `82da9204`): `getNetworkForDnsLocked()` now
+    derives the fwmark from `canProtectLocked()` / `getPermissionForUserLocked()`
+    instead of unconditionally claiming a system, VPN-protected query, so a
+    device with every VPN down cannot fall back to the default network's DNS.
+  * Multicast firewall (GrapheneOS `dcef5ccb` + `d57ea8dc`): new
+    `MulticastFirewallController` drops multicast, IGMP and MLD in/out/through
+    `tun+` interfaces (cross-profile VPN side channel), while keeping inbound
+    router advertisements and the router-solicitation compatibility rule.
+    Wired into `Controllers` in GrapheneOS's chain order; unit tests added and
+    `ControllersTest` expectations updated.
+  * The SockDiag IP-address log fix (`40c47da2`) is already in LineageOS 23.2.
+  * The DnsResolver `.local` transport filter is AOSP commit `a17ba5aee1`
+    (2022) and already present upstream — no patch.
+* **Connectivity** (`packages_modules_Connectivity/0001-lenos-nsd-lockdown`):
+  `NsdService.connect()` refuses regular apps while an always-on VPN with
+  lockdown is active, so system NSD discovery cannot bypass the tunnel. The
+  branch-16 `connect()` has no package-name argument, so the GrapheneOS
+  `enforcePackageNameMatchesUid` call is not part of the port.
+* **frameworks/base**:
+  * `0017-lenos-connectivity-util`: GrapheneOS `android.ext.ConnectivityUtil`
+    (`isSystem`, `isRegularAppWithLockdownVpnEnabled`) exported as a
+    module-lib `@SystemApi`; `core/api/module-lib-current.txt` updated.
+  * `0018-lenos-vpn-always-on-survival`: `Vpn.startAlwaysOnVpn()` no longer
+    clears an always-on VPN whose package is temporarily unsupported; the
+    lockdown fail-safe survives safe mode/disabled apps and retries later.
+* Patch plumbing: `system/netd` added to the alias maps; new patch directories
+  have their own `series`.
+* Tests: new `tests/test_vpn_hardening.py` (netd rules/wiring, NSD gate,
+  ConnectivityUtil + module-lib API, always-on survival); full suite green.
+* Not verified on a device (VM still unavailable). The netd changes affect the
+  firewall/eBPF path: first flash should exercise tethering, IPv6 RAs,
+  multicast/mDNS apps and Wi-Fi reconnect before daily use.
+
 ## 2026-10-19 (eighth session) — Tier 1 start: clipboard privacy
 
 First batch of the approved GrapheneOS Tier 1–3 roadmap (Tier 4 deferred).

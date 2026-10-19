@@ -1,0 +1,24 @@
+diff --git a/services/core/java/com/android/server/connectivity/Vpn.java b/services/core/java/com/android/server/connectivity/Vpn.java
+index 7a2ca702..8450d205 100644
+--- a/services/core/java/com/android/server/connectivity/Vpn.java
++++ b/services/core/java/com/android/server/connectivity/Vpn.java
+@@ -1159,13 +1159,13 @@ public class Vpn {
+             if (alwaysOnPackage == null) {
+                 return true;
+             }
+-            // Remove always-on VPN if it's not supported.
++            // lenOS: GrapheneOS behaviour — never drop an always-on VPN just because its
++            // package is temporarily unsupported (e.g. disabled, safe mode). The setting
++            // survives and the VPN starts again once the package becomes available,
++            // keeping the lockdown fail-safe in place.
+             if (!isAlwaysOnPackageSupported(alwaysOnPackage)) {
+-                // Do not remove the always-on setting due to the restricted ability in safe mode.
+-                // The always-on VPN can then start after the device reboots to normal mode.
+-                if (!mContext.getPackageManager().isSafeMode()) {
+-                    setAlwaysOnPackage(null, false, null);
+-                }
++                Log.i(TAG, "startAlwaysOnVpn: isAlwaysOnPackageSupported returned false for "
++                        + alwaysOnPackage, new Throwable());
+                 return false;
+             }
+             // Skip if the service is already established. This isn't bulletproof: it's not bound

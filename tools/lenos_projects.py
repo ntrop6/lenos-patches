@@ -17,6 +17,7 @@ PROJECT_ALIASES = {
     "packages/modules/Connectivity": "packages_modules_Connectivity",
     "packages/modules/Permission": "packages_modules_Permission",
     "packages/modules/Wifi": "packages_modules_Wifi",
+    "system/netd": "system_netd",
     "system/vold": "system_vold",
     "system/core": "system_core",
     "system/ca-certificates": "system_ca-certificates",

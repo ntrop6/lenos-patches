@@ -1,0 +1,94 @@
+diff --git a/core/api/module-lib-current.txt b/core/api/module-lib-current.txt
+index 23e18b9f..2f906e70 100644
+--- a/core/api/module-lib-current.txt
++++ b/core/api/module-lib-current.txt
+@@ -145,6 +145,15 @@ package android.content.pm {
+ 
+ }
+ 
++package android.ext {
++
++  public class ConnectivityUtil {
++    method public static boolean isRegularAppWithLockdownVpnEnabled(@NonNull android.content.Context, int);
++    method public static boolean isSystem(@NonNull android.content.Context, int);
++  }
++
++}
++
+ package android.hardware.usb {
+ 
+   @RestrictedForEnvironment(environments=android.annotation.RestrictedForEnvironment.ENVIRONMENT_SDK_RUNTIME, from=android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) public class UsbManager {
+diff --git a/core/java/android/ext/ConnectivityUtil.java b/core/java/android/ext/ConnectivityUtil.java
+new file mode 100644
+index 00000000..a9f24f47
+--- /dev/null
++++ b/core/java/android/ext/ConnectivityUtil.java
+@@ -0,0 +1,68 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.ext;
++
++import android.annotation.NonNull;
++import android.annotation.SystemApi;
++import android.content.Context;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
++import android.os.UserHandle;
++import android.provider.Settings;
++
++/** @hide */
++@SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
++public class ConnectivityUtil {
++    private ConnectivityUtil() {}
++
++    /**
++     * Return true if this uid is a core system component, or if the uid is known to PackageManager
++     * and at least one of the packages that use it is a system app.
++     */
++    public static boolean isSystem(@NonNull Context context, int uid) {
++        if (UserHandle.isCore(uid)) {
++            return true;
++        }
++
++        PackageManager pm = context.getPackageManager();
++        String[] packageNames = pm.getPackagesForUid(uid);
++        if (packageNames == null) {
++            return false;
++        }
++        int userId = UserHandle.getUserId(uid);
++        for (String packageName : packageNames) {
++            try {
++                ApplicationInfo appInfo = pm.getApplicationInfoAsUser(packageName, 0, userId);
++                if (appInfo.isSystemApp()) {
++                    return true;
++                }
++            } catch (PackageManager.NameNotFoundException ignored) { }
++        }
++        return false;
++    }
++
++    /**
++     * Return true if the given uid is a regular app that is currently under an always-on VPN
++     * with "Block connections without VPN" enabled.
++     */
++    public static boolean isRegularAppWithLockdownVpnEnabled(@NonNull Context context, int uid) {
++        final int lockdownVpnEnabled = Settings.Secure.getIntForUser(context.getContentResolver(),
++                Settings.Secure.ALWAYS_ON_VPN_LOCKDOWN, 0, UserHandle.getUserId(uid));
++        return lockdownVpnEnabled == 1 && !isSystem(context, uid);
++    }
++}

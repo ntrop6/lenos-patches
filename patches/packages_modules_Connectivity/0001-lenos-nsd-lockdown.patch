@@ -1,0 +1,18 @@
+diff --git a/service-t/src/com/android/server/NsdService.java b/service-t/src/com/android/server/NsdService.java
+index 9cb4a08..4b3d8b4 100644
+--- a/service-t/src/com/android/server/NsdService.java
++++ b/service-t/src/com/android/server/NsdService.java
+@@ -2471,6 +2471,13 @@ public class NsdService extends INsdManager.Stub {
+         if (cb == null) {
+             throw new IllegalArgumentException("Unknown client callback from uid=" + uid);
+         }
++        // lenOS: GrapheneOS — NSD discovery traffic would escape an always-on VPN in
++        // lockdown mode, so regular apps get no connector while it is enabled. System
++        // apps keep access, otherwise system discovery would break.
++        if (android.ext.ConnectivityUtil.isRegularAppWithLockdownVpnEnabled(mContext, uid)) {
++            Log.d(TAG, "connect(): caller (uid " + uid + ") is under VPN lockdown, returning null");
++            return null;
++        }
+         if (DBG) Log.d(TAG, "New client connect. useJavaBackend=" + useJavaBackend);
+         final INsdServiceConnector connector = new NsdServiceConnector();
+         mNsdStateMachine.sendMessage(mNsdStateMachine.obtainMessage(NsdManager.REGISTER_CLIENT,

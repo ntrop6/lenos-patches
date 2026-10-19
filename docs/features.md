@@ -56,6 +56,10 @@ their content until the user explicitly allows it.
 | NTP without Google | first-boot default + frameworks RRO | `pool.ntp.org` is a central pool; SNTP is unauthenticated either way |
 | Connectivity checks without Google | `rro/LenosNetworkStackOverlay` | `cp.cloudflare.com/generate_204`; the check still uses a third party (Cloudflare), it is just not Google (see limits) |
 | DHCP hostname blocked by default | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks never send the hostname (XML tag renamed `SendDhcpHostname` → `SendDhcpHostname2`, so values written by stock Android are ignored after upgrade); per-network opt-in in the Wi-Fi network details — no global override |
+| VPN lockdown DNS leak fixed | `system_netd/0001` (GrapheneOS port) | the system resolver no longer marks every query as VPN-protected; with all VPNs down under "Block connections without VPN", DNS falls into the blocked path instead of the default network's resolvers (GrapheneOS `82da9204`) |
+| VPN multicast firewall | `system_netd/0001` (GrapheneOS port) | drops multicast, IGMP and MLD in/out/through `tun+` interfaces, closing the cross-profile VPN side channel; inbound router advertisements stay allowed (GrapheneOS `dcef5ccb` + `d57ea8dc`) |
+| NSD blocked under VPN lockdown | `packages_modules_Connectivity/0001` + `frameworks_base/0017` (GrapheneOS port) | regular apps get no NSD connector while an always-on VPN with lockdown is active, so mDNS discovery can't bypass the tunnel; system apps keep access (`android.ext.ConnectivityUtil`) |
+| Always-on VPN survives temporary app loss | `frameworks_base/0018` (GrapheneOS port) | an unsupported (disabled/safe-mode) always-on VPN package no longer clears the setting, so the lockdown fail-safe stays configured and the VPN restarts when the package returns |
 | Insecure enterprise Wi-Fi configs blocked | `device_nothing_asteroids/0002` | Settings/SetupWizard cannot configure "no certificate validation" enterprise networks |
 | Distrusted root CAs removed | `system_ca-certificates/0001` | Chunghwa Telecom (HiPKI Root CA - G1, ePKI Root CA) and NetLock Arany (Class Gold) roots are deleted from the system trust store, matching GrapheneOS commit `14ad6bb` and Google's 2025 root-store distrust; user-installed CAs and app-pinned trust are unaffected (see limits) |
 | Wireless alerts optional | `packages_apps_CellBroadcastReceiver/0001` (GrapheneOS port) | presidential alerts and (in Brazil) extreme alerts become user-toggleable: the presidential preference is visible, runs the config service and is read by the alert path (GrapheneOS commits "allow toggling presidential alerts" + "always allow disabling extreme alerts"). Every alert type stays enabled by default — nothing is silently forced on or off |
@@ -222,6 +226,14 @@ cross-profile clipboard row accepts the four GrapheneOS policies, and on
 the lock screen tapping a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
+
+VPN lockdown: configure an always-on VPN with "Block connections without VPN",
+then stop the VPN app's tunnel (force-stop/disable it) — DNS and all traffic
+must fail closed instead of reaching the default network's resolvers; a
+regular app's mDNS/NSD discovery must be refused while lockdown is active
+(system apps keep working), and inbound IPv6 router advertisements from the
+Wi-Fi access point must still arrive (IPv6 does not disappear when no VPN is
+connected).
 
 Duress (destructive — run last, only when a wipe is acceptable): set a pair
 with `cmd lock_settings set-duress-credentials --old <owner cred> --duress-pin

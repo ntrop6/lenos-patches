@@ -639,6 +639,23 @@ apps (mDNS, discovery); the multicast controller is the largest piece and has up
 authoritative core of "improved VPN leak blocking" and are absent from LineageOS 23.2 (netd there is
 stock AOSP).
 
+**Implemented in 1.0** (`system_netd/0001`, `packages_modules_Connectivity/0001`,
+`frameworks_base/0017` + `frameworks_base/0018`):
+- netd: `82da9204` ported as-is to `getNetworkForDnsLocked()`; `dcef5ccb` + `d57ea8dc` ported as
+  `MulticastFirewallController` with the GrapheneOS chain ordering, unit tests and updated
+  `ControllersTest` expectations. The new files carry lenOS Apache headers (GrapheneOS's copies had
+  none) — no code delta.
+- `40c47da2` (SockDiag address logging) is already in LineageOS 23.2, verified in the cloned tree;
+  the DnsResolver `.local`/VPN transport filter is AOSP `a17ba5aee1` from 2022 and therefore already
+  present upstream. Neither needs a patch.
+- `ConnectivityUtil` + the module-lib API declaration are ported verbatim. The NSD check is placed in
+  the branch-16 `NsdService.connect()` (which has no `packageName` parameter, unlike GrapheneOS's
+  branch-17 version), immediately after the caller uid is read, and returns `null` for regular apps.
+- `Vpn.startAlwaysOnVpn()` drops the auto-unset of an unsupported always-on package. LineageOS 23.2
+  already kept the setting in safe mode; the port removes the remaining normal-mode unset so the
+  setting survives any temporary package unavailability, as in GrapheneOS.
+
+
 ---
 
 ## 13. Vanadium / WebView replacement options
@@ -782,7 +799,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 |---|---|---|---|---|
 | 1 | Network permission | M–L | fwb, Connectivity, Permission, PackageInstaller | user-revocable INTERNET with "network is down" semantics; AOSP 16 already ships the eBPF machinery, so this is mostly policy + UI |
 | 2 | Sensors permission | L | fwn, fwb, Permission (+Settings) | zeroed-out accelerometer/gyro/compass/etc. for apps — the largest remaining privacy hole after network |
-| 3 | VPN leak-blocking set | M | netd, Connectivity, fwb | 4 surgical netd fixes (DNS/RA/multicast/SockDiag) + NSD-under-lockdown — hardens the always-on VPN feature we already ship |
+| 3 | VPN leak-blocking set | M | netd, Connectivity, fwb | 4 surgical netd fixes (DNS/RA/multicast/SockDiag) + NSD-under-lockdown — hardens the always-on VPN feature we already ship — **done** (`system_netd/0001`, `packages_modules_Connectivity/0001`, `frameworks_base/0017`+`0018`; SockDiag/DnsResolver already upstream) |
 | 4 | Secure Paste, stage 1 (global default) | M | fwb (+Permission/Settings UI) | cross-app clipboard reads off by default; staging avoids the GosPackageState backport (per-app later via AppOps) — **done** (`frameworks_base/0015` + Settings row; per-app/toolbar stage 2 pending) |
 | 5 | FBE filename padding 32 B | S | system/extras | one-line policy change in libfscrypt; metadata-length privacy (new installs / post-wipe) |
 | 6 | Wi-Fi/Bluetooth auto-off timers | S–M | fwb (+Settings; NFC variant in the Nfc app) | radios power down after idle; constants already seeded in `fwb/0006` |
@@ -849,7 +866,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 29 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 35 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
@@ -890,17 +907,22 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `frameworks_base/0014` delayed Allow (USB ADB prompt) | GrapheneOS commit "delay activation of the Allow button in USB ADB confirmation dialog" (`f9fc573b1`, Dec 2024) | The same five lines in `UsbDebuggingActivity.onCreate`: disable the dialog's positive button after `setupAlert()` and re-enable it via `getMainThreadHandler().postDelayed(…, 1000)`; the `android.widget.Button` import is added. No lenOS deltas | **Faithful** — keep |
 | `fwb/0015` Secure Paste stage 1 | GrapheneOS `ClipboardAccess.java` + `AswAllowClipboardRead` (per-app `GosPackageState` state, denial notifications, paste grants) integrated with the SystemUI paste toolbars | Framework part that does not need `GosPackageState`: `ClipboardService` reads `ExtSettings.ALLOW_CLIPBOARD_READ_BY_DEFAULT`, exempts the default IME and system apps, lets the clip owner always read, strips the label from denied `getPrimaryClipDescription` calls while keeping mime types, and keeps the `hasClipboardText` presence signal — all matching GrapheneOS. Not ported: per-app overrides, the denial notification/`SUPPRESS_CLIPBOARD_ACCESS_DENIAL_NOTIF`, paste grants and the SystemUI toolbar (stage 2, AppOps route per §8). The global default stays `true`, so stock paste is unchanged unless the user opts in; when enabled without stage 2, cross-app paste is blocked by design (documented in features.md). Settings row uses explicit-controller registration instead of GOS's `boolSettingField` auto-wiring | **Deliberate (staged)** — stage 2 follows; keep |
 | `fwb/0016` cross-profile clipboard | GrapheneOS `CrossProfileClipboardAccessSettings` (`FOLLOW_DEFAULT`/import-only/export-only/block) read at `ClipboardService.java:1064` (export) and `:1099` (import), plus `DragState.java:517` | Class ported verbatim (same `Settings.Secure` key and four values); both `ClipboardService` gates match GOS — export returns before the related-profile loop and import skips per related profile — and the drag gate clears `mCrossProfileCopyAllowed` as in GOS. `Settings.Secure.CROSS_PROFILE_CLIPBOARD_ACCESS` is added through the regenerated `fwb/0006`. Settings UI is a plain `ListPreference` with an explicit controller (GOS uses `RadioButtonPickerFragment2`/`IntSettingPrefController`), same four policies and strings, editing the current profile's per-user value. Default follows stock Android | **Faithful** (UI mechanism substitution) — keep |
+| `system_netd/0001` VPN leak blocking | GrapheneOS netd `82da9204` (DNS lockdown), `dcef5ccb` (multicast firewall) and `d57ea8dc` (keep inbound RAs), plus `40c47da2` (SockDiag logging) | `NetworkController::getNetworkForDnsLocked` derives the fwmark from `canProtectLocked()`/`getPermissionForUserLocked()` instead of the unconditional VPN-protected/system mark. The multicast firewall is ported as `MulticastFirewallController` with the exact rules, GrapheneOS chain ordering, the RA RETURN rule and the router-solicitation compatibility rule; unit tests and `ControllersTest` expectations included. lenOS deltas: Apache headers on the new files (GrapheneOS copies have none) — no code change. `40c47da2` is already in LineageOS 23.2 (verified in-tree), so it is not duplicated | **Faithful** — keep; exercise tethering, IPv6 and multicast apps on first flash |
+| `packages_modules_Connectivity/0001` NSD lockdown | GrapheneOS `NsdService.java:3452-3456` calling `ConnectivityUtil.isRegularAppWithLockdownVpnEnabled` and returning null for regular apps | The branch-16 `connect()` has no package-name argument, so the check sits immediately after `mDeps.getCallingUid()` instead of after `enforcePackageNameMatchesUid`; same uid predicate, same null return, same system-app exemption through the shared helper. `connect()` is the single NSD client entry point in this branch | **Faithful** (API drift documented) — keep |
+| `fwb/0017` ConnectivityUtil | GrapheneOS `core/java/android/ext/ConnectivityUtil.java` (`isSystem`, `isRegularAppWithLockdownVpnEnabled`) and its module-lib API declaration | Class and methods ported verbatim; `core/api/module-lib-current.txt` gains the same `package android.ext` block so the module-lib API check passes. Consumed by the Connectivity NSD gate | **Faithful** — keep |
+| `fwb/0018` always-on VPN survival | GrapheneOS `Vpn.startAlwaysOnVpn()`: log and `return false` for an unsupported always-on package without clearing the setting | Same log message and control flow; LineageOS 23.2's safe-mode-only `setAlwaysOnPackage(null, false, null)` guard is removed together with the normal-mode unset, so the always-on + lockdown configuration survives any temporary package unavailability and resumes when the package returns | **Faithful** — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 31 patches: **21 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 35 patches: **25 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
 auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
-cross-profile clipboard policy (`fwb/0016`), the
+cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
+(`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0018`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the

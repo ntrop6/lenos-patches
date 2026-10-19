@@ -1,0 +1,426 @@
+diff --git a/server/Android.bp b/server/Android.bp
+index 78d1f1d..8f7bd9a 100644
+--- a/server/Android.bp
++++ b/server/Android.bp
+@@ -51,6 +51,7 @@ cc_library_static {
+         "Controllers.cpp",
+         "NetdConstants.cpp",
+         "FirewallController.cpp",
++        "MulticastFirewallController.cpp",
+         "IdletimerController.cpp",
+         "InterfaceController.cpp",
+         "IptablesRestoreController.cpp",
+@@ -225,6 +226,7 @@ cc_test {
+         "BandwidthControllerTest.cpp",
+         "ControllersTest.cpp",
+         "FirewallControllerTest.cpp",
++        "MulticastFirewallControllerTest.cpp",
+         "IdletimerControllerTest.cpp",
+         "InterfaceControllerTest.cpp",
+         "IptablesBaseTest.cpp",
+diff --git a/server/Controllers.cpp b/server/Controllers.cpp
+index 48d0c50..a93e318 100644
+--- a/server/Controllers.cpp
++++ b/server/Controllers.cpp
+@@ -63,11 +63,13 @@ static const std::vector<const char*> FILTER_INPUT = {
+         OEM_IPTABLES_FILTER_INPUT,
+         BandwidthController::LOCAL_INPUT,
+         FirewallController::LOCAL_INPUT,
++        MulticastFirewallController::LOCAL_INPUT,
+ };
+ 
+ static const std::vector<const char*> FILTER_FORWARD = {
+         OEM_IPTABLES_FILTER_FORWARD,
+         FirewallController::LOCAL_FORWARD,
++        MulticastFirewallController::LOCAL_FORWARD,
+         BandwidthController::LOCAL_FORWARD,
+         TetherController::LOCAL_FORWARD,
+ };
+@@ -75,6 +77,7 @@ static const std::vector<const char*> FILTER_FORWARD = {
+ static const std::vector<const char*> FILTER_OUTPUT = {
+         OEM_IPTABLES_FILTER_OUTPUT,
+         FirewallController::LOCAL_OUTPUT,
++        MulticastFirewallController::LOCAL_OUTPUT,
+         StrictController::LOCAL_OUTPUT,
+         BandwidthController::LOCAL_OUTPUT,
+ };
+@@ -284,6 +287,11 @@ void Controllers::initIptablesRules() {
+     firewallCtrl.setupIptablesHooks();
+     gLog.info("Setting up FirewallController hooks: %" PRId64 "us", s.getTimeAndResetUs());
+ 
++    /* DROPs multicast, IGMP and MLD in/out VPN (tun) interfaces: a cross-profile side channel. */
++    multicastFirewallCtrl.setupIptablesHooks();
++    gLog.info("Setting up MulticastFirewallController hooks: %" PRId64 "us",
++              s.getTimeAndResetUs());
++
+     /* Does DROPs in FORWARD by default */
+     tetherCtrl.setupIptablesHooks();
+     gLog.info("Setting up TetherController hooks: %" PRId64 "us", s.getTimeAndResetUs());
+diff --git a/server/Controllers.h b/server/Controllers.h
+index 83a1a5c..944a604 100644
+--- a/server/Controllers.h
++++ b/server/Controllers.h
+@@ -20,6 +20,7 @@
+ #include "BandwidthController.h"
+ #include "EventReporter.h"
+ #include "FirewallController.h"
++#include "MulticastFirewallController.h"
+ #include "IdletimerController.h"
+ #include "InterfaceController.h"
+ #include "IptablesRestoreController.h"
+@@ -43,6 +44,7 @@ class Controllers {
+     BandwidthController bandwidthCtrl;
+     IdletimerController idletimerCtrl;
+     FirewallController firewallCtrl;
++    MulticastFirewallController multicastFirewallCtrl;
+     StrictController strictCtrl;
+     EventReporter eventReporter;
+     IptablesRestoreController iptablesRestoreCtrl;
+diff --git a/server/ControllersTest.cpp b/server/ControllersTest.cpp
+index b6a28d3..5da9a4f 100644
+--- a/server/ControllersTest.cpp
++++ b/server/ControllersTest.cpp
+@@ -80,6 +80,8 @@ TEST_F(ControllersTest, TestInitIptablesRules) {
+              "-A INPUT -j bw_INPUT\n"
+              ":fw_INPUT -\n"
+              "-A INPUT -j fw_INPUT\n"
++             ":mfw_INPUT -\n"
++             "-A INPUT -j mfw_INPUT\n"
+              "COMMIT\n"},
+             {V4V6,
+              "*filter\n"
+@@ -89,6 +91,8 @@ TEST_F(ControllersTest, TestInitIptablesRules) {
+              "-A FORWARD -j oem_fwd\n"
+              ":fw_FORWARD -\n"
+              "-A FORWARD -j fw_FORWARD\n"
++             ":mfw_FORWARD -\n"
++             "-A FORWARD -j mfw_FORWARD\n"
+              ":bw_FORWARD -\n"
+              "-A FORWARD -j bw_FORWARD\n"
+              ":tetherctrl_FORWARD -\n"
+@@ -154,6 +158,8 @@ TEST_F(ControllersTest, TestInitIptablesRules) {
+              "-A OUTPUT -j oem_out\n"
+              ":fw_OUTPUT -\n"
+              "-A OUTPUT -j fw_OUTPUT\n"
++             ":mfw_OUTPUT -\n"
++             "-A OUTPUT -j mfw_OUTPUT\n"
+              ":st_OUTPUT -\n"
+              "-A OUTPUT -j st_OUTPUT\n"
+              ":bw_OUTPUT -\n"
+@@ -169,6 +175,8 @@ TEST_F(ControllersTest, TestInitIptablesRules) {
+              "-A OUTPUT -j oem_out\n"
+              ":fw_OUTPUT -\n"
+              "-A OUTPUT -j fw_OUTPUT\n"
++             ":mfw_OUTPUT -\n"
++             "-A OUTPUT -j mfw_OUTPUT\n"
+              ":st_OUTPUT -\n"
+              "-A OUTPUT -j st_OUTPUT\n"
+              ":bw_OUTPUT -\n"
+diff --git a/server/MulticastFirewallController.cpp b/server/MulticastFirewallController.cpp
+new file mode 100644
+index 0000000..9664f95
+--- /dev/null
++++ b/server/MulticastFirewallController.cpp
+@@ -0,0 +1,146 @@
++/*
++ * Copyright (C) 2024 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <set>
++
++#include <errno.h>
++#include <limits.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <cstdint>
++
++#define LOG_TAG "MulticastFirewallController"
++#define LOG_NDEBUG 0
++
++#include <android-base/file.h>
++#include <android-base/stringprintf.h>
++#include <android-base/strings.h>
++#include <log/log.h>
++
++#include "Controllers.h"
++#include "MulticastFirewallController.h"
++#include "NetdConstants.h"
++
++using android::base::Join;
++using android::base::StringAppendF;
++using android::base::StringPrintf;
++
++namespace android {
++namespace net {
++
++auto MulticastFirewallController::execIptablesRestore = ::execIptablesRestore;
++
++const char* MulticastFirewallController::TABLE = "filter";
++
++const char* MulticastFirewallController::LOCAL_INPUT = "mfw_INPUT";
++const char* MulticastFirewallController::LOCAL_FORWARD = "mfw_FORWARD";
++const char* MulticastFirewallController::LOCAL_OUTPUT = "mfw_OUTPUT";
++
++const char* MulticastFirewallController::MULTICAST_RANGE_IPV4 = "224.0.0.0/4";
++const char* MulticastFirewallController::MULTICAST_RANGE_IPV6 = "ff00::/8";
++
++// RFC2710. Need to manually specify these as the iptables typenames are lacking.
++const int MulticastFirewallController::MC_LISTENER_QUERY = 130;
++const int MulticastFirewallController::MLDV1_MC_LISTENER_REPORT = 131;
++const int MulticastFirewallController::MLDV2_MC_LISTENER_REPORT = 143;
++const int MulticastFirewallController::MC_LISTENER_DONE = 132;
++
++const int MulticastFirewallController::IGMP_PROTOCOL_NUMBER = 2;
++
++const char* MulticastFirewallController::VPN_INTERFACE_NAME = "tun+";
++
++MulticastFirewallController::MulticastFirewallController(void) {
++    mIfaceRules = {};
++}
++
++int MulticastFirewallController::setupIptablesHooks(void) {
++    return flushRules();
++}
++
++int MulticastFirewallController::flushRules() {
++    // All this firewall is doing is dropping multicast, IGMP and MLD over tun interfaces in all
++    // chains. There is overlap between these rules and some of the general upstream eBPF filtering,
++    // especially for INPUT. However, we don't trust that filtering. It's not good that we have
++    // special handling for multicast in FORWARD, as this should be handled generally. We will look
++    // to do this in future as we continue to improve upstream's networking.
++    // The reason to drop IGMP/MLD in the INPUT chain even though it will never reach apps is
++    // because it has the potential to impact the multicast routing tables which all apps can
++    // access. In general, all protocols which can be used to modify the networking environment
++    // should not be allowed in from the VPN interfaces as this is a cross-user side channel. Of
++    // course these protocols coming in on the physical interfaces can also be a side channel, but
++    // can't do anything about that. Need to find a way to move to network namespaces and eliminate
++    // the issue entirely. This firewall is a tiny band-aid on a huge gash.
++    std::string command = Join(std::vector<std::string> {
++            "*filter",
++            ":mfw_INPUT -",
++            ":mfw_FORWARD -",
++            ":mfw_OUTPUT -",
++            // Have to match on dest addr instead of using -m addrtype --dst-type MULTICAST because
++            // missing kernel module for it.
++            StringPrintf("-4 -A mfw_INPUT -i %s -d %s -j DROP", VPN_INTERFACE_NAME,
++                         MULTICAST_RANGE_IPV4),
++            // IGMP/MLD packets can have a unicast destination address in some rare cases, so drop
++            // it explicitly instead of relying on it having a multicast daddr.
++            StringPrintf("-4 -A mfw_INPUT -i %s -p %d -j DROP", VPN_INTERFACE_NAME,
++                         IGMP_PROTOCOL_NUMBER),
++            StringPrintf("-4 -A mfw_FORWARD -d %s -j DROP", MULTICAST_RANGE_IPV4),
++            StringPrintf("-4 -A mfw_FORWARD -p %d -j DROP", IGMP_PROTOCOL_NUMBER),
++            StringPrintf("-4 -A mfw_OUTPUT -o %s -d %s -j DROP", VPN_INTERFACE_NAME,
++                         MULTICAST_RANGE_IPV4),
++            StringPrintf("-4 -A mfw_OUTPUT -o %s -p %d -j DROP", VPN_INTERFACE_NAME,
++                         IGMP_PROTOCOL_NUMBER),
++            // Some configurations rely on inbound router advertisements. As the original author
++            // of this firewall noted, this will increase the side channel surface. Stopping all
++            // side channels within the current Android environment is not feasible.
++            StringPrintf("-6 -A mfw_INPUT -i %s -p icmpv6 --icmpv6-type router-advertisement "
++                         "-j RETURN", VPN_INTERFACE_NAME),
++            StringPrintf("-6 -A mfw_INPUT -i %s -d %s -j DROP", VPN_INTERFACE_NAME,
++                         MULTICAST_RANGE_IPV6),
++            StringPrintf("-6 -A mfw_INPUT -i %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MC_LISTENER_QUERY),
++            StringPrintf("-6 -A mfw_INPUT -i %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MLDV1_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_INPUT -i %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MLDV2_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_INPUT -i %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MC_LISTENER_DONE),
++            StringPrintf("-6 -A mfw_FORWARD -d %s -j DROP", MULTICAST_RANGE_IPV6),
++            StringPrintf("-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type %d -j DROP",
++                         MC_LISTENER_QUERY),
++            StringPrintf("-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type %d -j DROP",
++                         MLDV1_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type %d -j DROP",
++                         MLDV2_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type %d -j DROP",
++                         MC_LISTENER_DONE),
++            // This is to keep compatibility with DDG. When an IPv6 address is assigned to a NIC,
++            // the kernel automatically generates multicast listener report and router
++            // solicitation packets. In most configurations these packets don't serve any meaningful
++            // purpose and can safely be dropped. For some reason DDG panics unless at least one of
++            // these packets goes out over the tun NIC. We can't allow listener reports as apps can
++            // generate them across users, but router advertisements can only be generated by
++            // VPN apps over the tun interface that they create themselves.
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -p icmpv6 --icmpv6-type router-solicitation "
++                         "-j RETURN", VPN_INTERFACE_NAME),
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -d %s -j DROP", VPN_INTERFACE_NAME,
++                         MULTICAST_RANGE_IPV6),
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MC_LISTENER_QUERY),
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MLDV1_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MLDV2_MC_LISTENER_REPORT),
++            StringPrintf("-6 -A mfw_OUTPUT -o %s -p icmpv6 --icmpv6-type %d -j DROP",
++                         VPN_INTERFACE_NAME, MC_LISTENER_DONE),
++           "COMMIT\n"
++    }, "\n");
++
++    return (execIptablesRestore(V4V6, command.c_str()) == 0) ? 0 : -EREMOTEIO;
++}
++
++}  // namespace net
++}  // namespace android
+diff --git a/server/MulticastFirewallController.h b/server/MulticastFirewallController.h
+new file mode 100644
+index 0000000..94c4821
+--- /dev/null
++++ b/server/MulticastFirewallController.h
+@@ -0,0 +1,62 @@
++/*
++ * Copyright (C) 2024 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#ifndef _MULTICAST_FIREWALL_CONTROLLER_H
++#define _MULTICAST_FIREWALL_CONTROLLER_H
++
++#include <sys/types.h>
++#include <set>
++#include <string>
++#include <vector>
++
++#include "NetdConstants.h"
++
++namespace android {
++namespace net {
++
++/*
++ * Firewall that DROPS all multicast, IGMP and MLD going in/out VPN (tun) interfaces. The main
++ * purpose of this firewall is to prevent users from sending/receiving multicast traffic over the
++ * tun interfaces of other users, as that would be a violation of the requirement that VPNs are
++ * profile isolated.
++ */
++class MulticastFirewallController {
++public:
++  MulticastFirewallController();
++
++  int setupIptablesHooks(void);
++
++  static const char* TABLE;
++
++  static const char* LOCAL_INPUT;
++  static const char* LOCAL_OUTPUT;
++  static const char* LOCAL_FORWARD;
++
++protected:
++  friend class MulticastFirewallControllerTest;
++  static int (*execIptablesRestore)(IptablesTarget target, const std::string& commands);
++
++private:
++  std::set<std::string> mIfaceRules;
++  int flushRules(void);
++
++  static const char* MULTICAST_RANGE_IPV4;
++  static const char* MULTICAST_RANGE_IPV6;
++
++  static const int MC_LISTENER_QUERY;
++  static const int MLDV1_MC_LISTENER_REPORT;
++  static const int MLDV2_MC_LISTENER_REPORT;
++  static const int MC_LISTENER_DONE;
++
++  static const int IGMP_PROTOCOL_NUMBER;
++
++  static const char* VPN_INTERFACE_NAME;
++};
++
++}  // namespace net
++}  // namespace android
++
++#endif
+diff --git a/server/MulticastFirewallControllerTest.cpp b/server/MulticastFirewallControllerTest.cpp
+new file mode 100644
+index 0000000..156960c
+--- /dev/null
++++ b/server/MulticastFirewallControllerTest.cpp
+@@ -0,0 +1,63 @@
++/*
++ * Copyright (C) 2024 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <string>
++#include <vector>
++#include <stdio.h>
++
++#include <gtest/gtest.h>
++
++#include "MulticastFirewallController.h"
++#include "IptablesBaseTest.h"
++
++namespace android {
++namespace net {
++
++class MulticastFirewallControllerTest : public IptablesBaseTest {
++protected:
++    MulticastFirewallControllerTest() {
++        MulticastFirewallController::execIptablesRestore = fakeExecIptablesRestore;
++    }
++    MulticastFirewallController mFw;
++};
++
++TEST_F(MulticastFirewallControllerTest, TestFirewall) {
++    std::vector<std::string> expectedCommands = {
++            "*filter\n"
++            ":mfw_INPUT -\n"
++            ":mfw_FORWARD -\n"
++            ":mfw_OUTPUT -\n"
++            "-4 -A mfw_INPUT -i tun+ -d 224.0.0.0/4 -j DROP\n"
++            "-4 -A mfw_INPUT -i tun+ -p 2 -j DROP\n"
++            "-4 -A mfw_FORWARD -d 224.0.0.0/4 -j DROP\n"
++            "-4 -A mfw_FORWARD -p 2 -j DROP\n"
++            "-4 -A mfw_OUTPUT -o tun+ -d 224.0.0.0/4 -j DROP\n"
++            "-4 -A mfw_OUTPUT -o tun+ -p 2 -j DROP\n"
++            "-6 -A mfw_INPUT -i tun+ -p icmpv6 --icmpv6-type router-advertisement -j RETURN\n"
++            "-6 -A mfw_INPUT -i tun+ -d ff00::/8 -j DROP\n"
++            "-6 -A mfw_INPUT -i tun+ -p icmpv6 --icmpv6-type 130 -j DROP\n"
++            "-6 -A mfw_INPUT -i tun+ -p icmpv6 --icmpv6-type 131 -j DROP\n"
++            "-6 -A mfw_INPUT -i tun+ -p icmpv6 --icmpv6-type 143 -j DROP\n"
++            "-6 -A mfw_INPUT -i tun+ -p icmpv6 --icmpv6-type 132 -j DROP\n"
++            "-6 -A mfw_FORWARD -d ff00::/8 -j DROP\n"
++            "-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type 130 -j DROP\n"
++            "-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type 131 -j DROP\n"
++            "-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type 143 -j DROP\n"
++            "-6 -A mfw_FORWARD -p icmpv6 --icmpv6-type 132 -j DROP\n"
++            "-6 -A mfw_OUTPUT -o tun+ -p icmpv6 --icmpv6-type router-solicitation -j RETURN\n"
++            "-6 -A mfw_OUTPUT -o tun+ -d ff00::/8 -j DROP\n"
++            "-6 -A mfw_OUTPUT -o tun+ -p icmpv6 --icmpv6-type 130 -j DROP\n"
++            "-6 -A mfw_OUTPUT -o tun+ -p icmpv6 --icmpv6-type 131 -j DROP\n"
++            "-6 -A mfw_OUTPUT -o tun+ -p icmpv6 --icmpv6-type 143 -j DROP\n"
++            "-6 -A mfw_OUTPUT -o tun+ -p icmpv6 --icmpv6-type 132 -j DROP\n"
++            "COMMIT\n"};
++
++    EXPECT_EQ(0, mFw.setupIptablesHooks());
++    expectIptablesRestoreCommands(expectedCommands);
++}
++
++}  // namespace net
++}  // namespace android
+diff --git a/server/NetworkController.cpp b/server/NetworkController.cpp
+index 90109ed..bfa7851 100644
+--- a/server/NetworkController.cpp
++++ b/server/NetworkController.cpp
+@@ -214,8 +214,12 @@ int NetworkController::setDefaultNetwork(unsigned netId) {
+ 
+ uint32_t NetworkController::getNetworkForDnsLocked(unsigned* netId, uid_t uid) const {
+     Fwmark fwmark;
+-    fwmark.protectedFromVpn = true;
+-    fwmark.permission = PERMISSION_SYSTEM;
++    // lenOS: GrapheneOS fix for the VPN lockdown DNS leak. Binding the query to the
++    // "protected from VPN" mark unconditionally lets the resolver fall back to the
++    // default network's DNS servers while all VPNs are down. Derive the mark from the
++    // caller's actual permission and protection state instead.
++    fwmark.protectedFromVpn = canProtectLocked(uid, *netId);
++    fwmark.permission = getPermissionForUserLocked(uid);
+ 
+     Network* appDefaultNetwork = getPhysicalOrUnreachableNetworkForUserLocked(uid);
+     unsigned defaultNetId = appDefaultNetwork ? appDefaultNetwork->getNetId() : mDefaultNetId;

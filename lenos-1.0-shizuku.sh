@@ -258,6 +258,24 @@ cmd_apply() {
   grep -q 'privacy_cross_profile_clipboard' \
     "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
     || die "cross-profile clipboard setting row missing from Settings"
+  grep -q 'canProtectLocked(uid, \*netId)' \
+    "$SRC/system/netd/server/NetworkController.cpp" \
+    || die "VPN lockdown DNS leak fix missing from netd"
+  grep -q 'MulticastFirewallController' \
+    "$SRC/system/netd/server/Controllers.cpp" \
+    || die "netd multicast firewall not wired"
+  grep -q 'mfw_OUTPUT' \
+    "$SRC/system/netd/server/MulticastFirewallController.cpp" \
+    || die "netd multicast firewall rules missing"
+  grep -q 'isRegularAppWithLockdownVpnEnabled' \
+    "$SRC/packages/modules/Connectivity/service-t/src/com/android/server/NsdService.java" \
+    || die "NSD lockdown check missing"
+  grep -q 'isRegularAppWithLockdownVpnEnabled' \
+    "$SRC/frameworks/base/core/java/android/ext/ConnectivityUtil.java" \
+    || die "ConnectivityUtil helper missing"
+  grep -q 'isAlwaysOnPackageSupported returned false' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/connectivity/Vpn.java" \
+    || die "always-on VPN survival change missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 
