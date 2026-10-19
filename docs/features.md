@@ -79,6 +79,7 @@ their content until the user explicitly allows it.
 | Credential limits (GrapheneOS values) | `frameworks_base/0009` | the fingerprint sensor locks out permanently after 5 failed attempts (AOSP 20; the 30 s timed lockout is unchanged) and the maximum supported password length is 128 characters (AOSP 64) |
 | Lock-screen notification content hidden | `frameworks_base/0012` | GrapheneOS default: content stays hidden on the lock screen until the user allows private notifications (see first-boot defaults) |
 | FBE filename padding | `system_extras/0001` (GrapheneOS port) | every encryption policy created by this build pads filenames to 32 bytes instead of AOSP's 16 (GrapheneOS commit "pad filenames to 32 bytes instead of 16 or 4 bytes"), hiding filename lengths better. The pre-R 4-byte compatibility branch is dropped (`PRODUCT_SHIPPING_API_LEVEL := 35` makes it unreachable); `vold` picks the flags up through `libfscrypt`. Only applies to policies created after flashing (see limits) |
+| Memory hygiene on lock | `frameworks_base/0024` (GrapheneOS port) | when the keyguard starts showing, both SystemUI and system_server run a full compacting GC (`System.gc(); System.runFinalization(); System.gc();`), releasing memory that is no longer reachable and reducing how long sensitive data (lock credentials, derived keys) sits in the heap — the complement to the auto-reboot timer. SystemUI runs it in `handleShowInner`; A16 has no showing-state callback into system_server, so it runs on the `setLockScreenShown` binder thread right after the lock transition (documented adaptation) |
 
 ## Framework infrastructure
 
@@ -242,7 +243,16 @@ retail unit shows no "Device is an engineering prototype" notification —
 `dumpsys notification --noredact | grep -i "engineering prototype"` prints
 nothing and either `getprop ro.boot.secure_boot` is `PRODUCTION` (Pixel-style)
 or none of `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
-`ro.boot.device_release` contains EVT/PVT/DVT — and on the lock screen tapping
+`ro.boot.device_release` contains EVT/PVT/DVT — locking the device with
+
+```
+adb shell setprop log.tag.art VERBOSE   # before locking, then
+adb logcat -d | grep -E "concurrent copying GC"
+```
+
+shows a compacting GC line from both `system_server` and `com.android.systemui`
+(the lock-time memory hygiene) without repeating on every lock-state
+re-broadcast, and on the lock screen tapping
 a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

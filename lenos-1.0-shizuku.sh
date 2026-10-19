@@ -330,6 +330,12 @@ cmd_apply() {
   grep -q 'android:key="bootloader_version"' \
     "$SRC/packages/apps/Settings/res/xml/firmware_version.xml" \
     || die "bootloader version field missing"
+  grep -q 'System.gc();' \
+    "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java" \
+    || die "lock-time SystemUI GC missing"
+  grep -q 'keyguardShowingChanged && keyguardShowing' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/wm/ActivityTaskManagerService.java" \
+    || die "lock-time system_server GC missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

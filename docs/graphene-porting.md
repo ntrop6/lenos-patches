@@ -16,8 +16,8 @@ Evidence sources:
   `opt_telephony`, `system_sepolicy`, `external_seedvault`, `providers_ContactsProvider`,
   `platform_system_extras`, `platform_system_ca-certificates` @ 17
   (clone dirs under `/tmp/opencode/graphene-repos/`).
-- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **40 patches**
-  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **23× frameworks_base**, system_core,
+- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **41 patches**
+  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **24× frameworks_base**, system_core,
   frameworks_opt_telephony, packages_modules_Wifi, packages_apps_Settings, vendor_lineage,
   system_netd, packages_modules_Connectivity, packages_modules_Permission,
   packages_apps_CellBroadcastReceiver, packages_providers_MediaProvider, system_ca-certificates,
@@ -30,10 +30,10 @@ Evidence sources:
   (frameworks_base/0008 + packages_apps_Settings/0001), the LTE-only / 5G-only Settings port, the
   GNSS SUPL/PSDS privacy toggles (frameworks_base/0021 + packages_apps_Settings/0001), the
   package-update enabled-state preservation (frameworks_base/0022), the MediaProvider
-  directory-listing restriction (packages_providers_MediaProvider/0001) and the
+  directory-listing restriction (packages_providers_MediaProvider/0001), the
   prototype-device warning + bootloader-version visibility (frameworks_base/0023 +
-  packages_apps_Settings/0001) are all **done**;
-  sections 1–3 below carry status notes. §18 audits all 40 current patches.
+  packages_apps_Settings/0001) and the memory hygiene on lock (frameworks_base/0024) are all **done**;
+  sections 1–3 below carry status notes. §18 audits all 41 current patches.
 
 Caveat: GrapheneOS is on Android 17; lenOS is Android 16 (LineageOS 23.2). Where a GrapheneOS file uses
 APIs only present in 17, that is called out as "API risk". Line numbers/paths are branch-17 paths.
@@ -714,7 +714,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Dynamic code loading toggles (memory/storage/WebView) | `GosPackageStateFlag.RESTRICT_*` (9-16) + `services/.../ext/DynCodeLoadingUtils.java` (116) + notification; enforcement in bionic/seccomp | constants present; **no-op without bionic/ART/seccomp work** | XL | not feasible now (toggles alone useless) |
 | Exec spawning / hardened_malloc / MTE / BTI+PAC | bionic + `hardened_malloc` + build/ART/kernel work; toggles in ExtSettings/`GosPackageStateFlag` (17–23, 29–30) | platform-wide runtime replacement | XL+ | not feasible now (see §17) |
 | JIT disabled base OS / dynamic code blocked for base OS | ART + seccomp work | none | XL | not feasible now |
-| "User-created directories not listable without storage permission" | MediaProvider FUSE path (`jni/FuseDaemon.cpp`, `do_readdir_common` ~:2053); exact GOS hunk not pinned in the clone (verify) | fwb/MediaProvider test to reproduce, then patch | M | port later (verify) |
+| "User-created directories not listable without storage permission" | GrapheneOS `72492da1c` (Storage Scopes): `MediaProvider.getFilesInDirectoryForFuse` suffix + `jni/MediaProviderWrapper.cpp` `skip_add_dirs`; apps with READ_MEDIA_* and `Android/` keep upstream behavior | **Done:** `packages_providers_MediaProvider/0001` (directory-listing part). Storage Scopes themselves (`GosPackageState`, `StorageScope`, scope UI) stay unported; `StorageScopesHooks` keeps GrapheneOS's name/shape for the later scope loop | M | done (scopes later) |
 | Screenshot shutter sound toggle | SystemUI `ScreenshotSoundPolicy.kt`/`ScreenshotSoundController.kt`: GOS drops AOSP-16's `screenshotForceShutterSound` aconfig gate and gates the non-forced sound on `Settings.System.SOUND_EFFECTS_ENABLED` (`ScreenshotSoundController.kt:86-89`); forced-shutter regions unchanged (`MediaActionSound.mustPlayShutterSound()` identical) | fwb SystemUI refactor (~40 LOC) | S–M | port later (cosmetic) |
 | Location privacy indicator | SystemUI `HeaderPrivacyIconsController.kt` + `PrivacyItemController.locationAvailable`; enables indicator for all location APIs (not just GNSS) | port the controller enablement + fixes | M | port later (nice-to-have) |
 
@@ -789,6 +789,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Keyboard suggestions off by default | "personalized keyboard suggestions based on gathering input history are disabled by default" (privacy-by-default) | seat not pinned (IME/dictionary setting); AOSP exposes the opt-out — flip the default | S (verify) | port later (verify) |
 | Dialer call recording | GrapheneOS Dialer: recordings under `Recordings/Call Recordings`, no region restrictions or tone | LineageOS Dialer fork differs; app-level port + telecom checks | M | port later (app) |
 | Firmware security visibility | version/configuration verification reporting inconsistencies + debug features enabled (companion to the bootloader/radio/boot-partition checks row in 14.2) | **Done:** `frameworks_base/0023` (prototype warning, with the EVT/PVT/DVT phase-marker path for non-Pixel devices) + `packages_apps_Settings/0001` (bootloader version field, `BootloaderVersionPreferenceController` reading `ro.bootloader`); the "inconsistencies" reporting is AOSP's VINTF check + mismatch dialog, already shipped in LineageOS | S | **done** |
+| Memory hygiene on lock | full compacting GC for SystemUI and system_server when the keyguard starts showing: `KeyguardViewMediator.handleShowInner` (SystemUI, before `mShowKeyguardWakeLock.release()`; line 3297) and `KeyguardServiceDelegate.onShowingStateChanged` (system_server, `if (showing) { System.gc(); System.runFinalization(); System.gc(); }`; line 237) | **Done:** `frameworks_base/0024`. SystemUI hunk is a line-level port; A16 has no showing-state callback into system_server (SystemUI reports through `IActivityTaskManager.setLockScreenShown`, A17 uses `IKeyguardStateCallback`), so the same three calls run on the `setLockScreenShown` binder thread, transition-gated (`mKeyguardShown != keyguardShowing` → true) and after the global lock is released — same process, same moment, no WMS lock held | S | **done** |
 
 **Coverage note:** every features-page ToC item is covered somewhere in this document — mapping:
 §5 (network), §6 (sensors), §7 (2FA), §8 (secure paste), §9 (delayed allow), §10 (USB-C),
@@ -886,8 +887,9 @@ batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `syste
 `packages_modules_Connectivity/0001` + `fwb/0017`/`0018`; the browser-location removal `fwb/0019`; the
 radio auto-off set `fwb/0020` + Settings rows; the LTE-only + GNSS batch `fwb/0021` + Settings rows,
 which also deleted the superseded `device/0003` so SUPL is controlled by the new framework toggle;
-the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaProvider/0001`; and the
-firmware-visibility batch `fwb/0023` + the Settings bootloader field). Verdicts:
+the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaProvider/0001`; the
+firmware-visibility batch `fwb/0023` + the Settings bootloader field; and the memory-hygiene port
+`fwb/0024`). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -928,13 +930,14 @@ firmware-visibility batch `fwb/0023` + the Settings bootloader field). Verdicts:
 | `fwb/0022` package updates preserve enabled state | GrapheneOS `bff727d` ("always preserve package enabled setting after package update", 2026-07-29): removes the three implicit re-enable blocks in `InstallPackageHelper.updateSettingsInternalLI`, removes `InstallRequest.isApplicationEnabledSettingPersistent()`, and advertises `grapheneos.package_update_preserves_package_enabled_setting` from `SystemConfig` | Exact port of all three parts (verified against the commit diff). The `setApplicationEnabledSettingPersistent` session flag, `InstallingSession`/`InstallArgs` plumbing and `PackageInstallerSession` accessor stay (API + metrics), matching GrapheneOS; only the update path stops re-enabling. Feature name kept verbatim | **Faithful** — keep |
 | `packages_providers_MediaProvider/0001` directory listing | GrapheneOS `72492da1c` (Storage Scopes): Java returns a `["" , <dirs>]` suffix and JNI stops appending lower-FS dirs; apps with READ_MEDIA_* and `Android/` keep upstream behavior | The Java branch, native `skip_add_dirs` plumbing and the directory-name computation are line-level ports. Deviation: Storage Scopes (`GosPackageState`, `StorageScope`, scope UI, `LocalCallingIdentity` scope hooks) are **not ported**; `StorageScopesHooks.obtainDirContents` omits the scope loop and keeps the same name/shape for later. The app-created-file visibility query is unchanged | **Faithful** (subset: directory-listing hook only) — keep |
 | `fwb/0023` prototype-device warning + Settings bootloader field | AMS `isPrototypeDevice()`/`showPrototypeNotificationIfPrototype()` (Pixel: `ro.revision` contains `MP`, `ro.boot.secure_boot` is `PRODUCTION`; otherwise notify) with strings `prototype_device_notification_{title,message}` and proto `SystemMessage.NOTE_PROTOTYPE_DETECTED = 400`; Settings `BootloaderVersionPreferenceController` + row + string (`ro.bootloader`) | The Pixel branch, notification builder (same `SystemNotificationChannels.DEVELOPER` channel, `stat_sys_adb` icon, ongoing/public), proto id and call site (after `showMteOverrideNotificationIfActive()` in `finishBooting()`'s boot-complete path) are line-level ports; the Settings controller is a file-level port and the row/string match GrapheneOS. Documented deviation: GrapheneOS returns early for every non-Google brand; lenOS adds `isPrototypeDeviceNonPixel()`, which treats only an explicit EVT/PVT/DVT marker in `ro.boot.hwlevel` / `ro.boot.hardware.revision` / `ro.boot.device_release` as a prototype — without it the warning would be dead code on Nothing hardware. AOSP's serial-console notification already exists in LineageOS and is untouched (no Pixel `console=null` cmdline heuristic is added) | **Faithful** (non-Pixel detection extension documented) — keep; verify the phase properties on first boot |
+| `fwb/0024` memory hygiene on lock | SystemUI `KeyguardViewMediator.handleShowInner` (`System.gc(); System.runFinalization(); System.gc();` before `mShowKeyguardWakeLock.release()`) and system_server `KeyguardServiceDelegate.onShowingStateChanged` (`if (showing) { … }`, binder thread) | SystemUI hunk is a line-level port (same position, same three calls). Android 16 has no showing-state callback into system_server — A17's `IKeyguardStateCallback` path did not exist yet; SystemUI reports through `IActivityTaskManager.setLockScreenShown`, so the same three calls run on that binder thread, gated on the false→true transition (`mKeyguardShown != keyguardShowing`) and placed after the `mGlobalLock` block, so no WMS lock is held — same process, same moment as GrapheneOS's callback | **Faithful** (A16 callback-path adaptation documented) — keep |
 | `packages_apps_Settings/0001` LTE/5G-only entries | GrapheneOS commits `5310142ccc` ("LTE Only Mode") and `8d37b32db6` ("5G Only / 4G or 5G only") | Entries, `lteOnlyUnsupported` cases, NR-standalone detection, summary switch and strings are line-level ports (the atomic `is5GSupported` flag included, as GrapheneOS writes it). Deliberate deviation: GrapheneOS's commit also flips `getAvailabilityStatus` from `== EnabledNetworkMode` to `!= PreferredNetworkMode`, exposing the row when the carrier hides network settings (`None`); lenOS keeps the stock guard. GrapheneOS's non-world-mode `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is preserved verbatim | **Faithful** (availability guard deviation documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 40 patches: **31 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 41 patches: **32 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -945,7 +948,8 @@ cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
 browser-location removal (`fwb/0019`), the radio auto-off set (`fwb/0020`), the GNSS SUPL/PSDS
 set (`fwb/0021`), the package-update enabled-state port (`fwb/0022`), the MediaProvider
 directory-listing hook (`packages_providers_MediaProvider/0001`), the firmware-visibility
-batch (`fwb/0023`, non-Pixel detection extension documented), the
+batch (`fwb/0023`, non-Pixel detection extension documented), the memory hygiene on lock
+(`fwb/0024`, A16 callback-path adaptation documented), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the

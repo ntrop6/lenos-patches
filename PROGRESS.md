@@ -3,8 +3,22 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
-## 2026-10-19 (fourteenth session) — prototype/EVT warning + firmware visibility
+## 2026-10-19 (fourteenth session) — prototype/EVT warning, firmware visibility, memory hygiene on lock
 
+* **Memory hygiene on lock** (`frameworks_base/0024`; ports GrapheneOS's
+  lock-time full compacting GC):
+  * SystemUI: `KeyguardViewMediator.handleShowInner` runs
+    `System.gc(); System.runFinalization(); System.gc();` right before
+    `mShowKeyguardWakeLock.release()` — line-level port of GrapheneOS
+    (`KeyguardViewMediator.java:3297`).
+  * system_server: GrapheneOS triggers it from
+    `KeyguardServiceDelegate.onShowingStateChanged` via A17's
+    `IKeyguardStateCallback`; Android 16 has no such callback (SystemUI
+    reports through `IActivityTaskManager.setLockScreenShown`), so the same
+    three calls run on the `setLockScreenShown` binder thread, gated on the
+    false→true transition (`mKeyguardShown != keyguardShowing`) and after the
+    `mGlobalLock` block — same process, same moment, no WMS lock held
+    (documented adaptation).
 * **Prototype/EVT device warning** (`frameworks_base/0023`; ports GrapheneOS's
   AMS prototype check):
   * `ActivityManagerService.isPrototypeDevice()` — the GrapheneOS Pixel logic
@@ -37,20 +51,25 @@ One entry per working session. "Verified" = seen working on a booted device
     (`Build.isBuildConsistent()` + the
     `ActivityTaskManagerService.showSystemReadyErrorDialogsIfNeeded()`
     mismatch dialog), which LineageOS already ships — nothing to port there.
-* Tests: new `tests/test_firmware_visibility.py` (12 checks). Full suite
-  **250 tests green**; `--check` applies all 40 patches cleanly from pristine.
-  Driver markers added for the prototype notification call, the proto id and
-  the bootloader row (plus the previously missing feature-flag marker for
+* Tests: new `tests/test_firmware_visibility.py` (12 checks) and
+  `tests/test_memory_hygiene.py` (4 checks). Full suite **254 tests green**;
+  `--check` applies all 41 patches cleanly from pristine. Driver markers added
+  for the prototype notification call, the proto id, the bootloader row and
+  both lock-time GC sites (plus the previously missing feature-flag marker for
   `fwb/0022`).
-* Docs: features.md rows + checklist step, §14.2/§14.5 rows closed, §18
-  row/counts (31 faithful / 5 deliberate / 2 original / 2 plumbing) and
-  watch-list item 8, this log.
+* Docs: features.md rows + checklist steps (incl. the ART GC-log check), the
+  §14.1 directory-listing row closed (was stale after the MediaProvider
+  patch), §14.2/§14.5 rows closed, §18 row/counts (32 faithful / 5 deliberate
+  / 2 original / 2 plumbing) and watch-list item 8, this log.
 * Not verified on a device (VM still unavailable). On first boot check: no
   prototype notification on a retail unit
   (`dumpsys notification --noredact | grep -i "engineering prototype"` is
   empty), About phone → Firmware version shows the real `getprop ro.bootloader`
-  value, and record what `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
-  `ro.boot.device_release` report on this unit.
+  value, record what `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
+  `ro.boot.device_release` report on this unit, and with
+  `setprop log.tag.art VERBOSE` a lock produces "concurrent copying GC" lines
+  from both `system_server` and `com.android.systemui` (without repeating on
+  unrelated lock-state re-broadcasts).
 
 ## 2026-10-19 (thirteenth session) — preserved disabled state + MediaProvider directory listing
 
@@ -654,10 +673,11 @@ the approximations as faithful ports and lay shared infrastructure.
 6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
 7. Framework work still out of the series: network permission, sensor
-   permission, 2nd PIN, memory hygiene on lock
+   permission, 2nd PIN
    (auto reboot to BFU, QS-tile gating, duress, LTE-only, the GNSS toggles,
-   preserved disabled state, the MediaProvider listing restriction and the
-   prototype/EVT warning + firmware visibility are done).
+   preserved disabled state, the MediaProvider listing restriction, the
+   prototype/EVT warning + firmware visibility and the lock-time memory
+   hygiene are done).
 8. First-boot checks for the new rows and notifications: LTE-only entry
    order/selection, Network assistance defaults = Off, SUPL/PSDS switch
    survives reboot, `dumpsys location` shows no SUPL/PSDS servers while off,
@@ -665,5 +685,7 @@ the approximations as faithful ports and lay shared infrastructure.
    listing without media permissions only shows folders with the app's own
    files, no "engineering prototype" notification on a retail unit (and
    record the `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
-   `ro.boot.device_release` values for the phase-prop list), and the
-   Firmware version screen shows the real `ro.bootloader` value.
+   `ro.boot.device_release` values for the phase-prop list), the
+   Firmware version screen shows the real `ro.bootloader` value, and locking
+   with `log.tag.art` set to `VERBOSE` produces compacting-GC lines from both
+   `system_server` and SystemUI.

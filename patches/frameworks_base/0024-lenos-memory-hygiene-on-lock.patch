@@ -1,0 +1,49 @@
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java b/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
+index 62c41395..f165926c 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/KeyguardViewMediator.java
+@@ -3167,6 +3167,12 @@ public class KeyguardViewMediator implements CoreStartable,
+             userActivity();
+             mUpdateMonitor.setKeyguardGoingAway(false);
+             mKeyguardViewControllerLazy.get().setKeyguardGoingAwayState(false);
++            // lenOS: full compacting garbage collection when the keyguard starts showing, so
++            // data that is no longer reachable is released back to the OS (GrapheneOS's memory
++            // hygiene on lock, SystemUI half).
++            System.gc();
++            System.runFinalization();
++            System.gc();
+             mShowKeyguardWakeLock.release();
+         }
+         mKeyguardDisplayManager.show();
+diff --git a/services/core/java/com/android/server/wm/ActivityTaskManagerService.java b/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
+index c695279f..586b0226 100644
+--- a/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
++++ b/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
+@@ -3212,14 +3212,27 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
+             throw new SecurityException("Requires permission "
+                     + android.Manifest.permission.DEVICE_POWER);
+         }
++        final boolean keyguardShowingChanged;
+         final long ident = Binder.clearCallingIdentity();
+         try {
+             synchronized (mGlobalLock) {
++                keyguardShowingChanged = mKeyguardShown != keyguardShowing;
+                 setLockScreenShownLocked(keyguardShowing, aodShowing);
+             }
+         } finally {
+             Binder.restoreCallingIdentity(ident);
+         }
++        if (keyguardShowingChanged && keyguardShowing) {
++            // lenOS: full compacting garbage collection when the keyguard starts showing, so
++            // data that is no longer reachable (lock credentials and derived keys) is released
++            // back to the OS before GrapheneOS's auto-reboot timer would clear the memory
++            // anyway. Runs on this binder thread, after the global lock is released, matching
++            // GrapheneOS's KeyguardServiceDelegate.onShowingStateChanged, which runs on a
++            // binder thread of system_server.
++            System.gc();
++            System.runFinalization();
++            System.gc();
++        }
+     }
+ 
+     @GuardedBy("mGlobalLock")
