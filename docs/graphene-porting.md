@@ -703,7 +703,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
-| Wi-Fi / Bluetooth / NFC auto-off timers | fwb `services/core/java/com/android/server/ext/WifiAutoOff.java` (141), `BluetoothAutoOff.java` (125), `DelayedConditionalAction.java` (122); keys `Settings.Global.wifi_off_timeout` / `bluetooth_off_timeout` (`Settings.java:14470/:14474`), NFC via the NFC app | Add the two service classes (NFC needs the Nfc app side), Settings dropdown rows; **constants seeded** in 0006 | S–M | port now (cheap attack-surface win) |
+| Wi-Fi / Bluetooth / NFC auto-off timers | fwb `services/core/java/com/android/server/ext/WifiAutoOff.java` (141), `BluetoothAutoOff.java` (125), `DelayedConditionalAction.java` (122); keys `Settings.Global.wifi_off_timeout` / `bluetooth_off_timeout` (`Settings.java:14470/:14474`), NFC via the NFC app | **done (Wi-Fi + Bluetooth):** `fwb/0020` ports all three service classes under a trimmed `SystemServerExt` hooked from `SystemServer.java`, plus a driver marker; Settings/0001 adds the two list rows in More security & privacy with the GrapheneOS `AutoOffSetting` choices (0/15 s/30 s/1 m/2 m/5 m/10 m/30 m/1 h/2 h/4 h/8 h, millisecond values). NFC variant not ported (needs the Nfc app side) | S–M | done (NFC later) |
 | USB attach attack surface | see §10 | see §10 | L | partial only |
 | Native debugging (ptrace) block for bundled apps + per-app toggles + notification | ExtSettings `ASW` switches (`android/ext/settings/app/Asw*`), `GosPackageStateFlag.BLOCK_NATIVE_DEBUGGING*` (6-8), notification helper; enforcement partially via SELinux (GrapheneOS sepolicy) | constant present in 0006; enforcement needs their sepolicy/SELinuxFlags work | M–L | port later |
 | Dynamic code loading toggles (memory/storage/WebView) | `GosPackageStateFlag.RESTRICT_*` (9-16) + `services/.../ext/DynCodeLoadingUtils.java` (116) + notification; enforcement in bionic/seccomp | constants present; **no-op without bionic/ART/seccomp work** | XL | not feasible now (toggles alone useless) |
@@ -802,7 +802,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 | 3 | VPN leak-blocking set | M | netd, Connectivity, fwb | 4 surgical netd fixes (DNS/RA/multicast/SockDiag) + NSD-under-lockdown — hardens the always-on VPN feature we already ship — **done** (`system_netd/0001`, `packages_modules_Connectivity/0001`, `frameworks_base/0017`+`0018`; SockDiag/DnsResolver already upstream) |
 | 4 | Secure Paste, stage 1 (global default) | M | fwb (+Permission/Settings UI) | cross-app clipboard reads off by default; staging avoids the GosPackageState backport (per-app later via AppOps) — **done** (`frameworks_base/0015` + Settings row; per-app/toolbar stage 2 pending) |
 | 5 | FBE filename padding 32 B | S | system/extras | one-line policy change in libfscrypt; metadata-length privacy (new installs / post-wipe) |
-| 6 | Wi-Fi/Bluetooth auto-off timers | S–M | fwb (+Settings; NFC variant in the Nfc app) | radios power down after idle; constants already seeded in `fwb/0006` |
+| 6 | Wi-Fi/Bluetooth auto-off timers | S–M | fwb (+Settings; NFC variant in the Nfc app) | radios power down after idle; constants already seeded in `fwb/0006` — **done** (`frameworks_base/0020` + Settings row; NFC variant pending) |
 | 7 | Fingerprint lockout after 5 attempts | S | fwb | parity with GrapheneOS (LineageOS still allows 20 before permanent lockout) |
 | 8 | MAX_PASSWORD_LENGTH 128 | S | fwb | one-line; supports duress/passphrase users who hit the 64 limit |
 | 9 | Package installer preserves disabled state | S | packages/apps/PackageInstaller | disabled apps stay disabled after updates; AOSP API already present in 23.2 |
@@ -866,15 +866,16 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 36 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 37 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **29** patches (the fidelity redos, the first quick-win
-batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` + the extended
-`packages_apps_Settings/0001`, `system_ca-certificates/0001`, `system_extras/0001`,
-`packages_apps_CellBroadcastReceiver/0001` and the delayed-Allow pair `packages_modules_Permission/0001`
-+ `frameworks_base/0014`; earlier notes said
+`GrapheneOS/*` fetches. Note: this series now has **37** patches (the fidelity redos; the quick-win
+batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
+`packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
+`fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
+`packages_modules_Connectivity/0001` + `fwb/0017`/`0018`; the browser-location removal `fwb/0019`; and
+the radio auto-off set `fwb/0020` + Settings rows; earlier notes said
 18). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
@@ -886,7 +887,7 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `fwb/0003` + `system_core/0001` auto-reboot | GrapheneOS init-based design (`trigger_shutdown`, dedicated `auto_reboot_ctl_prop`, `KeyguardServiceDelegate` hook) | (a) callback calls `HandlePowerctlMessage("reboot")` vs GOS `trigger_shutdown("reboot")` — both init-internal reboot paths, equivalent; (b) SELinux: no dedicated type — stock `sys.` → `system_prop` prefix rule applies (LOS `private/property_contexts:23`; GOS `property_contexts:29` declares `auto_reboot_ctl_prop`), so the context is coarser but no sepolicy patch is needed and system_server has system_prop write access; (c) hooked in A16's `KeyguardStateMonitor.onShowingStateChanged` vs GOS's KeyguardServiceDelegate (same keyguard events); (d) no call-in-progress deferral — same as GOS | **Faithful** — two benign environment deltas; revisit (b) only if sepolicy is tightened |
 | `fwb/0004` QS unlock gating | GrapheneOS design (`QSTileImpl` gate + 11-tile allow-list + QSHost accessor) | None found | **Faithful** |
 | `fwb/0005` duress credentials | GrapheneOS duress | Same class set, same `LockSettingsStorage` key (`duress_credentials`), same verify-result hook, same owner-credential enrolment rules | **Faithful** |
-| `fwb/0006` ExtSettings | GrapheneOS `android.ext.settings` registry | Trimmed to the subset used; several constants are seeded but inert (AUTO_GRANT_OTHER_SENSORS_PERMISSION, WIFI/BLUETOOTH/NFC_AUTO_OFF, SCREENSHOT_TIMESTAMP_EXIF, RESTRICT_*_DYN_CODE_LOADING, FORCE_APP_MEMTAG, ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG). PIN scramble is *not* inert anymore (fwb/0008 + Settings/0001), and `ALLOW_CLIPBOARD_READ_BY_DEFAULT` is now enforced by `fwb/0015`; the regenerated patch also adds the GrapheneOS `Settings.Secure.CROSS_PROFILE_CLIPBOARD_ACCESS` constant used by `fwb/0016`. One deliberate default change: `SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY` defaults to `true` (GrapheneOS ships `false`; lenOS hardening choice, commented in the patch; SIM layout inherits it) | **Deliberate** — keep trim + documented scramble default; do not surface UI for the other inert constants before enforcement lands |
+| `fwb/0006` ExtSettings | GrapheneOS `android.ext.settings` registry | Trimmed to the subset used; several constants are seeded but inert (AUTO_GRANT_OTHER_SENSORS_PERMISSION, NFC_AUTO_OFF, RESTRICT_*_DYN_CODE_LOADING, FORCE_APP_MEMTAG, ALLOW_DISABLING_HARDENING_VIA_APP_COMPAT_CONFIG). PIN scramble is *not* inert anymore (fwb/0008 + Settings/0001), `ALLOW_CLIPBOARD_READ_BY_DEFAULT` is now enforced by `fwb/0015`, and `WIFI_AUTO_OFF`/`BLUETOOTH_AUTO_OFF` are enforced by `fwb/0020`; the regenerated patch also adds the GrapheneOS `Settings.Secure.CROSS_PROFILE_CLIPBOARD_ACCESS` constant used by `fwb/0016`. One deliberate default change: `SCRAMBLE_LOCKSCREEN_PIN_LAYOUT_PRIMARY` defaults to `true` (GrapheneOS ships `false`; lenOS hardening choice, commented in the patch; SIM layout inherits it) | **Deliberate** — keep trim + documented scramble default; do not surface UI for the other inert constants before enforcement lands |
 | `fwb/0007` + `frameworks_opt_telephony/0001` eSIM duress wipe | GrapheneOS eSIM duress (same flag constant, SYSTEM_UID gate, carrier-notification suppression) | None found; the AIDL change is internal and the public `resetMemory` keeps its signature (hidden overload) | **Faithful** |
 | `device/0001` lenOS product | n/a | Adds `lenos_asteroids.mk`; strips Gallery2 via `LENOS_STRIP_PACKAGES`, disables AudioFX | **Plumbing** |
 | `device/0002` Wi-Fi privacy hardening | No exact GrapheneOS counterpart | Enterprise Wi-Fi without certificate validation disallowed (stock Nothing overlay sets the AOSP "STRONGLY RECOMMENDED false" value to true); default tether SSID "Nothing Phone (3a)" → "AndroidAP" | **Deliberate** — strict improvements; keep |
@@ -912,18 +913,20 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `fwb/0017` ConnectivityUtil | GrapheneOS `core/java/android/ext/ConnectivityUtil.java` (`isSystem`, `isRegularAppWithLockdownVpnEnabled`) and its module-lib API declaration | Class and methods ported verbatim; `core/api/module-lib-current.txt` gains the same `package android.ext` block so the module-lib API check passes. Consumed by the Connectivity NSD gate | **Faithful** — keep |
 | `fwb/0018` always-on VPN survival | GrapheneOS `Vpn.startAlwaysOnVpn()`: log and `return false` for an unsupported always-on package without clearing the setting | Same log message and control flow; LineageOS 23.2's safe-mode-only `setAlwaysOnPackage(null, false, null)` guard is removed together with the normal-mode unset, so the always-on + lockdown configuration survives any temporary package unavailability and resumes when the package returns | **Faithful** — keep |
 | `fwb/0019` no browser location grant | GrapheneOS `DefaultPermissionGrantPolicy` has no browser location block | The stock block (browser role holder or `CATEGORY_APP_BROWSER` system handler → `FOREGROUND_LOCATION_PERMISSIONS`) is deleted; one lenOS comment marks the spot (GrapheneOS's tree has no comment). Every other default grant is untouched | **Faithful** — keep |
+| `fwb/0020` radio auto-off timers | GrapheneOS `DelayedConditionalAction` (122), `WifiAutoOff` (141), `BluetoothAutoOff` (125), wired from `SystemServerExt.init` in `SystemServer#startOtherServices` just before `mActivityManagerService.systemReady` returns | The three service classes are line-level ports (same alarm semantics, same Wi-Fi/GATT-connected predicates, same `adapter.disable(true)` and `setWifiEnabled(false)` calls, same extras logging). Deviations: `SystemServerExt` is a trimmed lenOS version that keeps the same `context`/`bgHandler`/`packageManager` shape and wiring point but only calls the auto-off `maybeInit`s (GrapheneOS's class also bootstraps AppCompatConf and dev-build diagnostics, neither ported); Apache headers on the new files. The Settings rows use GrapheneOS's `AutoOffSetting` choices and millisecond values with a plain `ListPreference` instead of a `RadioButtonPickerFragment2` sub-screen (UI mechanism substitution, §14.1). `WIFI_AUTO_OFF`/`BLUETOOTH_AUTO_OFF` were already seeded by `fwb/0006` | **Faithful** (wiring trim + UI mechanism documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 36 patches: **26 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 37 patches: **27 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
 auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
 cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
-(`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0019`), the
+(`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0018`), the
+browser-location removal (`fwb/0019`), the radio auto-off set (`fwb/0020`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
@@ -941,9 +944,10 @@ is superseded by this audit.
    type like GrapheneOS instead of relying on the `sys.` prefix rule.
 2. SUPL-off — if GNSS first-fix UX complaints appear, convert `device/0003` into a user toggle
    (GrapheneOS-style) rather than reverting the default.
-3. Seeded-but-inert ExtSettings constants — do not expose UI for auto-off timers, sensors auto-grant,
-   memtag/DCL toggles until their enforcement lands (§14). PIN scramble and the clipboard default are
-   the exceptions (wired, UI shipped).
+3. Seeded-but-inert ExtSettings constants — do not expose UI for the sensors auto-grant,
+   NFC auto-off, memtag/DCL toggles until their enforcement lands (§14). PIN scramble, the clipboard
+   default, screenshot EXIF and the Wi-Fi/Bluetooth auto-off timers are the exceptions (wired, UI
+   shipped).
 4. PIN scramble default-ON — the one lenOS hardening deviation with a plausible accessibility
    trade-off (the keypad relayouts on every setup). The per-user switch exists; if feedback is bad,
    flip the `ExtSettings` default back to GrapheneOS's `false` instead of patching SystemUI.

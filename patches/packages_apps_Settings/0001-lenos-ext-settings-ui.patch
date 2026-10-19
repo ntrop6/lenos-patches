@@ -1,9 +1,9 @@
 diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
 new file mode 100644
-index 0000000..108d243
+index 0000000..e3ecd8e
 --- /dev/null
 +++ b/res/values/strings_ext.xml
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,33 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Copyright (C) 2022 GrapheneOS
@@ -30,12 +30,18 @@ index 0000000..108d243
 +    <string name="cross_profile_clipboard_access_allow_export_defaults_summary">Allow system defaults sharing the clipboard to the parent user and its other child profiles.</string>
 +    <string name="cross_profile_clipboard_access_disallow_title">Disallowed</string>
 +    <string name="cross_profile_clipboard_access_disallow_summary">Disallow sharing the clipboard from and to the parent user and its other child profiles.</string>
++    <!-- Radio auto-off timers (GrapheneOS strings_ext.xml). -->
++    <string name="auto_off_never">Never</string>
++    <string name="wifi_auto_off_title">Turn off Wi-Fi automatically</string>
++    <string name="wifi_auto_off_footer">If Wi-Fi is disconnected, it will be turned off after the selected timeout.</string>
++    <string name="bluetooth_auto_off_title">Turn off Bluetooth automatically</string>
++    <string name="bluetooth_auto_off_footer">If there are no connected devices, Bluetooth will turn off after the selected timeout.</string>
 +</resources>
 diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
-index 0068872..a08b39f 100644
+index 0068872..d4de26b 100644
 --- a/res/xml/more_security_privacy_settings.xml
 +++ b/res/xml/more_security_privacy_settings.xml
-@@ -97,6 +97,27 @@
+@@ -97,6 +97,40 @@
              settings:controller=
                  "com.android.settings.sound.MediaControlsLockScreenPreferenceController" />
  
@@ -58,6 +64,19 @@ index 0068872..a08b39f 100644
 +        <ListPreference
 +            android:key="privacy_cross_profile_clipboard"
 +            android:title="@string/cross_profile_clipboard_access_title"
++            settings:searchable="false" />
++
++        <!-- lenOS: GrapheneOS radio auto-off timers. Controllers registered in
++             MoreSecurityPrivacyFragment; GrapheneOS places them on the Exploit
++             protection screen. -->
++        <ListPreference
++            android:key="wifi_auto_off"
++            android:title="@string/wifi_auto_off_title"
++            settings:searchable="false" />
++
++        <ListPreference
++            android:key="bluetooth_auto_off"
++            android:title="@string/bluetooth_auto_off_title"
 +            settings:searchable="false" />
 +
          <!-- Allow software fallback for camera extensions -->
@@ -204,6 +223,170 @@ index 0000000..e7f4d4c
 +    @Override
 +    public int getSliceHighlightMenuRes() {
 +        return NO_RES;
++    }
++}
+diff --git a/src/com/android/settings/ext/AutoOffPrefController.java b/src/com/android/settings/ext/AutoOffPrefController.java
+new file mode 100644
+index 0000000..607075a
+--- /dev/null
++++ b/src/com/android/settings/ext/AutoOffPrefController.java
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.ext.settings.IntSetting;
++import android.text.format.DateUtils;
++
++import androidx.preference.ListPreference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.R;
++import com.android.settings.core.BasePreferenceController;
++
++/**
++ * lenOS: list-style control for the GrapheneOS radio auto-off timers
++ * (WIFI_AUTO_OFF / BLUETOOTH_AUTO_OFF). GrapheneOS uses a
++ * RadioButtonPickerFragment2 sub-screen through IntSettingPrefController;
++ * lenOS uses a plain ListPreference with the same choices and setting keys
++ * (documented UI substitution).
++ */
++public class AutoOffPrefController extends BasePreferenceController {
++
++    private final IntSetting setting;
++    private final String feature;
++
++    private ListPreference preference;
++
++    public AutoOffPrefController(Context ctx, String key, IntSetting setting, String feature) {
++        super(ctx, key);
++        this.setting = setting;
++        this.feature = feature;
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        if (feature != null && !mContext.getPackageManager().hasSystemFeature(feature)) {
++            return UNSUPPORTED_ON_DEVICE;
++        }
++        // Device-wide (Settings.Global) setting: only the system user can edit it.
++        return ExtSettingControllerHelper.getGlobalSettingAvailability(mContext);
++    }
++
++    @Override
++    public void displayPreference(PreferenceScreen screen) {
++        super.displayPreference(screen);
++        preference = screen.findPreference(getPreferenceKey());
++        if (preference == null) {
++            return;
++        }
++        preference.setPersistent(false);
++        preference.setEntries(AutoOffSetting.getEntries(mContext));
++        preference.setEntryValues(AutoOffSetting.getValues());
++        preference.setOnPreferenceChangeListener((p, newValue) -> {
++            final int value;
++            try {
++                value = Integer.parseInt((String) newValue);
++            } catch (NumberFormatException e) {
++                return false;
++            }
++            if (!setting.put(mContext, value)) {
++                return false;
++            }
++            updateState();
++            return true;
++        });
++        updateState();
++    }
++
++    private void updateState() {
++        if (preference == null) {
++            return;
++        }
++        int value = setting.get(mContext);
++        CharSequence summary = value == 0 ? mContext.getString(R.string.auto_off_never)
++                : DateUtils.formatDuration(value);
++        preference.setSummary(summary);
++        preference.setValue(Integer.toString(value));
++    }
++}
+diff --git a/src/com/android/settings/ext/AutoOffSetting.java b/src/com/android/settings/ext/AutoOffSetting.java
+new file mode 100644
+index 0000000..c99f5b4
+--- /dev/null
++++ b/src/com/android/settings/ext/AutoOffSetting.java
+@@ -0,0 +1,57 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.ext;
++
++import android.content.Context;
++import android.text.format.DateUtils;
++
++import com.android.settings.R;
++
++/**
++ * lenOS: the timeout choices for the GrapheneOS radio auto-off timers,
++ * mirroring GrapheneOS's AutoOffSetting (0 = never, plus 15 s..8 h).
++ * The setting values are milliseconds, matching ExtSettings.WIFI_AUTO_OFF
++ * and BLUETOOTH_AUTO_OFF.
++ */
++public class AutoOffSetting {
++
++    private static final int[] VALUES_MILLIS = {
++            0,
++            15_000, 30_000,
++            60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 30 * 60_000,
++            60 * 60_000, 2 * 60 * 60_000, 4 * 60 * 60_000, 8 * 60 * 60_000,
++    };
++
++    public static CharSequence[] getEntries(Context ctx) {
++        CharSequence[] entries = new CharSequence[VALUES_MILLIS.length];
++        for (int i = 0; i < VALUES_MILLIS.length; i++) {
++            int value = VALUES_MILLIS[i];
++            entries[i] = value == 0 ? ctx.getString(R.string.auto_off_never)
++                    : DateUtils.formatDuration(value);
++        }
++        return entries;
++    }
++
++    public static CharSequence[] getValues() {
++        CharSequence[] values = new CharSequence[VALUES_MILLIS.length];
++        for (int i = 0; i < VALUES_MILLIS.length; i++) {
++            values[i] = Integer.toString(VALUES_MILLIS[i]);
++        }
++        return values;
 +    }
 +}
 diff --git a/src/com/android/settings/ext/BoolSettingPrefController.java b/src/com/android/settings/ext/BoolSettingPrefController.java
@@ -618,28 +801,30 @@ index 2867cd9..0644b6b 100644
  
          private void setUpUnlockSettingsPreference() {
 diff --git a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
-index 34f8a53..1e70efe 100644
+index 34f8a53..3aea000 100644
 --- a/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
 +++ b/src/com/android/settings/safetycenter/MoreSecurityPrivacyFragment.java
-@@ -19,6 +19,7 @@ package com.android.settings.safetycenter;
+@@ -19,6 +19,8 @@ package com.android.settings.safetycenter;
  import android.app.settings.SettingsEnums;
  import android.content.Context;
  import android.content.Intent;
++import android.content.pm.PackageManager;
 +import android.ext.settings.ExtSettings;
  import android.os.Bundle;
  import android.os.UserHandle;
  import android.os.UserManager;
-@@ -27,6 +28,9 @@ import android.provider.SearchIndexableResource;
+@@ -27,6 +29,10 @@ import android.provider.SearchIndexableResource;
  import com.android.settings.R;
  import com.android.settings.Utils;
  import com.android.settings.dashboard.DashboardFragment;
++import com.android.settings.ext.AutoOffPrefController;
 +import com.android.settings.ext.BoolSettingPrefController;
 +import com.android.settings.ext.CrossProfileClipboardPrefController;
 +import com.android.settings.ext.SecurePastePrefController;
  import com.android.settings.search.BaseSearchIndexProvider;
  import com.android.settings.security.LockUnificationPreferenceController;
  import com.android.settings.security.trustagent.TrustAgentListPreferenceController;
-@@ -48,6 +52,8 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+@@ -48,6 +54,8 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
      private static final String TAG = "MoreSecurityPrivacyFragment";
      private static final String KEY_NOTIFICATION_WORK_PROFILE_NOTIFICATIONS =
              "privacy_lock_screen_work_profile_notifications";
@@ -648,7 +833,7 @@ index 34f8a53..1e70efe 100644
  
      @Override
      public int getMetricsCategory() {
-@@ -101,6 +107,12 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
+@@ -101,6 +109,16 @@ public class MoreSecurityPrivacyFragment extends DashboardFragment {
          controllers.addAll(SafetyCenterUtils.getControllersForAdvancedPrivacy(context, lifecycle));
          controllers.addAll(
                  SafetyCenterUtils.getControllersForAdvancedSecurity(context, lifecycle, host));
@@ -658,6 +843,10 @@ index 34f8a53..1e70efe 100644
 +                ExtSettings.SCREENSHOT_TIMESTAMP_EXIF));
 +        controllers.add(new SecurePastePrefController(context));
 +        controllers.add(new CrossProfileClipboardPrefController(context));
++        controllers.add(new AutoOffPrefController(context, "wifi_auto_off",
++                ExtSettings.WIFI_AUTO_OFF, PackageManager.FEATURE_WIFI));
++        controllers.add(new AutoOffPrefController(context, "bluetooth_auto_off",
++                ExtSettings.BLUETOOTH_AUTO_OFF, PackageManager.FEATURE_BLUETOOTH));
          return controllers;
      }
  

@@ -1,0 +1,538 @@
+diff --git a/services/core/java/com/android/server/ext/BluetoothAutoOff.java b/services/core/java/com/android/server/ext/BluetoothAutoOff.java
+new file mode 100644
+index 00000000..e86e4f48
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/BluetoothAutoOff.java
+@@ -0,0 +1,142 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.annotation.Nullable;
++import android.bluetooth.BluetoothAdapter;
++import android.bluetooth.BluetoothDevice;
++import android.bluetooth.BluetoothManager;
++import android.bluetooth.BluetoothProfile;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.content.pm.PackageManager;
++import android.ext.settings.ExtSettings;
++import android.os.Binder;
++import android.util.Slog;
++
++import java.util.List;
++
++class BluetoothAutoOff extends DelayedConditionalAction {
++    private static final String TAG = BluetoothAutoOff.class.getSimpleName();
++
++    private final BluetoothManager manager;
++    @Nullable
++    private final BluetoothAdapter adapter;
++
++    private BluetoothAutoOff(SystemServerExt sse) {
++        super(sse, ExtSettings.BLUETOOTH_AUTO_OFF, sse.bgHandler);
++        // attribution tag is required by the BluetoothService for system_server callers
++        var context = sse.context.createAttributionContext("BluetoothAutoOff");
++        manager = context.getSystemService(BluetoothManager.class);
++        adapter = manager.getAdapter();
++    }
++
++    static void maybeInit(SystemServerExt sse) {
++        if (sse.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH, 0)) {
++            new BluetoothAutoOff(sse).init();
++        }
++    }
++
++    @Override
++    protected boolean shouldScheduleAlarm() {
++        return isAdapterOnAndDisconnected();
++    }
++
++    @Override
++    protected void alarmTriggered() {
++        if (isAdapterOnAndDisconnected()) {
++            Slog.d(TAG, "adapter.disable(true)");
++            adapter.disable(true);
++        }
++    }
++
++    @Override
++    protected void registerStateListener() {
++        IntentFilter f = new IntentFilter();
++        f.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
++        f.addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED);
++
++        sse.context.registerReceiverForAllUsers(new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context broadcastContext, Intent intent) {
++                Slog.d(TAG, intent + ", extras " + intent.getExtras().deepCopy());
++                update();
++            }
++        }, f, null, handler);
++    }
++
++    private boolean isAdapterOnAndDisconnected() {
++        Slog.d(TAG, "isAdapterOnAndDisconnected");
++        if (adapter == null) {
++            Slog.d(TAG, "adapter is null");
++            return false;
++        }
++        // Suppress warnings about usage of blocking Bluetooth APIs
++        Binder.allowBlockingForCurrentThread();
++        try {
++            boolean isLeEnabled = adapter.isLeEnabled();
++            Slog.d(TAG, "isLeEnabled: " + isLeEnabled);
++            if (isLeEnabled) {
++                int connState = adapter.getConnectionState();
++                Slog.d(TAG, "leConnState: " + connState);
++                if (connState == BluetoothAdapter.STATE_DISCONNECTED) {
++                    // Bluetooth GATT Profile (Bluetooth LE) connection state is ignored
++                    // by getConnectionState()
++                    List<BluetoothDevice> connectedLeDevices;
++                    try {
++                        connectedLeDevices = manager.getConnectedDevices(BluetoothProfile.GATT);
++                    } catch (NullPointerException e) {
++                        // getConnectedDevices() throws an undocumented NullPointerException if
++                        // GattService gets racily stopped
++                        Slog.e(TAG, "", e);
++                        return false;
++                    }
++
++                    if (connectedLeDevices == null) {
++                        Slog.d(TAG, "connectedLeDevices list is null");
++                    } else {
++                        Slog.d(TAG, "connectedLeDevices list size: " + connectedLeDevices.size());
++                    }
++
++                    return connectedLeDevices == null || connectedLeDevices.isEmpty();
++                }
++            }
++
++            // isLeEnabled() currently implies isEnabled(), but check again anyway in case
++            // this changes in the future
++            boolean isEnabled = adapter.isEnabled();
++            Slog.d(TAG, "isEnabled: " + isEnabled);
++            if (isEnabled) {
++                int connState = adapter.getConnectionState();
++                Slog.d(TAG, "connState: " + connState);
++                return connState == BluetoothAdapter.STATE_DISCONNECTED;
++            }
++        } finally {
++            Binder.defaultBlockingForCurrentThread();
++        }
++
++        return false;
++    }
++
++    @Override
++    protected String getLogTag() {
++        return TAG;
++    }
++}
+diff --git a/services/core/java/com/android/server/ext/DelayedConditionalAction.java b/services/core/java/com/android/server/ext/DelayedConditionalAction.java
+new file mode 100644
+index 00000000..76acea50
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/DelayedConditionalAction.java
+@@ -0,0 +1,139 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.annotation.IntRange;
++import android.app.AlarmManager;
++import android.ext.settings.IntSetting;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.SystemClock;
++import android.util.Slog;
++
++/**
++ * Infrastructure for actions that:
++ * - happen after a user-configurable device-wide delay
++ * - need to be taken even when the device is in deep sleep
++ * - need to be rescheduled based on some listenable event
++ */
++public abstract class DelayedConditionalAction {
++    protected final SystemServerExt sse;
++    protected final Thread thread;
++    protected final Handler handler;
++
++    protected final IntSetting setting;
++
++    protected final AlarmManager alarmManager;
++    private final AlarmManager.OnAlarmListener alarmListener;
++
++    protected DelayedConditionalAction(SystemServerExt sse, IntSetting setting, Handler handler) {
++        this.sse = sse;
++        this.setting = setting;
++
++        Looper looper = handler.getLooper();
++        thread = looper.getThread();
++        this.handler = handler;
++
++        if (thread != Thread.currentThread()) {
++            throw new IllegalStateException("all calls should happen on the same thread");
++        }
++
++        alarmManager = sse.context.getSystemService(AlarmManager.class);
++        alarmListener = () -> {
++            String TAG = getLogTag();
++            Slog.d(TAG, "alarm triggered");
++
++            if (getDelayDurationMillis() == 0) {
++                Slog.d(TAG, "alarm has been disabled, returning");
++                return;
++            }
++
++            alarmTriggered();
++        };
++    }
++
++    public void init() {
++        registerStateListener();
++
++        if (setting.canObserveState()) {
++            setting.registerObserver(sse.context, handler, s -> update());
++        }
++
++        update();
++    }
++
++    private boolean alarmScheduled;
++
++    protected final void update() {
++        final String TAG = getLogTag();
++        final Thread curThread = Thread.currentThread();
++
++        if (curThread != thread) {
++            String msg = "update() called on an unknown thread " + curThread;
++            throw new IllegalStateException(msg);
++        }
++
++        Slog.d(TAG, "update: alarm already scheduled: " + alarmScheduled);
++
++        if (alarmScheduled) {
++            alarmManager.cancel(alarmListener);
++            Slog.d(TAG, "canceled previous alarm");
++            alarmScheduled = false;
++        }
++
++        boolean shouldScheduleAlarm = shouldScheduleAlarm();
++        Slog.d(TAG, "shouldScheduleAlarm: " + shouldScheduleAlarm);
++        if (!shouldScheduleAlarm) {
++            return;
++        }
++
++        long delayMillis = getDelayDurationMillis();
++        Slog.d(TAG, "delayMillis: " + delayMillis);
++
++        if (delayMillis == 0) {
++            return;
++        }
++
++        long current = SystemClock.elapsedRealtime();
++
++        if (Long.MAX_VALUE - delayMillis < current) {
++            return;
++        }
++
++        final long triggerAt = current + delayMillis;
++
++        alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt,
++                    getClass().getName(), alarmListener, handler);
++        Slog.d(TAG, "scheduled alarm");
++        alarmScheduled = true;
++    }
++
++    @IntRange(from = 0)
++    private long getDelayDurationMillis() {
++        return Math.max(0, setting.get(sse.context));
++    }
++
++    // Make sure to use the same Handler that is used for all other callbacks;
++    // call update() to reschedule / cancel the alarm
++    protected abstract void registerStateListener();
++
++    protected abstract boolean shouldScheduleAlarm();
++    protected abstract void alarmTriggered();
++
++    protected abstract String getLogTag();
++}
+diff --git a/services/core/java/com/android/server/ext/SystemServerExt.java b/services/core/java/com/android/server/ext/SystemServerExt.java
+new file mode 100644
+index 00000000..f2178eb3
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/SystemServerExt.java
+@@ -0,0 +1,60 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.content.Context;
++import android.os.Handler;
++
++import com.android.internal.os.BackgroundThread;
++import com.android.server.pm.PackageManagerService;
++
++/**
++ * lenOS: trimmed port of GrapheneOS's SystemServerExt. It currently wires only
++ * the radio auto-off timers (WifiAutoOff, BluetoothAutoOff). Other GrapheneOS
++ * extensions that live in this class upstream (AppCompatConf, dev-build
++ * diagnostics) are not ported yet and must be added here when they are.
++ */
++public final class SystemServerExt {
++
++    public final Context context;
++    public final Handler bgHandler;
++    public final PackageManagerService packageManager;
++
++    private SystemServerExt(Context systemContext, PackageManagerService pm) {
++        context = systemContext;
++        bgHandler = BackgroundThread.getHandler();
++        packageManager = pm;
++    }
++
++    /*
++     * Called after the system server has completed its initialization, but
++     * before any of the apps are started.
++     *
++     * Call from com.android.server.SystemServer#startOtherServices(), at the
++     * end of the lambda that is passed into mActivityManagerService.systemReady().
++     */
++    public static void init(Context systemContext, PackageManagerService pm) {
++        SystemServerExt sse = new SystemServerExt(systemContext, pm);
++        sse.bgHandler.post(sse::initBgThread);
++    }
++
++    void initBgThread() {
++        WifiAutoOff.maybeInit(this);
++        BluetoothAutoOff.maybeInit(this);
++    }
++}
+diff --git a/services/core/java/com/android/server/ext/WifiAutoOff.java b/services/core/java/com/android/server/ext/WifiAutoOff.java
+new file mode 100644
+index 00000000..010d79b0
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/WifiAutoOff.java
+@@ -0,0 +1,160 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.content.pm.PackageManager;
++import android.ext.settings.ExtSettings;
++import android.net.wifi.WifiManager;
++import android.os.Bundle;
++import android.os.HandlerExecutor;
++import android.util.Slog;
++
++import static android.net.wifi.WifiManager.WifiNetworkStateChangedListener;
++import static java.util.Objects.requireNonNull;
++
++class WifiAutoOff extends DelayedConditionalAction implements WifiNetworkStateChangedListener {
++    private static final String TAG = WifiAutoOff.class.getSimpleName();
++
++    private final WifiManager wifiManager;
++
++    private WifiAutoOff(SystemServerExt sse) {
++        super(sse, ExtSettings.WIFI_AUTO_OFF, sse.bgHandler);
++        wifiManager = sse.context.getSystemService(WifiManager.class);
++    }
++
++    static void maybeInit(SystemServerExt sse) {
++        if (sse.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI, 0)) {
++            new WifiAutoOff(sse).init();
++        }
++    }
++
++    @Override
++    protected boolean shouldScheduleAlarm() {
++        return isEligibleForAutoOff();
++    }
++
++    @Override
++    protected void alarmTriggered() {
++        if (isEligibleForAutoOff()) {
++            Slog.d(TAG, "setWifiEnabled(false)");
++            // setWifiEnabled() is not deprecated for system apps and components
++            // noinspection deprecation
++            wifiManager.setWifiEnabled(false);
++        }
++    }
++
++    private boolean isEligibleForAutoOff() {
++        boolean res = currentWifiState == WifiManager.WIFI_STATE_ENABLED
++                && !isConnectedOrConnectingNetworkState(currentWifiNetworkState);
++
++        Slog.d(TAG, "isEligibleForAutoOff: " + res
++                + "; wifiState: " + wifiStateToString(currentWifiState)
++                + ", wifiNetworkState: " + wifiNetworkStateToString(currentWifiNetworkState));
++
++        return res;
++    }
++
++    private static boolean isConnectedOrConnectingNetworkState(int state) {
++        switch (state) {
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_CONNECTING:
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_AUTHENTICATING:
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_OBTAINING_IPADDR:
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_CONNECTED:
++                return true;
++            default:
++                return false;
++        }
++    }
++
++    private int currentWifiState;
++    private int currentWifiNetworkState;
++
++    /** @see WifiNetworkStateChangedListener */
++    @Override
++    public void onWifiNetworkStateChanged(int cmmRole, int state) {
++        Slog.d(TAG, "onWifiNetworkStateChanged: cmmRole " + cmmRole +
++                ", state " + wifiNetworkStateToString(state));
++        if (cmmRole != WIFI_ROLE_CLIENT_PRIMARY) {
++            return;
++        }
++
++        currentWifiNetworkState = state;
++
++        if (!isConnectedOrConnectingNetworkState(state)) {
++            update();
++        }
++    }
++
++    @Override
++    protected void registerStateListener() {
++        var filter = new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION);
++        var receiver = new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context context, Intent intent) {
++                Bundle extras = requireNonNull(intent.getExtras());
++                currentWifiState = requireNonNull(extras.getNumber(WifiManager.EXTRA_WIFI_STATE));
++                Slog.d(TAG, "WIFI_STATE_CHANGED broadcast, extras " + extras);
++
++                update();
++            }
++        };
++        sse.context.registerReceiver(receiver, filter, null, handler);
++        currentWifiState = wifiManager.getWifiState();
++
++        wifiManager.addWifiNetworkStateChangedListener(new HandlerExecutor(handler), this);
++        currentWifiNetworkState = wifiManager.getCurrentNetwork() != null ?
++                WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_CONNECTED :
++                WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_DISCONNECTED;
++    }
++
++    static String wifiStateToString(int state) {
++        return switch (state) {
++            case WifiManager.WIFI_STATE_DISABLING -> "DISABLING";
++            case WifiManager.WIFI_STATE_DISABLED -> "DISABLED";
++            case WifiManager.WIFI_STATE_ENABLING -> "ENABLING";
++            case WifiManager.WIFI_STATE_ENABLED -> "ENABLED";
++            case WifiManager.WIFI_STATE_UNKNOWN -> "UNKNOWN";
++            default -> throw new IllegalArgumentException(Integer.toString(state));
++        };
++    }
++
++    static String wifiNetworkStateToString(int state) {
++        return switch (state) {
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_IDLE -> "IDLE";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_SCANNING -> "SCANNING";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_CONNECTING -> "CONNECTING";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_AUTHENTICATING
++                    -> "AUTHENTICATING";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_OBTAINING_IPADDR
++                    -> "OBTAINING_IPADDR";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_CONNECTED -> "CONNECTED";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_DISCONNECTED -> "DISCONNECTED";
++            case WifiNetworkStateChangedListener.WIFI_NETWORK_STATUS_FAILED -> "FAILED";
++            default -> throw new IllegalArgumentException(Integer.toString(state));
++        };
++    }
++
++    @Override
++    protected String getLogTag() {
++        return TAG;
++    }
++}
+diff --git a/services/java/com/android/server/SystemServer.java b/services/java/com/android/server/SystemServer.java
+index a184d6a7..1729fb41 100644
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -3604,6 +3604,8 @@ public final class SystemServer implements Dumpable {
+                 reportWtf("Triggering OdsignStatsLogger", e);
+             }
+             t.traceEnd();
++
++            com.android.server.ext.SystemServerExt.init(mSystemContext, mPackageManagerService);
+         }, t);
+ 
+         t.traceBegin("LockSettingsThirdPartyAppsStarted");

@@ -3,6 +3,30 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (eleventh session) — radio auto-off timers
+
+* **framework** (`frameworks_base/0020-lenos-radio-auto-off`): ports
+  GrapheneOS's `DelayedConditionalAction`, `WifiAutoOff` and `BluetoothAutoOff`
+  plus a trimmed `SystemServerExt` (the full GrapheneOS class also bootstraps
+  AppCompatConf and dev-build diagnostics, which are not ported yet). The hook
+  sits in `SystemServer#startOtherServices` just before
+  `mActivityManagerService.systemReady` returns, exactly where GrapheneOS
+  calls it. Wi-Fi turns off after the configured timeout when enabled but not
+  connected; Bluetooth when the adapter is on with no device connected,
+  including LE/GATT.
+* **Settings** (`packages_apps_Settings/0001`, regenerated): two list rows
+  (`wifi_auto_off`, `bluetooth_auto_off`) in More security & privacy with
+  GrapheneOS's `AutoOffSetting` choices (Never / 15 s … 8 h, milliseconds).
+  GrapheneOS puts these on its Exploit protection screen with a
+  radio-button sub-screen; lenOS uses a plain `ListPreference` (documented
+  substitution). New `AutoOffSetting` + `AutoOffPrefController`.
+* Driver markers + `tests/test_auto_off.py` (10 checks); features.md rows,
+  §14.1/§15/§18 audit and the progress log updated. NFC auto-off stays
+  unported (needs the Nfc app side).
+* Not verified on a device (VM still unavailable) — on first boot check that
+  the two rows appear, a 15 s Wi-Fi timeout turns Wi-Fi off when it is not
+  connected, and Bluetooth with no connected device turns off likewise.
+
 ## 2026-10-19 (tenth session) — no implicit browser location grant
 
 * **framework** (`frameworks_base/0019-lenos-no-browser-location-grant`):

@@ -279,6 +279,21 @@ cmd_apply() {
   grep -q 'no implicit foreground-location grant' \
     "$SRC/frameworks/base/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java" \
     || die "browser location auto-grant not removed"
+  grep -q 'SystemServerExt.init(mSystemContext, mPackageManagerService);' \
+    "$SRC/frameworks/base/services/java/com/android/server/SystemServer.java" \
+    || die "SystemServerExt hook missing"
+  grep -q 'class WifiAutoOff' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/ext/WifiAutoOff.java" \
+    || die "WifiAutoOff missing"
+  grep -q 'class BluetoothAutoOff' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/ext/BluetoothAutoOff.java" \
+    || die "BluetoothAutoOff missing"
+  grep -q 'android:key="wifi_auto_off"' \
+    "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
+    || die "Wi-Fi auto-off setting row missing"
+  grep -q 'android:key="bluetooth_auto_off"' \
+    "$SRC/packages/apps/Settings/res/xml/more_security_privacy_settings.xml" \
+    || die "Bluetooth auto-off setting row missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 
