@@ -1,0 +1,25 @@
+diff --git a/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java b/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java
+index b4f79f6f..5250135d 100644
+--- a/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java
++++ b/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java
+@@ -795,18 +795,8 @@ final class DefaultPermissionGrantPolicy {
+                         Intent.CATEGORY_APP_EMAIL, userId),
+                 userId, CONTACTS_PERMISSIONS, CALENDAR_PERMISSIONS);
+ 
+-        // Browser
+-        String browserPackage = ArrayUtils.firstOrNull(getKnownPackages(
+-                KnownPackages.PACKAGE_BROWSER, userId));
+-        if (browserPackage == null) {
+-            browserPackage = getDefaultSystemHandlerActivityPackageForCategory(pm,
+-                    Intent.CATEGORY_APP_BROWSER, userId);
+-            if (!pm.isSystemPackage(browserPackage)) {
+-                browserPackage = null;
+-            }
+-        }
+-        grantPermissionsToPackage(pm, browserPackage, userId, false /* ignoreSystemPackage */,
+-                true /*whitelistRestrictedPermissions*/, FOREGROUND_LOCATION_PERMISSIONS);
++        // lenOS port of GrapheneOS: no implicit foreground-location grant to the
++        // system/default browser; location needs an explicit user grant.
+ 
+         // Voice interaction
+         if (voiceInteractPackageNames != null) {

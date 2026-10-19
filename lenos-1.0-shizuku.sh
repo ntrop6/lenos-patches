@@ -276,6 +276,9 @@ cmd_apply() {
   grep -q 'isAlwaysOnPackageSupported returned false' \
     "$SRC/frameworks/base/services/core/java/com/android/server/connectivity/Vpn.java" \
     || die "always-on VPN survival change missing"
+  grep -q 'no implicit foreground-location grant' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/pm/permission/DefaultPermissionGrantPolicy.java" \
+    || die "browser location auto-grant not removed"
   info "apply OK - tree carries the lenOS patch series"
 }
 

@@ -3,6 +3,21 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (tenth session) — no implicit browser location grant
+
+* **framework** (`frameworks_base/0019-lenos-no-browser-location-grant`):
+  the first-boot default-grant pass no longer gives the browser role holder
+  (or the `CATEGORY_APP_BROWSER` system handler) foreground location. The
+  block simply does not exist in GrapheneOS's `DefaultPermissionGrantPolicy`;
+  a one-line lenOS comment marks the removal. Browsers now need an explicit
+  user grant like any other app. The unrelated `BrowserUtils` helper from
+  the original inventory is not needed (it backs GrapheneOS SELinux handling).
+* Driver marker + `tests/test_browser_location.py` (3 checks); §14 row,
+  §15 runners-up, §18 audit and the feature matrix updated.
+* Not verified on a device (VM still unavailable) — check on first boot that
+  a freshly installed system browser shows location as "not granted" before
+  the user allows it.
+
 ## 2026-10-19 (ninth session) — VPN leak blocking / lockdown hardening
 
 Second Tier 1 batch: the GrapheneOS "improved VPN leak blocking" set (§12).

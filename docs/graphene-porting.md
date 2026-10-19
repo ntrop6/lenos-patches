@@ -725,7 +725,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | LTE-only mode | Settings app `EnabledNetworkModePreferenceController.java` (LTE-only entry :655/:745-747/:831/:946-949), `PreferredNetworkModePreferenceController.java:222`, `NetworkModes.kt:28`; LineageOS 23.2 only has the mode mapping (:579/:669), no explicit LTE-only choice | Settings app patch + strings | S–M | port later (device/0004 already defaults 5G/LTE/3G, no 2G) |
 | Cross-profile clipboard control | `android/ext/settings/CrossProfileClipboardAccessSettings.java`; read at `ClipboardService.java:1064/:1099` and `DragState.java:517` | class + all three gates + Settings row | S–M | **done** (`fwb/0016` + `packages_apps_Settings/0001`) |
 | Alt touchscreen mode | `android/ext/settings/AltTouchscreenMode.java`; used in `PhoneWindowManager.java:5549/:5643` (display state prop) | depends on touch controller/firmware behavior on SM7635 | M | port later / verify hardware |
-| Removing auto location grant to system browsers | Helper `core/java/android/ext/BrowserUtils.java` (26 lines) exists; grant site not pinned in this scan (likely `DefaultPermissionGrantPolicy`) | verify, then small fwb patch | S–M | port later (verify) |
+| Removing auto location grant to system browsers | GrapheneOS `DefaultPermissionGrantPolicy` has no browser block: the stock `PACKAGE_BROWSER` role holder / `CATEGORY_APP_BROWSER` system handler never receives `FOREGROUND_LOCATION_PERMISSIONS` (the `BrowserUtils` helper is unrelated — it backs GrapheneOS SELinux flag handling) | remove the block; browsers need an explicit user grant | S | **done** (`frameworks_base/0019`) |
 | PIN scrambling (incl. SIM PIN/PUK) + other SIM/eSIM protections | GrapheneOS base-view `setupPinScrambling` (SecureRandom shuffle + digit→view remap); keyguard reads the primary ExtSettings key, SIM PIN/PUK views read the SIM key; Settings UI via `com.android.settings.ext` controllers | **Done in the fidelity redo:** `frameworks_base/0008` (SystemUI) + `packages_apps_Settings/0001` (Settings: lock-picker switch, SIM-lock switch, controller infra) + primary default flipped ON in `frameworks_base/0006` (documented lenOS deviation — GrapheneOS ships it off). Old Lineage plumbing deleted (`PinScramblePreferenceController`, device/0005, lineage_sdk/0001). Duress is *not* accepted as a SIM PIN in GrapheneOS either (same upstream — nothing to port); duress wipes eSIM profiles (§3, done) | done | — | **done** |
 | Prototype/EVT/PVT device warning | AMS `services/core/java/com/android/server/am/ActivityManagerService.java:6047-6081` (`ro.boot.secure_boot != PRODUCTION` → notification) | fwb + strings; note: on an unlockable Nothing device this fires as intended (gate on `ro.product.brand` if undesired) | S | quick win (consider gating) |
 | UART debugging warning fix; bootloader/radio/boot partition version+fingerprint checks | Not located in this scan (Settings/About + device props) | verify separately | S–M | verify |
@@ -816,7 +816,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 **Runners-up (all small):** removal of Chunghwa Telecom + Netlock CAs (S), prototype-device warning (S),
 LTE-only mode UI in Settings (S–M), GNSS/SUPL settings toggles (S–M), SIM-PIN scrambling (S–M),
 cross-profile clipboard setting (S–M), sensitive-notification default (S), "remove auto location
-grant to system browsers" (S–M, verify the grant site first).
+grant to system browsers" (**done**, `frameworks_base/0019`).
 
 **Sequencing suggestion.** Land the §16 quick-win batch first (zero design risk). Then the VPN set
 (§12) and Secure Paste stage 1 (§8). Network (§5) and sensors (§6) each deserve their own release and
@@ -866,7 +866,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 35 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 36 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
@@ -911,18 +911,19 @@ batch `fwb/0009`–`0012` + `device/0007`, the screenshot-EXIF pair `fwb/0013` +
 | `packages_modules_Connectivity/0001` NSD lockdown | GrapheneOS `NsdService.java:3452-3456` calling `ConnectivityUtil.isRegularAppWithLockdownVpnEnabled` and returning null for regular apps | The branch-16 `connect()` has no package-name argument, so the check sits immediately after `mDeps.getCallingUid()` instead of after `enforcePackageNameMatchesUid`; same uid predicate, same null return, same system-app exemption through the shared helper. `connect()` is the single NSD client entry point in this branch | **Faithful** (API drift documented) — keep |
 | `fwb/0017` ConnectivityUtil | GrapheneOS `core/java/android/ext/ConnectivityUtil.java` (`isSystem`, `isRegularAppWithLockdownVpnEnabled`) and its module-lib API declaration | Class and methods ported verbatim; `core/api/module-lib-current.txt` gains the same `package android.ext` block so the module-lib API check passes. Consumed by the Connectivity NSD gate | **Faithful** — keep |
 | `fwb/0018` always-on VPN survival | GrapheneOS `Vpn.startAlwaysOnVpn()`: log and `return false` for an unsupported always-on package without clearing the setting | Same log message and control flow; LineageOS 23.2's safe-mode-only `setAlwaysOnPackage(null, false, null)` guard is removed together with the normal-mode unset, so the always-on + lockdown configuration survives any temporary package unavailability and resumes when the package returns | **Faithful** — keep |
+| `fwb/0019` no browser location grant | GrapheneOS `DefaultPermissionGrantPolicy` has no browser location block | The stock block (browser role holder or `CATEGORY_APP_BROWSER` system handler → `FOREGROUND_LOCATION_PERMISSIONS`) is deleted; one lenOS comment marks the spot (GrapheneOS's tree has no comment). Every other default grant is untouched | **Faithful** — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 35 patches: **25 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 36 patches: **26 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle,
 single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's XML
 auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
 cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
-(`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0018`), the
+(`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0019`), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
