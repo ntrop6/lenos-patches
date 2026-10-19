@@ -1,0 +1,948 @@
+diff --git a/core/api/system-current.txt b/core/api/system-current.txt
+index 52034ccd..457537f1 100644
+--- a/core/api/system-current.txt
++++ b/core/api/system-current.txt
+@@ -4737,6 +4737,10 @@ package android.content.pm {
+     field @NonNull public static final android.os.Parcelable.Creator<android.content.pm.ShortcutManager.ShareShortcutInfo> CREATOR;
+   }
+ 
++  public class SpecialRuntimePermAppUtils {
++    method public static boolean isInternetCompatEnabled();
++  }
++
+   public final class SuspendDialogInfo implements android.os.Parcelable {
+     method public int describeContents();
+     method public void writeToParcel(android.os.Parcel, int);
+diff --git a/core/java/android/app/ActivityThread.java b/core/java/android/app/ActivityThread.java
+index 6777dbaa..807afe97 100644
+--- a/core/java/android/app/ActivityThread.java
++++ b/core/java/android/app/ActivityThread.java
+@@ -101,6 +101,7 @@ import android.content.pm.PermissionInfo;
+ import android.content.pm.ProviderInfo;
+ import android.content.pm.ProviderInfoList;
+ import android.content.pm.ServiceInfo;
++import android.content.pm.SrtPermissions;
+ import android.content.pm.SystemFeaturesCache;
+ import android.content.res.AssetManager;
+ import android.content.res.CompatibilityInfo;
+@@ -988,6 +989,8 @@ public final class ActivityThread extends ClientTransactionHandler
+         String processName;
+         @UnsupportedAppUsage
+         ApplicationInfo appInfo;
++        // lenOS (GrapheneOS): extra arguments sent by ActivityManagerService bindApplication
++        Bundle extraArgs;
+         String sdkSandboxClientAppVolumeUuid;
+         String sdkSandboxClientAppPackage;
+         boolean isSdkInSandbox;
+@@ -1387,6 +1390,7 @@ public final class ActivityThread extends ClientTransactionHandler
+         @Override
+         @RavenwoodThrow(comment = "See ActivityThread_ravenwood for initialization on Ravenwood")
+         public final void bindApplication(
++                Bundle extraArgs,
+                 String processName,
+                 ApplicationInfo appInfo,
+                 String sdkSandboxClientAppVolumeUuid,
+@@ -1461,6 +1465,9 @@ public final class ActivityThread extends ClientTransactionHandler
+             AppBindData data = new AppBindData();
+             data.processName = processName;
+             data.appInfo = appInfo;
++            // lenOS (GrapheneOS): extra args passed from the system, such as the special runtime
++            // permissions flags (AppBindArgs.KEY_FLAGS_ARRAY)
++            data.extraArgs = extraArgs;
+             data.sdkSandboxClientAppVolumeUuid = sdkSandboxClientAppVolumeUuid;
+             data.sdkSandboxClientAppPackage = sdkSandboxClientAppPackage;
+             data.isSdkInSandbox = isSdkInSandbox;
+@@ -7813,6 +7820,21 @@ public final class ActivityThread extends ClientTransactionHandler
+     @UnsupportedAppUsage
+     @RavenwoodThrow(comment = "See ActivityThread_ravenwood for initialization on Ravenwood")
+     private void handleBindApplication(AppBindData data) {
++        // lenOS (GrapheneOS): apply the special runtime permissions state before any app code
++        // runs. When INTERNET compat is enabled the app is a legacy app whose INTERNET runtime
++        // permission was revoked, so the OS pretends that the network is down instead of
++        // throwing SecurityExceptions, and self-checks of that permission are spoofed.
++        {
++            Bundle extraArgs = data.extraArgs;
++            if (extraArgs != null) {
++                int[] flagsArr = extraArgs.getIntArray(AppBindArgs.KEY_FLAGS_ARRAY);
++                if (flagsArr != null) {
++                    SrtPermissions.setFlags(
++                            flagsArr[AppBindArgs.FLAGS_IDX_SPECIAL_RUNTIME_PERMISSIONS]);
++                }
++            }
++        }
++
+         mDdmSyncStageUpdater.next(Stage.Bind);
+ 
+         // Register the UI Thread as a sensitive thread to the runtime.
+diff --git a/core/java/android/app/AppBindArgs.java b/core/java/android/app/AppBindArgs.java
+new file mode 100644
+index 00000000..4c89c948
+--- /dev/null
++++ b/core/java/android/app/AppBindArgs.java
+@@ -0,0 +1,27 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.app;
++
++/** @hide */
++public interface AppBindArgs {
++    String KEY_FLAGS_ARRAY = "flagsArr";
++
++    int FLAGS_IDX_SPECIAL_RUNTIME_PERMISSIONS = 0;
++
++    int FLAGS_ARRAY_LEN = 10;
++}
+diff --git a/core/java/android/app/DownloadManager.java b/core/java/android/app/DownloadManager.java
+index 45ac2f65..26c525b9 100644
+--- a/core/java/android/app/DownloadManager.java
++++ b/core/java/android/app/DownloadManager.java
+@@ -31,9 +31,11 @@ import android.content.ContentResolver;
+ import android.content.ContentUris;
+ import android.content.ContentValues;
+ import android.content.Context;
++import android.content.pm.SpecialRuntimePermAppUtils;
+ import android.database.Cursor;
+ import android.database.CursorWrapper;
+ import android.database.DatabaseUtils;
++import android.database.MatrixCursor;
+ import android.net.ConnectivityManager;
+ import android.net.NetworkPolicyManager;
+ import android.net.Uri;
+@@ -1136,6 +1138,10 @@ public class DownloadManager {
+      * future calls related to this download. Returns -1 if the operation fails.
+      */
+     public long enqueue(Request request) {
++        if (SpecialRuntimePermAppUtils.isInternetCompatEnabled()) {
++            // invalid id (DownloadProvider uses SQLite and returns a row id)
++            return -1;
++        }
+         ContentValues values = request.toContentValues(mPackageName);
+         Uri downloadUri = mResolver.insert(Downloads.Impl.CONTENT_URI, values);
+         if (downloadUri == null) {
+@@ -1173,6 +1179,10 @@ public class DownloadManager {
+      * @return the number of downloads actually removed
+      */
+     public int remove(long... ids) {
++        if (SpecialRuntimePermAppUtils.isInternetCompatEnabled()) {
++            // underlying provider is protected by the INTERNET permission
++            return 0;
++        }
+         return markRowDeleted(ids);
+     }
+ 
+@@ -1188,6 +1198,10 @@ public class DownloadManager {
+ 
+     /** @hide */
+     public Cursor query(Query query, String[] projection) {
++        if (SpecialRuntimePermAppUtils.isInternetCompatEnabled()) {
++            // underlying provider is protected by the INTERNET permission
++            return new MatrixCursor(projection);
++        }
+         Cursor underlyingCursor = query.runQuery(mResolver, projection, mBaseUri);
+         if (underlyingCursor == null) {
+             return null;
+@@ -1594,6 +1608,11 @@ public class DownloadManager {
+             throw new IllegalArgumentException(" invalid value for param: totalBytes");
+         }
+ 
++        if (SpecialRuntimePermAppUtils.isInternetCompatEnabled()) {
++            // underlying provider is protected by the INTERNET permission
++            return -1;
++        }
++
+         // if there is already an entry with the given path name in downloads.db, return its id
+         Request request;
+         if (uri != null) {
+diff --git a/core/java/android/app/IApplicationThread.aidl b/core/java/android/app/IApplicationThread.aidl
+index a8c54c75..3bb2075a 100644
+--- a/core/java/android/app/IApplicationThread.aidl
++++ b/core/java/android/app/IApplicationThread.aidl
+@@ -83,7 +83,7 @@ oneway interface IApplicationThread {
+             in CompatibilityInfo compatInfo, int processState);
+     @UnsupportedAppUsage
+     void scheduleStopService(IBinder token);
+-    void bindApplication(in String packageName, in ApplicationInfo info,
++    void bindApplication(in Bundle extraArgs, in String packageName, in ApplicationInfo info,
+             in String sdkSandboxClientAppVolumeUuid, in String sdkSandboxClientAppPackage,
+             in boolean isSdkInSandbox,
+             in ProviderInfoList providerList, in ComponentName testName,
+diff --git a/core/java/android/content/pm/AppPermissionUtils.java b/core/java/android/content/pm/AppPermissionUtils.java
+new file mode 100644
+index 00000000..f53f237a
+--- /dev/null
++++ b/core/java/android/content/pm/AppPermissionUtils.java
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.content.pm;
++
++/** @hide */
++public class AppPermissionUtils {
++
++    // If the list of spoofed permissions changes at runtime, make sure to invalidate the permission
++    // check cache, it's keyed on the PermissionManager.CACHE_KEY_PACKAGE_INFO_CACHE system property.
++    //
++    // android.permission.PermissionManager#checkPermissionUncached
++    /** @hide */
++    public static boolean shouldSpoofSelfCheck(String permName) {
++        return SrtPermissions.shouldSpoofSelfCheck(permName);
++    }
++
++    private AppPermissionUtils() {}
++}
+diff --git a/core/java/android/content/pm/SpecialRuntimePermAppUtils.java b/core/java/android/content/pm/SpecialRuntimePermAppUtils.java
+new file mode 100644
+index 00000000..764de1d3
+--- /dev/null
++++ b/core/java/android/content/pm/SpecialRuntimePermAppUtils.java
+@@ -0,0 +1,38 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.content.pm;
++
++import android.annotation.SystemApi;
++
++/** @hide */
++@SystemApi
++public class SpecialRuntimePermAppUtils {
++
++    private static boolean isInternetCompatEnabled;
++
++    /** @hide */
++    public static void enableInternetCompat() {
++        isInternetCompatEnabled = true;
++    }
++
++    public static boolean isInternetCompatEnabled() {
++        return isInternetCompatEnabled;
++    }
++
++    private SpecialRuntimePermAppUtils() {}
++}
+diff --git a/core/java/android/content/pm/SrtPermissions.java b/core/java/android/content/pm/SrtPermissions.java
+new file mode 100644
+index 00000000..db21ae9e
+--- /dev/null
++++ b/core/java/android/content/pm/SrtPermissions.java
+@@ -0,0 +1,48 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.content.pm;
++
++import android.Manifest;
++
++/** @hide */
++public class SrtPermissions { // "special runtime permissions"
++    public static final int FLAG_INTERNET_COMPAT_ENABLED = 1;
++
++    private static int flags;
++
++    public static int getFlags() {
++        return flags;
++    }
++
++    public static void setFlags(int value) {
++        flags = value;
++
++        if ((value & FLAG_INTERNET_COMPAT_ENABLED) != 0) {
++            SpecialRuntimePermAppUtils.enableInternetCompat();
++        }
++    }
++
++    public static boolean shouldSpoofSelfCheck(String permName) {
++        switch (permName) {
++            case Manifest.permission.INTERNET:
++                return SpecialRuntimePermAppUtils.isInternetCompatEnabled();
++            default:
++                return false;
++        }
++    }
++}
+diff --git a/core/java/android/permission/PermissionManager.java b/core/java/android/permission/PermissionManager.java
+index e45a740b..3a168964 100644
+--- a/core/java/android/permission/PermissionManager.java
++++ b/core/java/android/permission/PermissionManager.java
+@@ -54,6 +54,7 @@ import android.compat.annotation.EnabledAfter;
+ import android.content.AttributionSource;
+ import android.content.Context;
+ import android.content.PermissionChecker;
++import android.content.pm.AppPermissionUtils;
+ import android.content.pm.IPackageManager;
+ import android.content.pm.PackageManager;
+ import android.content.pm.ParceledListSlice;
+@@ -1726,12 +1727,22 @@ public final class PermissionManager {
+                     + permission);
+             return PackageManager.PERMISSION_DENIED;
+         }
++        int res;
+         try {
+             sShouldWarnMissingActivityManager = true;
+-            return am.checkPermissionForDevice(permission, pid, uid, deviceId);
++            res = am.checkPermissionForDevice(permission, pid, uid, deviceId);
+         } catch (RemoteException e) {
+             throw e.rethrowFromSystemServer();
+         }
++
++        if (res != PERMISSION_GRANTED) {
++            if (uid == android.os.Process.myUid()) {
++                if (AppPermissionUtils.shouldSpoofSelfCheck(permission)) {
++                    res = PERMISSION_GRANTED;
++                }
++            }
++        }
++        return res;
+     }
+ 
+     private static int getPermissionRequestStateUncached(String packageName, String permission,
+@@ -1980,12 +1991,24 @@ public final class PermissionManager {
+     /* @hide */
+     private static int checkPackageNamePermissionUncached(
+             String permName, String pkgName, String persistentDeviceId, @UserIdInt int userId) {
++        int res;
+         try {
+-            return ActivityThread.getPermissionManager().checkPermission(
++            res = ActivityThread.getPermissionManager().checkPermission(
+                     pkgName, permName, persistentDeviceId, userId);
+         } catch (RemoteException e) {
+             throw e.rethrowFromSystemServer();
+         }
++
++        if (res != PERMISSION_GRANTED) {
++            if (pkgName != null && pkgName.equals(ActivityThread.currentPackageName())
++                    && userId == UserHandle.myUserId()
++                    && AppPermissionUtils.shouldSpoofSelfCheck(permName))
++            {
++                res = PERMISSION_GRANTED;
++            }
++        }
++
++        return res;
+     }
+ 
+     /* @hide */
+diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
+index 769c3d31..c48ef792 100644
+--- a/core/res/AndroidManifest.xml
++++ b/core/res/AndroidManifest.xml
+@@ -2206,13 +2206,21 @@
+     <!-- ======================================= -->
+     <eat-comment />
+ 
++    <!-- lenOS (GrapheneOS): group for the runtime INTERNET permission -->
++    <permission-group android:name="android.permission-group.NETWORK"
++        android:icon="@drawable/perm_group_network"
++        android:label="@string/permgrouplab_network"
++        android:description="@string/permgroupdesc_network"
++        android:priority="900" />
++
+     <!-- Allows applications to open network sockets.
+          <p>Protection level: normal
+     -->
+     <permission android:name="android.permission.INTERNET"
++        android:permissionGroup="android.permission-group.UNDEFINED"
+         android:description="@string/permdesc_createNetworkSockets"
+         android:label="@string/permlab_createNetworkSockets"
+-        android:protectionLevel="normal|instant" />
++        android:protectionLevel="dangerous|instant" />
+ 
+     <!-- Allows applications to access information about networks.
+          <p>Protection level: normal
+diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
+index f9abbcd1..4b47a438 100644
+--- a/core/res/res/values/strings.xml
++++ b/core/res/res/values/strings.xml
+@@ -1055,6 +1055,11 @@
+     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=NONE]-->
+     <string name="permgroupdesc_nearby_devices">discover and connect to nearby devices</string>
+ 
++    <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=40]-->
++    <string name="permgrouplab_network">Network</string>
++    <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. [CHAR LIMIT=NONE]-->
++    <string name="permgroupdesc_network">access the network</string>
++
+     <!-- Title of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
+     <string name="permgrouplab_calllog">Call logs</string>
+     <!-- Description of a category of application permissions, listed so the user can choose whether they want to allow the application to do this. -->
+diff --git a/services/core/java/com/android/server/am/ActivityManagerService.java b/services/core/java/com/android/server/am/ActivityManagerService.java
+index 49b2efa1..9a80d302 100644
+--- a/services/core/java/com/android/server/am/ActivityManagerService.java
++++ b/services/core/java/com/android/server/am/ActivityManagerService.java
+@@ -468,6 +468,7 @@ import com.android.server.contentcapture.ContentCaptureManagerInternal;
+ import com.android.server.crashrecovery.CrashRecoveryAdaptor;
+ import com.android.server.crashrecovery.CrashRecoveryHelper;
+ import com.android.server.criticalevents.CriticalEventLog;
++import com.android.server.ext.PackageManagerHooks;
+ import com.android.server.firewall.IntentFirewall;
+ import com.android.server.graphics.fonts.FontManagerInternal;
+ import com.android.server.job.JobSchedulerInternal;
+@@ -4831,7 +4832,12 @@ public class ActivityManagerService extends IActivityManager.Stub
+                     instrumentationWatcher = instr2.mWatcher;
+                     instrumentationUiConnection = instr2.mUiAutomationConnection;
+                 }
++                // lenOS (GrapheneOS): extra arguments for the app process, such as the special
++                // runtime permissions flags (may be null when no extra args apply)
++                Bundle extraArgs = PackageManagerHooks.getExtraAppBindArgs(mContext,
++                        mPackageManagerInt, appInfo.packageName, app.getApplicationUid(), pid);
+                 thread.bindApplication(
++                        extraArgs,
+                         processName,
+                         appInfo,
+                         app.sdkSandboxClientAppVolumeUuid,
+diff --git a/services/core/java/com/android/server/am/NativeApplicationThreadWrapper.java b/services/core/java/com/android/server/am/NativeApplicationThreadWrapper.java
+index 1c77e115..d9e0cdec 100644
+--- a/services/core/java/com/android/server/am/NativeApplicationThreadWrapper.java
++++ b/services/core/java/com/android/server/am/NativeApplicationThreadWrapper.java
+@@ -232,6 +232,7 @@ public class NativeApplicationThreadWrapper extends IApplicationThread.Stub {
+ 
+     @Override
+     public final void bindApplication(
++            Bundle extraArgs,
+             String processName,
+             ApplicationInfo appInfo,
+             String sdkSandboxClientAppVolumeUuid,
+diff --git a/services/core/java/com/android/server/ext/PackageManagerHooks.java b/services/core/java/com/android/server/ext/PackageManagerHooks.java
+new file mode 100644
+index 00000000..96569120
+--- /dev/null
++++ b/services/core/java/com/android/server/ext/PackageManagerHooks.java
+@@ -0,0 +1,78 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.ext;
++
++import android.annotation.Nullable;
++import android.app.AppBindArgs;
++import android.content.Context;
++import android.content.pm.PackageManagerInternal;
++import android.os.Bundle;
++import android.os.UserHandle;
++
++import com.android.server.pm.Computer;
++import com.android.server.pm.permission.SpecialRuntimePermUtils;
++import com.android.server.pm.pkg.PackageStateInternal;
++
++/**
++ * Hooks for Package Manager related functionality that is needed by other system_server
++ * components (currently: extra app bind arguments, lenOS port of the GrapheneOS "special
++ * runtime permissions" feature).
++ *
++ * <p>Derived from GrapheneOS ({@code frameworks/base/services/core/java/com/android/server/ext/
++ * PackageManagerHooks.java}), trimmed down to the parts needed by lenOS.
++ */
++public class PackageManagerHooks {
++    private static final String TAG = "PackageManagerHooks";
++
++    private PackageManagerHooks() {}
++
++    /**
++     * Returns the extra arguments for {@code ActivityThread.bindApplication()}, or {@code null}
++     * if there is nothing extra to pass.
++     */
++    @Nullable
++    public static Bundle getExtraAppBindArgs(Context context, PackageManagerInternal pm,
++                                             String packageName, int appUid, int pid) {
++        final int appId = UserHandle.getAppId(appUid);
++        final int userId = UserHandle.getUserId(appUid);
++
++        Computer pmComputer = (Computer) pm.snapshot();
++
++        PackageStateInternal pkgState = pmComputer.getPackageStateInternal(packageName);
++        if (pkgState == null) {
++            return null;
++        }
++
++        if (pkgState.getAppId() != appId) {
++            return null;
++        }
++
++        final var pkg = pkgState.getPkg();
++        if (pkg == null) {
++            return null;
++        }
++
++        int[] flagsArr = new int[AppBindArgs.FLAGS_ARRAY_LEN];
++        flagsArr[AppBindArgs.FLAGS_IDX_SPECIAL_RUNTIME_PERMISSIONS] =
++                SpecialRuntimePermUtils.getFlags(pkg, pkgState, userId);
++
++        var b = new Bundle();
++        b.putIntArray(AppBindArgs.KEY_FLAGS_ARRAY, flagsArr);
++        return b;
++    }
++}
+diff --git a/services/core/java/com/android/server/pm/InstallPackageHelper.java b/services/core/java/com/android/server/pm/InstallPackageHelper.java
+index f3c62ebc..84db8516 100644
+--- a/services/core/java/com/android/server/pm/InstallPackageHelper.java
++++ b/services/core/java/com/android/server/pm/InstallPackageHelper.java
+@@ -761,6 +761,8 @@ final class InstallPackageHelper {
+                         permissionParamsBuilder.setAllowlistedRestrictedPermissions(
+                                 new ArrayList<>(pkgSetting.getPkg().getRequestedPermissions()));
+                     }
++                    // lenOS (GrapheneOS): install-existing is a new install for this user
++                    permissionParamsBuilder.setNewlyInstalledInUserId(userId);
+                     mPm.mPermissionManager.onPackageInstalled(pkgSetting.getPkg(),
+                             Process.INVALID_UID /* previousAppId */,
+                             permissionParamsBuilder.build(), userId);
+@@ -2718,16 +2720,24 @@ final class InstallPackageHelper {
+                     }
+                 }
+ 
++                final PermissionManagerServiceInternal.PackageInstalledParams.Builder
++                        permissionParamsBuilder =
++                        new PermissionManagerServiceInternal.PackageInstalledParams.Builder();
++
+                 // Set install reason for users that are having the package newly installed.
+                 if (userId == UserHandle.USER_ALL) {
+                     for (int currentUserId : allUsers) {
+                         if (!previousUserIds.contains(currentUserId)
+                                 && ps.getInstalled(currentUserId)) {
+                             ps.setInstallReason(installReason, currentUserId);
++                            // lenOS (GrapheneOS): only a new install for the user gets the
++                            // default state of the special runtime permissions
++                            permissionParamsBuilder.setNewlyInstalledInUserId(currentUserId);
+                         }
+                     }
+                 } else if (!previousUserIds.contains(userId)) {
+                     ps.setInstallReason(installReason, userId);
++                    permissionParamsBuilder.setNewlyInstalledInUserId(userId);
+                 }
+ 
+                 // TODO(b/169721400): generalize Incremental States and create a Callback object
+@@ -2748,9 +2758,6 @@ final class InstallPackageHelper {
+ 
+                 mPm.mSettings.writeKernelMappingLPr(ps);
+ 
+-                final PermissionManagerServiceInternal.PackageInstalledParams.Builder
+-                        permissionParamsBuilder =
+-                        new PermissionManagerServiceInternal.PackageInstalledParams.Builder();
+                 final boolean grantRequestedPermissions = (installRequest.getInstallFlags()
+                         & PackageManager.INSTALL_GRANT_ALL_REQUESTED_PERMISSIONS) != 0;
+                 if (grantRequestedPermissions) {
+diff --git a/services/core/java/com/android/server/pm/permission/PermissionManagerServiceInternal.java b/services/core/java/com/android/server/pm/permission/PermissionManagerServiceInternal.java
+index bdcc66bf..ba4f84dd 100644
+--- a/services/core/java/com/android/server/pm/permission/PermissionManagerServiceInternal.java
++++ b/services/core/java/com/android/server/pm/permission/PermissionManagerServiceInternal.java
+@@ -25,6 +25,7 @@ import android.content.pm.PackageInstaller.SessionParams;
+ import android.content.pm.PermissionInfo;
+ import android.permission.PermissionManagerInternal;
+ import android.util.ArrayMap;
++import android.util.SparseBooleanArray;
+ 
+ import com.android.internal.util.function.QuadFunction;
+ import com.android.internal.util.function.TriFunction;
+@@ -347,13 +348,17 @@ public interface PermissionManagerServiceInternal extends PermissionManagerInter
+         private final List<String> mAllowlistedRestrictedPermissions;
+         @NonNull
+         private final int mAutoRevokePermissionsMode;
++        @NonNull
++        private final SparseBooleanArray mNewlyInstalledInUserIds;
+ 
+         private PackageInstalledParams(@NonNull ArrayMap<String, Integer> permissionStates,
+                 @NonNull List<String> allowlistedRestrictedPermissions,
+-                int autoRevokePermissionsMode) {
++                int autoRevokePermissionsMode,
++                @NonNull SparseBooleanArray newlyInstalledInUserIds) {
+             mPermissionStates = permissionStates;
+             mAllowlistedRestrictedPermissions = allowlistedRestrictedPermissions;
+             mAutoRevokePermissionsMode = autoRevokePermissionsMode;
++            mNewlyInstalledInUserIds = newlyInstalledInUserIds;
+         }
+ 
+         /**
+@@ -385,6 +390,17 @@ public interface PermissionManagerServiceInternal extends PermissionManagerInter
+             return mAutoRevokePermissionsMode;
+         }
+ 
++        /**
++         * Returns whether the package is newly installed in the given user.
++         *
++         * <p>lenOS (GrapheneOS): used to decide whether the default states of the special runtime
++         * permissions should be applied; an app update must not re-grant a permission that the
++         * user has revoked.
++         */
++        public boolean isNewlyInstalledInUserId(int userId) {
++            return mNewlyInstalledInUserIds.get(userId, false);
++        }
++
+         /**
+          * Builder class for {@link PackageInstalledParams}.
+          */
+@@ -395,6 +411,8 @@ public interface PermissionManagerServiceInternal extends PermissionManagerInter
+             private List<String> mAllowlistedRestrictedPermissions = Collections.emptyList();
+             @NonNull
+             private int mAutoRevokePermissionsMode = AppOpsManager.MODE_DEFAULT;
++            @NonNull
++            private final SparseBooleanArray mNewlyInstalledInUserIds = new SparseBooleanArray();
+ 
+             /**
+              * Set the permissions states requested by the installer.
+@@ -442,6 +460,16 @@ public interface PermissionManagerServiceInternal extends PermissionManagerInter
+                 mAutoRevokePermissionsMode = autoRevokePermissionsMode;
+             }
+ 
++            /**
++             * Marks the package as newly installed in the given user.
++             *
++             * <p>lenOS (GrapheneOS): used by the permission service to apply the default states
++             * of the special runtime permissions only on a new install, not on an update.
++             */
++            public void setNewlyInstalledInUserId(int userId) {
++                mNewlyInstalledInUserIds.put(userId, true);
++            }
++
+             /**
+              * Build a new instance of {@link PackageInstalledParams}.
+              *
+@@ -451,7 +479,8 @@ public interface PermissionManagerServiceInternal extends PermissionManagerInter
+             public PackageInstalledParams build() {
+                 return new PackageInstalledParams(
+                         mPermissionStates == null ? new ArrayMap<>() : mPermissionStates,
+-                        mAllowlistedRestrictedPermissions, mAutoRevokePermissionsMode);
++                        mAllowlistedRestrictedPermissions, mAutoRevokePermissionsMode,
++                        mNewlyInstalledInUserIds);
+             }
+         }
+     }
+diff --git a/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java b/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java
+new file mode 100644
+index 00000000..198268d7
+--- /dev/null
++++ b/services/core/java/com/android/server/pm/permission/SpecialRuntimePermUtils.java
+@@ -0,0 +1,124 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.pm.permission;
++
++import android.Manifest;
++import android.companion.virtual.VirtualDeviceManager;
++import android.content.Context;
++import android.content.pm.PackageManager;
++import android.content.pm.SrtPermissions;
++import android.os.Bundle;
++import android.util.ArraySet;
++import android.util.EmptyArray;
++
++import com.android.internal.pm.pkg.component.ParsedUsesPermission;
++import com.android.server.LocalServices;
++import com.android.server.pm.pkg.AndroidPackage;
++import com.android.server.pm.pkg.PackageState;
++
++/**
++ * Utilities for the "special runtime permissions" (lenOS port of the GrapheneOS feature):
++ * permissions that are runtime permissions in principle, but are granted by default and, when
++ * revoked, put the app into a compatibility mode instead of breaking it.
++ *
++ * <p>Currently: INTERNET (the OTHER_SENSORS permission is not ported yet).
++ *
++ * <p>Derived from GrapheneOS ({@code frameworks/base/services/core/java/com/android/server/pm/
++ * permission/SpecialRuntimePermUtils.java}), trimmed down to the INTERNET permission (the
++ * GrapheneOS ExtSettings dependency is left out; the auto-grant default is unconditional for
++ * INTERNET anyway).
++ */
++public class SpecialRuntimePermUtils {
++    private static final String TAG = SpecialRuntimePermUtils.class.getSimpleName();
++
++    private static final ArraySet<String> specialRuntimePermissions = new ArraySet<>(new String[] {
++            Manifest.permission.INTERNET,
++    });
++
++    public static boolean isSpecialRuntimePermission(String permission) {
++        return specialRuntimePermissions.contains(permission);
++    }
++
++    public static String[] getAll() {
++        return specialRuntimePermissions.toArray(EmptyArray.STRING);
++    }
++
++    public static boolean shouldAutoGrant(Context ctx, String packageName, int userId,
++            String perm) {
++        if (!isSpecialRuntimePermission(perm)) {
++            return false;
++        }
++
++        // INTERNET is granted by default to keep compatibility with apps that expect it (they
++        // were able to use it unconditionally on stock Android). The user can revoke it at any
++        // time in the permission UI.
++        //
++        // GrapheneOS: the OTHER_SENSORS permission (not ported) is auto-granted based on the
++        // ExtSettings.AUTO_GRANT_OTHER_SENSORS_PERMISSION setting, and therefore needs the
++        // arguments of this method.
++        return true;
++    }
++
++    /**
++     * Returns the value of the app bind flags array entry for the special runtime permissions.
++     */
++    public static int getFlags(AndroidPackage pkg, PackageState pkgState, int userId) {
++        int flags = 0;
++
++        for (ParsedUsesPermission perm : pkg.getUsesPermissionMapping().values()) {
++            String name = perm.getName();
++            switch (name) {
++                case Manifest.permission.INTERNET:
++                    if (shouldEnableInternetCompat(pkg, pkgState, userId)) {
++                        flags |= SrtPermissions.FLAG_INTERNET_COMPAT_ENABLED;
++                    }
++                    continue;
++                default:
++                    continue;
++            }
++        }
++
++        return flags;
++    }
++
++    private static boolean shouldEnableInternetCompat(AndroidPackage pkg, PackageState pkgState,
++            int userId) {
++        if (pkgState.isSystem() || pkgState.isUpdatedSystemApp()) {
++            // system packages are expected to be aware of the runtime INTERNET permission
++            return false;
++        }
++
++        Bundle metadata = pkg.getMetaData();
++        if (metadata != null) {
++            String key = Manifest.permission.INTERNET + ".mode";
++            if ("runtime".equals(metadata.getString(key))) {
++                // AndroidManifest.xml has
++                // <meta-data android:name="android.permission.INTERNET.mode"
++                //            android:value="runtime" />
++                // inside the <application> element
++                return false;
++            }
++        }
++
++        var permManager = LocalServices.getService(PermissionManagerServiceInternal.class);
++        // enable InternetCompat if the package doesn't have the INTERNET permission
++        return permManager.checkPermission(pkg.getPackageName(),
++                Manifest.permission.INTERNET, VirtualDeviceManager.PERSISTENT_DEVICE_ID_DEFAULT,
++                userId) != PackageManager.PERMISSION_GRANTED;
++    }
++}
+diff --git a/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt b/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt
+index e61cb9d7..482442cf 100644
+--- a/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt
++++ b/services/permission/java/com/android/server/permission/access/permission/AppIdPermissionPolicy.kt
+@@ -45,6 +45,7 @@ import com.android.server.permission.access.util.hasBits
+ import com.android.server.permission.access.util.isInternal
+ import com.android.server.pm.KnownPackages
+ import com.android.server.pm.parsing.PackageInfoUtils
++import com.android.server.pm.permission.SpecialRuntimePermUtils.isSpecialRuntimePermission
+ import com.android.server.pm.pkg.AndroidPackage
+ import com.android.server.pm.pkg.PackageState
+ import libcore.util.EmptyArray
+@@ -296,6 +297,14 @@ class AppIdPermissionPolicy : SchemePolicy() {
+             if (oldFlags.hasAnyBit(SYSTEM_OR_POLICY_FIXED_MASK)) {
+                 return@forEach
+             }
++            if (isSpecialRuntimePermission(permissionName)) {
++                return@forEach
++            }
++
++            if (isImplicitSpecialRuntimeSplit(androidPackage, permissionName)) {
++                return@forEach
++            }
++
+             var newFlags = oldFlags
+             val isSystemOrInstalled =
+                 packageState.isSystem || packageState.getUserStateOrDefault(userId).isInstalled
+@@ -319,6 +328,22 @@ class AppIdPermissionPolicy : SchemePolicy() {
+         }
+     }
+ 
++    private fun MutateStateScope.isImplicitSpecialRuntimeSplit(
++        androidPackage: AndroidPackage,
++        permissionName: String,
++    ): Boolean {
++        if (permissionName !in androidPackage.implicitPermissions) {
++            return false
++        }
++
++        val sourcePermissions =
++            newState.externalState.implicitToSourcePermissions[permissionName] ?: return false
++
++        return sourcePermissions.anyIndexed { _, permission ->
++            isSpecialRuntimePermission(permission)
++        }
++    }
++
+     private fun MutateStateScope.adoptPermissions(
+         packageState: PackageState,
+         changedPermissionNames: MutableIndexedSet<String>,
+@@ -1114,7 +1139,7 @@ class AppIdPermissionPolicy : SchemePolicy() {
+                     packageState ->
+                     targetSdkVersion.coerceAtMost(packageState.androidPackage!!.targetSdkVersion)
+                 }
+-            if (targetSdkVersion < Build.VERSION_CODES.M) {
++            if (targetSdkVersion < Build.VERSION_CODES.M && !isSpecialRuntimePermission(permissionName)) {
+                 if (permission.isRuntimeOnly) {
+                     // Different from the old implementation, which simply skips a runtime-only
+                     // permission, we now only allow holding on to the restriction related flags,
+@@ -1259,6 +1284,13 @@ class AppIdPermissionPolicy : SchemePolicy() {
+                 } else {
+                     newFlags andInv PermissionFlags.SOFT_RESTRICTED
+                 }
++
++            if (!newFlags.hasBits(PermissionFlags.USER_SET)
++                    && isSpecialRuntimePermission(permissionName)
++                    && requestingPackageStates.anyIndexed { _, it -> it.isSystem }) {
++                newFlags = newFlags or PermissionFlags.RUNTIME_GRANTED
++            }
++
+             setPermissionFlags(appId, userId, permissionName, newFlags)
+         } else {
+             Slog.e(
+@@ -1309,6 +1341,9 @@ class AppIdPermissionPolicy : SchemePolicy() {
+                     }
+                     newFlags = newFlags or (sourceFlags and PermissionFlags.MASK_RUNTIME)
+                 }
++                if (isSpecialRuntimePermission(sourcePermissionName)) {
++                    newFlags = newFlags or PermissionFlags.RUNTIME_GRANTED
++                }
+             }
+             if (
+                 targetSdkVersion >= Build.VERSION_CODES.M &&
+diff --git a/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt b/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
+index 95cd6277..abf3c2a4 100644
+--- a/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
++++ b/services/permission/java/com/android/server/permission/access/permission/PermissionService.kt
+@@ -97,6 +97,8 @@ import com.android.server.pm.permission.LegacyPermissionState
+ import com.android.server.pm.permission.Permission as LegacyPermission2
+ import com.android.server.pm.permission.PermissionManagerServiceInterface
+ import com.android.server.pm.permission.PermissionManagerServiceInternal
++import com.android.server.pm.permission.SpecialRuntimePermUtils
++import com.android.server.pm.permission.SpecialRuntimePermUtils.isSpecialRuntimePermission
+ import com.android.server.pm.pkg.AndroidPackage
+ import com.android.server.pm.pkg.PackageState
+ import java.io.FileDescriptor
+@@ -1013,7 +1015,8 @@ class PermissionService(private val service: AccessCheckingService) :
+                 }
+             }
+             permission.isRuntime -> {
+-                if (androidPackage.targetSdkVersion < Build.VERSION_CODES.M) {
++                if (androidPackage.targetSdkVersion < Build.VERSION_CODES.M
++                        && !isSpecialRuntimePermission(permissionName)) {
+                     // If a permission review is required for legacy apps we represent
+                     // their permissions as always granted
+                     return
+@@ -2507,7 +2510,31 @@ class PermissionService(private val service: AccessCheckingService) :
+                 params.allowlistedRestrictedPermissions,
+                 userId,
+             )
+-            setRequestedPermissionStates(packageState, userId, params.permissionStates)
++            // lenOS (GrapheneOS): apply the default states of the special runtime permissions
++            // (INTERNET is granted by default; the OTHER_SENSORS permission is not ported yet).
++            // Only done on a new install for the user, so that an app update never re-grants a
++            // permission that the user has revoked.
++            val permissionStates = ArrayMap(params.permissionStates)
++            if (params.isNewlyInstalledInUserId(userId)) {
++                SpecialRuntimePermUtils.getAll().forEach { perm ->
++                    if (!permissionStates.contains(perm)) {
++                        if (
++                            SpecialRuntimePermUtils.shouldAutoGrant(
++                                context,
++                                androidPackage.packageName,
++                                userId,
++                                perm,
++                            )
++                        ) {
++                            permissionStates.set(
++                                perm,
++                                PackageInstaller.SessionParams.PERMISSION_STATE_GRANTED,
++                            )
++                        }
++                    }
++                }
++            }
++            setRequestedPermissionStates(packageState, userId, permissionStates)
+         }
+     }
+ 

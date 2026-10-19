@@ -22,3 +22,4 @@
 0022-lenos-preserve-enabled-state.patch
 0023-lenos-prototype-device-warning.patch
 0024-lenos-memory-hygiene-on-lock.patch
+0025-lenos-network-permission.patch

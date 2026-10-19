@@ -3,6 +3,90 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-20 (fifteenth session) — network (INTERNET) permission
+
+* **The network permission is in** — Tier 1 #1, the last big Tier 1 item
+  besides sensors. Ported as GrapheneOS's *"special runtime permissions"*
+  (SRT) mechanism, not as a bare `dangerous` flip: revoking `INTERNET` puts a
+  user app into **internet-compat mode**, where the OS pretends there is no
+  network instead of throwing permission errors at apps that were written
+  when INTERNET could not be revoked. Three patches:
+  * `frameworks_base/0025-lenos-network-permission.patch` (19 files) — the
+    framework:
+    * Manifest: `INTERNET` → `dangerous|instant`
+      (`permissionGroup=UNDEFINED`) plus the new
+      `android.permission-group.NETWORK` group (GrapheneOS's "Network" /
+      "access the network" strings verbatim; the `perm_group_network` icon
+      already ships in the framework).
+    * `SrtPermissions` (`@hide` per-process flags, `FLAG_INTERNET_COMPAT_ENABLED`,
+      `shouldSpoofSelfCheck()`), `SpecialRuntimePermAppUtils`
+      (`@SystemApi`, `isInternetCompatEnabled()`/`enableInternetCompat()`),
+      `AppPermissionUtils` (`@hide`, SRT-only), `AppBindArgs`.
+    * Bind plumbing so the server tells each app process whether it is in
+      compat mode: `IApplicationThread.bindApplication(in Bundle extraArgs, …)`,
+      `ActivityThread`, `ActivityManagerService` (flags computed by the new
+      `com.android.server.ext.PackageManagerHooks`), `NativeApplicationThreadWrapper`.
+      GOS's `ActivityThreadHooks` indirection is inlined, null-guarded.
+    * Server policy: `SpecialRuntimePermUtils` (INTERNET as the only member —
+      auto-grant, the system-app "always granted unless user-set" evaluation
+      path, GOS's `INTERNET.mode=runtime` metadata escape hatch for system
+      apps, and `shouldEnableInternetCompat` = user-installed only).
+    * Self-check spoofing in both `PermissionManager` sites
+      (`checkPermissionUncached`, `checkPackageNamePermissionUncached`) and
+      the four `DownloadManager` gates (invalid id / empty cursor).
+    * Permission service (Kotlin): auto-grant **only on a new install**.
+      A16 lacks A17's `PackageInstalledParams.isNewlyInstalledInUserId()`, so
+      it was added (same name/semantics) and is populated from
+      `InstallPackageHelper`'s new-install *and* install-existing paths — an
+      app update can never re-grant a revoked INTERNET. Legacy pre-M handling
+      and legacy review skip SRT; `resetRuntimePermissions` skips SRT;
+      implicit-split inheritance forwards SRT grants.
+  * `packages_modules_Connectivity/0002` — all 32 `ConnectivityManager` gates
+    return the "network down" answers (`null`/empty/`false`, callbacks
+    suppressed) and `NsdManager` uses a stubbed `INsdServiceConnector`
+    (registration/discovery/resolve fail with `FAILURE_INTERNAL_ERROR`) so
+    NSD can't be used as an ORB; the stub is adapted to the A16 AIDL (A17-only
+    methods dropped, 2-arg `connect()`).
+  * `packages_modules_Permission/0002` — PermissionController: "Network" group
+    mapping, grant/revoke treats SRT as runtime for any targetSdk,
+    `isGrantedIncludingAppOp` ignores `reviewRequired` for SRT,
+    `AppPermissionGroup` handles legacy apps, and the permission-usage /
+    hibernation / auto-revoke screens never classify SRT as unused/revocable.
+* Enforcement needs **no new firewall**: revoking drives the already-shipped
+  AOSP machinery (`PermissionMonitor` → netd per-UID
+  `TRAFFIC_PERMISSION_INTERNET` BPF map; the stock
+  `NETWORK_BLOCKED_WITHOUT_INTERNET_PERMISSION` gate is already unconditional
+  for every target SDK on Android 16).
+* Verified in GrapheneOS's tree before documenting: their branch-17
+  `PackageInstaller` has **no** SRT/INTERNET references, so the install-time
+  toggle assumed in the original analysis does not exist there either —
+  installs auto-grant and app info is the toggle; no installer patch.
+  `MissingSpecialRuntimePermissionNotification` / `PackageManagerNative` /
+  `IPackageManagerNative` stay deferred with the sensors permission (§6):
+  their only caller is the `SensorService.cpp` path.
+* Tests: new `tests/test_network_permission.py` (20 checks: manifest + group,
+  flag spoofing, both self-check sites, the four DownloadManager gates, bind
+  plumbing, server flag computation, auto-grant-on-new-install-only,
+  system-app evaluation, the 32 ConnectivityManager gates, the NSD stub,
+  XML well-formedness, Java parse, Kotlin balance). Full suite **281 tests
+  green**; `--check` applies all **45** patches cleanly from pristine.
+  Driver markers added for the SRT flags file, the ConnectivityManager gates,
+  the permission-UI mapping and the new-install gate.
+* Docs: features.md row + honest-limits bullet (per-UID enforcement,
+  compat-mode best-effort, system-app reality) + checklist steps (revoke →
+  offline behavior, grant → recovery, update must not re-grant);
+  `graphene-porting.md` §0/§5/§6/§15/§18 (45 patches: 36 faithful / 5
+  deliberate / 2 original / 2 plumbing) and the §6 infrastructure note.
+* Not verified on a device (VM still unavailable). On first boot, the
+  round-trip is: revoke INTERNET from a user app → it stays running but all
+  network fails as if offline (`dumpsys package <app> | grep INTERNET` shows
+  `granted=false` + `USER_SET`); grant → network returns; revoke → update the
+  app (`adb install -r`) → must stay revoked.
+* Next: sensors permission (§6, Tier 2) reuses this SRT infrastructure —
+  extend the server set + manifest, add the `frameworks/native`
+  `SensorService.cpp` gate and the notification helper, map it in
+  PermissionController, wire `AUTO_GRANT_OTHER_SENSORS_PERMISSION`.
+
 ## 2026-10-19 (fourteenth session) — prototype/EVT warning, firmware visibility, memory hygiene, user-app disabling
 
 * **User-installed apps can be disabled** (`packages_apps_Settings/0002`;

@@ -16,7 +16,7 @@ Evidence sources:
   `opt_telephony`, `system_sepolicy`, `external_seedvault`, `providers_ContactsProvider`,
   `platform_system_extras`, `platform_system_ca-certificates` @ 17
   (clone dirs under `/tmp/opencode/graphene-repos/`).
-- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **42 patches**
+- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **45 patches**
   in `vendor/lenos/patches/` (5× device_nothing_asteroids, **24× frameworks_base**, system_core,
   frameworks_opt_telephony, packages_modules_Wifi, **2× packages_apps_Settings**, vendor_lineage,
   system_netd, packages_modules_Connectivity, packages_modules_Permission,
@@ -34,7 +34,7 @@ Evidence sources:
   prototype-device warning + bootloader-version visibility (frameworks_base/0023 +
   packages_apps_Settings/0001), the memory hygiene on lock (frameworks_base/0024) and the
   user-installed app disabling (packages_apps_Settings/0002) are all **done**;
-  sections 1–3 below carry status notes. §18 audits all 42 current patches.
+  sections 1–3 below carry status notes. §18 audits all 45 current patches.
 
 Caveat: GrapheneOS is on Android 17; lenOS is Android 16 (LineageOS 23.2). Where a GrapheneOS file uses
 APIs only present in 17, that is called out as "API risk". Line numbers/paths are branch-17 paths.
@@ -68,8 +68,13 @@ Legend for size: S (<200 LOC), M (200–800 LOC), L (800–3000 LOC), XL (>3000 
   lenOS landed `frameworks_base/0007` + `frameworks_opt_telephony/0001` (2026 redo); with the backend
   (`frameworks_base/0005`) the duress feature is complete (see §3).
 - **Network permission** is enforced in the **Connectivity module + netd eBPF firewall**, with UI in
-  Settings/PermissionController and the installer; it is the largest single high-value port (multi-repo,
+  Settings/PermissionController; it is the largest single high-value port (multi-repo,
   M–L — AOSP 16/LineageOS 23.2 already contains most of the underlying eBPF/permission machinery, see §5).
+  **Status: DONE** — lenOS patch set `frameworks_base/0025` + `packages_modules_Connectivity/0002` +
+  `packages_modules_Permission/0002` ports GrapheneOS's "special runtime permissions" mechanism with
+  `INTERNET` as the only member (auto-grant on new install, internet-compat mode on revoke, self-check
+  spoofing, 32 ConnectivityManager gates, NSD stub; the install-time toggle assumed here turned out not
+  to exist in GrapheneOS either — their installer has no SRT references, so no installer patch).
 - **USB-C port control** needs the vendor USB HAL and kernel to support disabling the data lines at the
   hardware level. On SM7635 the OS-side piece (mode setting + HAL interception of `IUsb.enableUsbData`)
   is portable *if* Nothing's Qualcomm USB HAL implements AOSP's `enableUsbData`; the hardware data-line
@@ -321,7 +326,7 @@ SystemUI/IActivityStarter. **Size: S** (single module). **API/version risk: none
 
 ---
 
-## 5. Network permission toggle
+## 5. Network permission toggle — DONE in lenOS
 
 **What it does.** Turns `INTERNET` into a user-visible runtime permission with a per-profile toggle:
 when disabled, the app gets no direct *and no indirect* network access (including access through
@@ -346,9 +351,11 @@ confirmation UI.
   for all apps) plus the UX layers, not a new firewall.
 - UI/UX: PermissionController group mapping (`PermissionMapping.kt`, `KotlinUtils.kt:` the NETWORK group
   and per-app toggle), Settings app per-app screen (works automatically once the manifest marks the
-  permission dangerous), install-time toggle in the PackageInstaller app (GrapheneOS forks
-  `platform_packages_apps_PackageInstaller`; the AOSP app does not set this), and the "pretend the
-  network is down" behavior in Connectivity (status/callbacks/job scheduling).
+  permission dangerous), and the "pretend the network is down" behavior in Connectivity
+  (status/callbacks/job scheduling). The first analysis above assumed an install-time toggle inside a
+  GrapheneOS PackageInstaller fork; the 2026 port checked their branch-17 `PackageInstaller` and it has
+  **no** SRT/INTERNET references — installs auto-grant and app info is the toggle, so no installer work
+  was done (same as GrapheneOS).
 - Second enforcement layer: GrapheneOS also prevents apps without the permission from proxying network
   access through APIs/components that do have it (the binder/TRAFFIC_PERMISSION_INTERNET mapping — the
   stock `PermissionMonitor` already tracks per-appId traffic permissions, so this converges with AOSP).
@@ -359,8 +366,8 @@ confirmation UI.
    `@EnabledAfter(36)` gate), ensure the "network down" reporting paths; small–moderate.
 3. `packages/modules/Permission` (PermissionController) — group/icon/strings and special-casing;
    small.
-4. `packages/apps/PackageInstaller` — install-time toggle; small (same app family as §14's
-   "preserve disabled state").
+4. `packages/apps/PackageInstaller` — install-time toggle (analysis at the time; dropped — GrapheneOS
+   itself has no installer change; see below).
 netd/eBPF: no work (already in the Android 16 tree). sepolicy: no delta identified in GrapheneOS
 branch 17 beyond stock.
 **Risks:** shared-UID apps and system components that use INTERNET per UID; instant-permission
@@ -369,6 +376,75 @@ testing. Moderate test matrix (Wi-Fi/cellular/tethering, DNS, jobs, installer UI
 **Size: M–L** (multi-repo, but mostly wiring AOSP's existing feature to a visible permission).
 **Verdict: port now — top value** alongside the sensors permission (§6); the single most visible
 privacy feature after the ones already shipped.
+
+**lenOS status — DONE (2026 redo, three patches).** The port follows GrapheneOS's *"special runtime
+permissions"* (SRT) design rather than the older analysis above: `INTERNET` is a `dangerous|instant`
+runtime permission whose revocation switches the app into **internet compat mode** instead of exposing
+permission errors. `INTERNET` is currently the only SRT member; the sensors permission (§6, Tier 2)
+extends the same infrastructure rather than duplicating it.
+
+- `frameworks_base/0025-lenos-network-permission.patch` — the whole SRT framework:
+  - `INTERNET` → `dangerous|instant`, `permissionGroup="android.permission-group.UNDEFINED"`, plus a new
+    `android.permission-group.NETWORK` group ("Network" / "access the network" strings copied verbatim
+    from GrapheneOS; the `perm_group_network` drawable already ships in `frameworks/base`).
+  - `SrtPermissions` (`@hide`): per-process flags (`FLAG_INTERNET_COMPAT_ENABLED`), `setFlags()`,
+    `shouldSpoofSelfCheck()`.
+  - `SpecialRuntimePermAppUtils` (`@SystemApi` — the Connectivity module needs it across the
+    boundary): `isInternetCompatEnabled()` / `enableInternetCompat()`.
+  - `AppBindArgs` + `IApplicationThread.bindApplication(Bundle extraArgs, …)` + `ActivityThread` /
+    `ActivityManagerService` / `NativeApplicationThreadWrapper` plumbing, so the server tells each app
+    process at bind time whether it is in internet-compat mode. The GOS `ActivityThreadHooks` indirection
+    is inlined (null-guarded) per the deviation rules.
+  - Server side: `PackageManagerHooks` (new, `com.android.server.ext`) computes the bind flags from the
+    package's *current* permission state via `SpecialRuntimePermUtils` (INTERNET-only): auto-grant
+    policy, the "system apps are always granted unless user-set" evaluation path, and GOS's
+    `INTERNET.mode=runtime` package-metadata escape hatch for system apps.
+  - Self-check spoofing: both `PermissionManager` sites (`checkPermissionUncached`,
+    `checkPackageNamePermissionUncached`) return GRANTED for the app's own INTERNET checks while compat
+    mode is on; `DownloadManager`'s four internet APIs (`enqueue`, `remove`, `query`,
+    `addCompletedDownload`) answer "no network" (invalid id / empty cursor).
+  - Permission service (`services/permission/…`, Kotlin): auto-grant **only on a new install** —
+    `PermissionManagerServiceInternal.PackageInstalledParams` grew `isNewlyInstalledInUserId()`
+    (A17 has it, A16 does not; populated from `InstallPackageHelper`'s new-install and
+    install-existing paths) — so an app *update* can never re-grant a revoked INTERNET. Pre-M legacy
+    handling and legacy permission review skip SRT; `resetRuntimePermissions` skips SRT;
+    implicit-split inheritance forwards SRT grants; system packages get `RUNTIME_GRANTED` on evaluation
+    unless user-set.
+- `packages_modules_Connectivity/0002-lenos-network-permission.patch` — all 32 `ConnectivityManager`
+  gates return the "network is down" answer (`null` / empty / `false`, callbacks suppressed) and
+  `NsdManager` swaps in a stubbed `INsdServiceConnector` (registration/discovery/resolve callbacks fail
+  with `FAILURE_INTERNAL_ERROR`) so NSD can't be used as an ORB; the stub drops the A17-only connector
+  methods and the A17 `packageName` parameter to match the A16 AIDL.
+- `packages_modules_Permission/0002-lenos-network-permission.patch` — PermissionController: the
+  "Network" group presentation (`PermissionMapping`, INTERNET mapped into it), grant/revoke treats SRT
+  as runtime for any targetSdk (`KotlinUtils`), `Permission.isGrantedIncludingAppOp` ignores
+  `reviewRequired` for SRT, `AppPermissionGroup` grants/revokes SRT for legacy apps, and the
+  permission-usage / hibernation / auto-revoke screens never classify SRT as "unused" or revocable.
+
+**Enforcement chain:** the socket-level block is the *already-shipped* AOSP machinery —
+`PermissionMonitor` observes runtime permission changes and updates netd's per-UID
+`TRAFFIC_PERMISSION_INTERNET` BPF map. The stock `NETWORK_BLOCKED_WITHOUT_INTERNET_PERMISSION`
+compatibility gate is `@EnabledAfter(targetSdkVersion = 36)`, i.e. enforcement is already on for every
+app on Android 16 / LineageOS 23.2 — no change needed there. The SRT layer adds the *policy* (revocable
+runtime permission, auto-grant, compat mode) and the UX.
+
+**Deviations vs GrapheneOS:** none material.
+- `MissingSpecialRuntimePermissionNotification` / `PackageManagerNative` /
+  `IPackageManagerNative.onDeniedSpecialRuntimePermissionOp` are deferred with §6: their only caller is
+  the sensors path in `frameworks/native` `SensorService.cpp`.
+- `AppPermissionUtils` is SRT-only and `/** @hide */` (GOS makes it `@SystemApi` for other GOS
+  components that lenOS doesn't port); the `@SystemApi` surface is exactly
+  `SpecialRuntimePermAppUtils.isInternetCompatEnabled()` (`core/api/system-current.txt`).
+- No upgrade migration for pre-existing user apps (GrapheneOS has none either — verified in their code
+  and release notes); irrelevant for lenOS, where every user app install goes through the auto-grant.
+- `AppBindArgs.FLAGS_ARRAY_LEN = 10` and all constants copied from GOS; unused GOS flag slots are left
+  in place so the wire format stays comparable.
+
+**Tests:** `vendor/lenos/tests/test_network_permission.py` (20 checks: manifest + group, SRT flag
+spoofing, both self-check sites, the four DownloadManager gates, bind plumbing, server flag
+computation, auto-grant-on-new-install-only, system-app evaluation, the 32 ConnectivityManager gates,
+the NSD stub, XML well-formedness, Java parse, Kotlin balance). Driver markers in
+`lenos-1.0-shizuku.sh` verify the applied tree.
 
 ---
 
@@ -396,6 +472,18 @@ user-installed apps.
 `frameworks/base` (manifest constant + permission group + `package_native` note path),
 `packages/modules/Permission` (mapping/strings/icon), plus Settings strings for group name.
 No kernel work; works for all sensors since the gate is in sensor service, not the driver.
+
+**lenOS status — infrastructure READY, permission not yet ported (Tier 2, next after §5).** The
+network-permission redo (§5, `fwb/0025`) already shipped the SRT mechanism this feature plugs into:
+`SrtPermissions`/`SpecialRuntimePermAppUtils`/`AppPermissionUtils`, the bind-time flags
+(`AppBindArgs`, `IApplicationThread.bindApplication(extraArgs)`, `PackageManagerHooks`,
+server `SpecialRuntimePermUtils`), the permission-service auto-grant/evaluation policy and the
+PermissionController integration. Adding `OTHER_SENSORS` means: extend the server
+`specialRuntimePermissions` set and the manifest declaration, add the `frameworks/native`
+`SensorService.cpp` enforcement plus `MissingSpecialRuntimePermissionNotification` /
+`PackageManagerNative` / `IPackageManagerNative.onDeniedSpecialRuntimePermissionOp` (deferred from §5
+precisely because this is their only caller), map it in `PermissionMapping`, and wire the
+`AUTO_GRANT_OTHER_SENSORS_PERMISSION` ExtSettings default (already seeded by `fwb/0006`).
 **Risks:** "zeroed data" must also cover `SensorDirectChannel`/batch paths (upstream covers them);
 per-SoC differences minimal because the permission gate is Central.
 **Size: L** (native service + permission module + framework glue). **API/version risk: low**
@@ -807,7 +895,7 @@ Excluded as already done: ExtSettings infrastructure (`fwb/0006`), auto-reboot (
 
 | # | Item | Size | Repos touched | One-line value |
 |---|---|---|---|---|
-| 1 | Network permission | M–L | fwb, Connectivity, Permission, PackageInstaller | user-revocable INTERNET with "network is down" semantics; AOSP 16 already ships the eBPF machinery, so this is mostly policy + UI |
+| 1 | Network permission | M–L | fwb, Connectivity, Permission, PackageInstaller | user-revocable INTERNET with "network is down" semantics; AOSP 16 already ships the eBPF machinery, so this is mostly policy + UI — **done** (`frameworks_base/0025`, `packages_modules_Connectivity/0002`, `packages_modules_Permission/0002`; no installer change needed — GrapheneOS has none) |
 | 2 | Sensors permission | L | fwn, fwb, Permission (+Settings) | zeroed-out accelerometer/gyro/compass/etc. for apps — the largest remaining privacy hole after network |
 | 3 | VPN leak-blocking set | M | netd, Connectivity, fwb | 4 surgical netd fixes (DNS/RA/multicast/SockDiag) + NSD-under-lockdown — hardens the always-on VPN feature we already ship — **done** (`system_netd/0001`, `packages_modules_Connectivity/0001`, `frameworks_base/0017`+`0018`; SockDiag/DnsResolver already upstream) |
 | 4 | Secure Paste, stage 1 (global default) | M | fwb (+Permission/Settings UI) | cross-app clipboard reads off by default; staging avoids the GosPackageState backport (per-app later via AppOps) — **done** (`frameworks_base/0015` + Settings row; per-app/toolbar stage 2 pending) |
@@ -831,7 +919,8 @@ toggles (**done**, `packages_apps_Settings/0001` + `frameworks_base/0021`).
 
 **Sequencing suggestion.** Land the §16 quick-win batch first (zero design risk). Then the VPN set
 (§12) and Secure Paste stage 1 (§8). Network (§5) and sensors (§6) each deserve their own release and
-test pass. The FBE padding change (§11, **done**: `system_extras/0001`) only affects new encryption
+test pass — **network is done**; sensors is next and reuses the SRT infrastructure `fwb/0025` introduced.
+The FBE padding change (§11, **done**: `system_extras/0001`) only affects new encryption
 policies, so ship it whenever — but
 pair it with a note that existing devices keep 16-byte padding until factory reset.
 
@@ -877,11 +966,12 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 37 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 45 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
-from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **40** patches (the fidelity redos; the quick-win
+from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`,
+`PackageInstaller`, …) plus raw
+`GrapheneOS/*` fetches. Note: this series now has **45** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
@@ -890,7 +980,8 @@ radio auto-off set `fwb/0020` + Settings rows; the LTE-only + GNSS batch `fwb/00
 which also deleted the superseded `device/0003` so SUPL is controlled by the new framework toggle;
 the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaProvider/0001`; the
 firmware-visibility batch `fwb/0023` + the Settings bootloader field; the memory-hygiene port
-`fwb/0024`; and the user-app disable support `packages_apps_Settings/0002`). Verdicts:
+`fwb/0024`; the user-app disable support `packages_apps_Settings/0002`; and the network-permission
+set `fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -935,11 +1026,14 @@ firmware-visibility batch `fwb/0023` + the Settings bootloader field; the memory
 | `packages_apps_Settings/0002` disable user-installed apps | SPA app info `AppDisableButton.kt`: offered for every installed app (`!app.installed`), `canBeDisabled()` `!isSystemApp -> isAllowUninstallOrArchive(...)`, and the disable click skips the data-loss dialog for user apps | The A16 file is structurally closer to AOSP than the A17 original, but the three hunks are exact ports of the GrapheneOS logic (`!app.installed` gate, the `isAllowUninstallOrArchive` branch placed before the system-app checks, and the `if (app.isSystemApp) dialog else disable()` click). Documented deviations: the classic `AppButtonsPreferenceController` screen is unmodified (GrapheneOS leaves it unmodified as well; `settings_enable_spa` defaults to true, so the SPA screen is the one users see) and the A17 HSU dialog title/message does not exist on A16 (user apps skip the dialog) | **Faithful** — keep |
 | `packages_apps_Settings/0001` LTE/5G-only entries | GrapheneOS commits `5310142ccc` ("LTE Only Mode") and `8d37b32db6` ("5G Only / 4G or 5G only") | Entries, `lteOnlyUnsupported` cases, NR-standalone detection, summary switch and strings are line-level ports (the atomic `is5GSupported` flag included, as GrapheneOS writes it). Deliberate deviation: GrapheneOS's commit also flips `getAvailabilityStatus` from `== EnabledNetworkMode` to `!= PreferredNetworkMode`, exposing the row when the carrier hides network settings (`None`); lenOS keeps the stock guard. GrapheneOS's non-world-mode `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is preserved verbatim | **Faithful** (availability guard deviation documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
+| `fwb/0025` network (INTERNET) permission framework | GrapheneOS "special runtime permissions" (SRT): `SrtPermissions`, `SpecialRuntimePermAppUtils`, `AppPermissionUtils`, `AppBindArgs`, `PackageManagerHooks`, server `SpecialRuntimePermUtils`, `PermissionManager` self-check spoofing, `DownloadManager` gates, `ActivityThread`/AMS bind plumbing, and the permission-service Kotlin policy (auto-grant, evaluation, review skip, reset skip, inheritance) | Line-level port with `INTERNET` as the only SRT member (the sensors permission extends the same set in §6). Documented deviations: the `ActivityThreadHooks` indirection is inlined (null-guarded, per the project's deviation rules); `AppPermissionUtils` is `@hide`/SRT-only instead of GOS's `@SystemApi` (lenOS ports no other GOS consumers; the `@SystemApi` surface is exactly `SpecialRuntimePermAppUtils.isInternetCompatEnabled()`); `PackageInstalledParams.isNewlyInstalledInUserId()` is *added* to A16 (A17-only field, same name and semantics) and populated at both install paths so an update can never re-grant; `MissingSpecialRuntimePermissionNotification`/`PackageManagerNative`/`IPackageManagerNative` plumbing is deferred with §6 (its only caller is the sensors path); no pre-existing-install migration (GrapheneOS has none either — checked code + release notes) | **Faithful** — keep |
+| `packages_modules_Connectivity/0002` network-permission gates | GrapheneOS's 32 `ConnectivityManager` internet-compat gates plus the `NsdManager` stub connector | All 32 gates verbatim (same `null`/empty/`false` "network down" answers, callbacks suppressed). The NSD stub is adapted to the A16 connector AIDL: the A17-only `registerServiceInfoCallbackWithRequest`, `injectOffloadEngineResponse` and `checkPermissionForService` are dropped and `connect()` keeps its 2-arg form; the failure callbacks are identical | **Faithful** (API drift documented) — keep |
+| `packages_modules_Permission/0002` network permission UI | GrapheneOS PermissionController SRT integration: `PermissionMapping` (NETWORK group), `KotlinUtils`, `Permission.isGrantedIncludingAppOp`, `AppPermissionGroup`, `PermissionUsageControlPreferenceUtils`, `HibernationSettingStateLiveData`, `AutoRevokePermissions` | Seven files, line-level ports; the only non-behavioral delta is one GrapheneOS line over 100 columns wrapped to AOSP style in `AppPermissionGroup`. The install-time toggle assumed by the original §5 analysis does not exist in GrapheneOS either — their branch-17 `PackageInstaller` has no SRT/INTERNET references (checked), so installs auto-grant and app info is the toggle | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 42 patches: **33 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 45 patches: **36 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -952,7 +1046,9 @@ set (`fwb/0021`), the package-update enabled-state port (`fwb/0022`), the MediaP
 directory-listing hook (`packages_providers_MediaProvider/0001`), the firmware-visibility
 batch (`fwb/0023`, non-Pixel detection extension documented), the memory hygiene on lock
 (`fwb/0024`, A16 callback-path adaptation documented), the user-installed app disabling
-(`packages_apps_Settings/0002`, SPA-only like GrapheneOS), the
+(`packages_apps_Settings/0002`, SPA-only like GrapheneOS), the network-permission set
+(`fwb/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002`, the
+A16-only `isNewlyInstalledInUserId` addition documented), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the

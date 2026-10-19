@@ -339,6 +339,18 @@ cmd_apply() {
   grep -q 'if (!app.installed) return null' \
     "$SRC/packages/apps/Settings/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt" \
     || die "user-installed app disabling missing"
+  grep -q 'FLAG_INTERNET_COMPAT_ENABLED' \
+    "$SRC/frameworks/base/core/java/android/content/pm/SrtPermissions.java" \
+    || die "network permission (special runtime permissions) framework missing"
+  grep -q 'SpecialRuntimePermAppUtils.isInternetCompatEnabled()' \
+    "$SRC/packages/modules/Connectivity/framework/src/android/net/ConnectivityManager.java" \
+    || die "network-permission connectivity gates missing"
+  grep -q 'isSpecialRuntimePermissionGroup' \
+    "$SRC/packages/modules/Permission/PermissionController/src/com/android/permissioncontroller/permission/utils/PermissionMapping.kt" \
+    || die "network-permission permission-UI integration missing"
+  grep -q 'setNewlyInstalledInUserId' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/pm/InstallPackageHelper.java" \
+    || die "new-install gate for special runtime permissions missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

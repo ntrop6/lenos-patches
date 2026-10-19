@@ -51,6 +51,7 @@ their content until the user explicitly allows it.
 
 | Feature | Where | Notes |
 |---|---|---|
+| Network (INTERNET) permission | `frameworks_base/0025` + `packages_modules_Connectivity/0002` + `packages_modules_Permission/0002` (GrapheneOS port) | `android.permission.INTERNET` becomes a real runtime permission (GrapheneOS "special runtime permissions"), presented as the "Network" group in app info with an on/off toggle and granted automatically on install — an app *update* never re-grants a revoked one. Revoking gives the app no network: sockets are blocked at the kernel level (netd per-UID BPF map, AOSP machinery already shipped and unconditional on Android 16) *and* the app is put into "internet compat" mode — the OS pretends there is no network (32 `ConnectivityManager` APIs answer none/empty, NSD gets a stubbed connector, `DownloadManager` returns nothing) while the app's own INTERNET self-checks are spoofed as granted, so legacy apps degrade to "offline" instead of crashing. System apps never get compat mode (GrapheneOS behavior: real enforcement only). Auto-revoke/hibernation never touches this permission |
 | Wi-Fi MAC randomization (per connection) | `packages_modules_Wifi/0001` (GrapheneOS port) | new networks default to `RANDOMIZATION_ALWAYS` (per-connection, non-persistent MACs); a per-network strategy the user picks explicitly still wins |
 | Strict Private DNS (DoT, Quad9) | first-boot default | breaks networks that block DoT or need captive-portal DNS; user-changeable |
 | NTP without Google | first-boot default + frameworks RRO | `pool.ntp.org` is a central pool; SNTP is unauthenticated either way |
@@ -132,6 +133,13 @@ implemented yet**.
   needs the device name must be opted in per network in its Wi-Fi network
   details (Advanced). There is no global switch, by design: a global clamp
   would override explicit per-network user choices.
+* **The network permission is enforced per UID, and compat mode is
+  best-effort.** Apps that share one UID share the network state (GrapheneOS
+  behaves the same). "Pretend the network is down" covers Android's network
+  APIs; the kernel-level socket block is the real enforcement, so an app with
+  aggressive retry logic may still show unexpected errors. System apps never
+  get compat mode (GrapheneOS design) — revoking their network is real and can
+  break them, so treat it as an expert action.
 * **Secure paste is stage 1.** It ships the global default and the framework
   enforcement, but not GrapheneOS's per-app switch or the SystemUI/text-selection
   paste toolbar. Enabling it blocks third-party apps from reading another app's
@@ -260,6 +268,19 @@ restores it, and on the lock screen tapping
 a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
+
+Network permission: app info → Permissions for an installed user app offers a
+"Network" switch and it is granted by default (the app got it at install with
+no prompt); turn it off and the app keeps running while everything network
+fails as if the device were offline — `adb shell dumpsys package <app> | grep
+INTERNET` shows `granted=false` (with the `USER_SET` flag), the app's own
+"is there a network?" checks report disconnected instead of throwing, and a
+download/enqueue answers "no network". Turn it back on and the network
+returns. Then revoke it again, update the same app from a new build
+(`adb install -r`) and confirm it is still revoked — an update must never
+re-grant the permission. Do the same for a pre-installed system app once to
+see the difference: revocation there is real, not compat mode (GrapheneOS
+behavior), so treat that as an expert action.
 
 VPN lockdown: configure an always-on VPN with "Block connections without VPN",
 then stop the VPN app's tunnel (force-stop/disable it) — DNS and all traffic
