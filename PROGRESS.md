@@ -3,8 +3,31 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
-## 2026-10-19 (fourteenth session) — prototype/EVT warning, firmware visibility, memory hygiene on lock
+## 2026-10-19 (fourteenth session) — prototype/EVT warning, firmware visibility, memory hygiene, user-app disabling
 
+* **User-installed apps can be disabled** (`packages_apps_Settings/0002`;
+  ports GrapheneOS's `AppDisableButton.kt`, closing the last Tier 1 item
+  besides the network/sensors permission toggles):
+  * The SPA app info screen offers "Disable" for every installed app
+    (`!app.installed` gate instead of `!app.isSystemApp`), so a user app can
+    be fully prevented from running while keeping its data — strictly
+    stronger than Force stop, which lets other apps restart it.
+  * `canBeDisabled()` gains GrapheneOS's `!isSystemApp ->
+    appButtonRepository.isAllowUninstallOrArchive(context, this)` branch, so
+    the uninstall/archive restrictions (device policy, provisioning package,
+    home-app handling) still apply.
+  * Clicking Disable on a user app disables it directly (authentication is
+    still required); the confirmation dialog stays for system apps, where
+    disabling downgrades to the system version and destroys data.
+  * No framework change needed, verified: `PackageManagerService
+    .setEnabledSettings` accepts `COMPONENT_ENABLED_STATE_DISABLED_USER` for
+    any package and Settings shares `android.uid.system` (holds
+    `CHANGE_COMPONENT_ENABLED_STATE`). `tests/test_disable_user_apps.py` pins
+    that invariant.
+  * Documented deviations: the legacy `AppButtonsPreferenceController`
+    screen is unmodified (GrapheneOS leaves it unmodified too; the SPA screen
+    is the default app-info screen), and A17's HSU dialog title/message has
+    no A16 counterpart (user apps skip the dialog entirely).
 * **Memory hygiene on lock** (`frameworks_base/0024`; ports GrapheneOS's
   lock-time full compacting GC):
   * SystemUI: `KeyguardViewMediator.handleShowInner` runs
@@ -51,16 +74,19 @@ One entry per working session. "Verified" = seen working on a booted device
     (`Build.isBuildConsistent()` + the
     `ActivityTaskManagerService.showSystemReadyErrorDialogsIfNeeded()`
     mismatch dialog), which LineageOS already ships — nothing to port there.
-* Tests: new `tests/test_firmware_visibility.py` (12 checks) and
-  `tests/test_memory_hygiene.py` (4 checks). Full suite **254 tests green**;
-  `--check` applies all 41 patches cleanly from pristine. Driver markers added
-  for the prototype notification call, the proto id, the bootloader row and
-  both lock-time GC sites (plus the previously missing feature-flag marker for
-  `fwb/0022`).
-* Docs: features.md rows + checklist steps (incl. the ART GC-log check), the
-  §14.1 directory-listing row closed (was stale after the MediaProvider
-  patch), §14.2/§14.5 rows closed, §18 row/counts (32 faithful / 5 deliberate
-  / 2 original / 2 plumbing) and watch-list item 8, this log.
+* Tests: new `tests/test_firmware_visibility.py` (12 checks),
+  `tests/test_memory_hygiene.py` (4 checks) and
+  `tests/test_disable_user_apps.py` (7 checks, incl. the pinned framework
+  invariant). Full suite **261 tests green**; `--check` applies all 42
+  patches cleanly from pristine. Driver markers added for the prototype
+  notification call, the proto id, the bootloader row, both lock-time GC
+  sites and the user-app disable gate (plus the previously missing
+  feature-flag marker for `fwb/0022`).
+* Docs: features.md rows + checklist steps (incl. the ART GC-log check and
+  the disable/enable round-trip), the §14.1 directory-listing row closed (was
+  stale after the MediaProvider patch), §14.2/§14.3/§14.5 rows closed, §18
+  row/counts (33 faithful / 5 deliberate / 2 original / 2 plumbing) and
+  watch-list item 8, this log.
 * Not verified on a device (VM still unavailable). On first boot check: no
   prototype notification on a retail unit
   (`dumpsys notification --noredact | grep -i "engineering prototype"` is
@@ -676,8 +702,8 @@ the approximations as faithful ports and lay shared infrastructure.
    permission, 2nd PIN
    (auto reboot to BFU, QS-tile gating, duress, LTE-only, the GNSS toggles,
    preserved disabled state, the MediaProvider listing restriction, the
-   prototype/EVT warning + firmware visibility and the lock-time memory
-   hygiene are done).
+   prototype/EVT warning + firmware visibility, the lock-time memory
+   hygiene and user-installed app disabling are done).
 8. First-boot checks for the new rows and notifications: LTE-only entry
    order/selection, Network assistance defaults = Off, SUPL/PSDS switch
    survives reboot, `dumpsys location` shows no SUPL/PSDS servers while off,

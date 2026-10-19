@@ -106,6 +106,7 @@ their content until the user explicitly allows it.
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
 | `LenosSecurity` app | ships with: auto-BFU timer (init backend), PIN-scramble switch (writes the same `Settings.Secure` key SystemUI reads), duress PIN/password UI (framework service), status card. The old global Wi-Fi hostname toggle was dropped in the GrapheneOS-faithful redo — that control is per network in Wi-Fi settings, and the app no longer needs `NETWORK_SETTINGS` |
 | Screenshot metadata | `frameworks_base/0013` + `packages_apps_Settings/0001` | SystemUI screenshot exports carry no timestamp, timezone or build-string EXIF metadata by default (GrapheneOS's `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` gate, default off; LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line removed to match GrapheneOS/AOSP). Per-user toggle: Settings → Security & privacy → More security & privacy → "Save screenshot timestamp to EXIF" |
+| User-installed apps can be disabled | `packages_apps_Settings/0002` (GrapheneOS port) | the app info screen offers "Disable" for user-installed apps, not only system apps: the app is completely prevented from running while keeping its data (strictly stronger than Force stop, which lets anything restart the app), and "Enable" brings it back. The uninstall/archive rules still apply (device-policy blocks, device provisioning package, uninstall already queued) and enabling still requires authentication. Framework support already exists (no patch): `PackageManagerService.setEnabledSettings` accepts `DISABLED_USER` for any package and Settings holds `CHANGE_COMPONENT_ENABLED_STATE`. Reaches users through the default SPA app-info screen; the legacy screen is unchanged, matching GrapheneOS |
 
 ## Not in the 1.0 series
 
@@ -252,7 +253,10 @@ adb logcat -d | grep -E "concurrent copying GC"
 
 shows a compacting GC line from both `system_server` and `com.android.systemui`
 (the lock-time memory hygiene) without repeating on every lock-state
-re-broadcast, and on the lock screen tapping
+re-broadcast, an installed user app's app info screen shows Disable next to
+Uninstall — disabling it makes it disappear from the launcher, `pm list
+packages -d` lists it while `pm path` still resolves (data kept), and Enable
+restores it, and on the lock screen tapping
 a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.

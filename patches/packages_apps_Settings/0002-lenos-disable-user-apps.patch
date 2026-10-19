@@ -1,0 +1,54 @@
+diff --git a/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt b/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt
+index 555e9f1..05013fa 100644
+--- a/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt
++++ b/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt
+@@ -31,6 +31,7 @@ import com.android.settingslib.spa.widget.dialog.AlertDialogButton
+ import com.android.settingslib.spa.widget.dialog.rememberAlertDialogPresenter
+ import com.android.settingslib.spaprivileged.framework.common.devicePolicyManager
+ import com.android.settingslib.spaprivileged.framework.common.userManager
++import com.android.settingslib.spaprivileged.model.app.installed
+ import com.android.settingslib.spaprivileged.model.app.isDisabledUntilUsed
+ import com.android.settingslib.Utils as SettingsLibUtils
+ 
+@@ -47,7 +48,10 @@ class AppDisableButton(
+ 
+     @Composable
+     fun getActionButton(app: ApplicationInfo): ActionButton? {
+-        if (!app.isSystemApp) return null
++        // lenOS (GrapheneOS): user-installed apps can be disabled too, not only system apps,
++        // so users can keep an app's data while fully preventing it from running. Apps that
++        // aren't installed (archived) stay with the archive/restore flows.
++        if (!app.installed) return null
+ 
+         return when {
+             app.enabled && !app.isDisabledUntilUsed -> {
+@@ -62,6 +66,11 @@ class AppDisableButton(
+      * Gets whether a package can be disabled.
+      */
+     private fun ApplicationInfo.canBeDisabled(): Boolean = when {
++        // lenOS (GrapheneOS): disabling a user-installed app is allowed whenever it could also
++        // be uninstalled or archived — it's the stricter, fully reversible alternative that
++        // keeps the app data.
++        !isSystemApp -> appButtonRepository.isAllowUninstallOrArchive(context, this)
++
+         // Try to prevent the user from bricking their phone by not allowing disabling of apps
+         // signed with the system certificate.
+         isSignedWithPlatformKey -> false
+@@ -98,7 +107,16 @@ class AppDisableButton(
+             // Currently we apply the same device policy for both the uninstallation and disable
+             // button.
+             if (!appButtonRepository.isUninstallBlockedByAdmin(app)) {
+-                dialogPresenter.open()
++                if (app.isSystemApp) {
++                    // Disabling a system app downgrades it to the system version and destroys
++                    // its data, so it stays behind the confirmation dialog.
++                    dialogPresenter.open()
++                } else {
++                    // lenOS (GrapheneOS): disabling a user-installed app is fully reversible
++                    // and keeps its data, so it needs no confirmation dialog. disable() already
++                    // requires the user to authenticate.
++                    packageInfoPresenter.disable()
++                }
+             }
+         }
+     }

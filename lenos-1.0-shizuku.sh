@@ -336,6 +336,9 @@ cmd_apply() {
   grep -q 'keyguardShowingChanged && keyguardShowing' \
     "$SRC/frameworks/base/services/core/java/com/android/server/wm/ActivityTaskManagerService.java" \
     || die "lock-time system_server GC missing"
+  grep -q 'if (!app.installed) return null' \
+    "$SRC/packages/apps/Settings/src/com/android/settings/spa/app/appinfo/AppDisableButton.kt" \
+    || die "user-installed app disabling missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 
