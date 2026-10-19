@@ -16,8 +16,8 @@ Evidence sources:
   `opt_telephony`, `system_sepolicy`, `external_seedvault`, `providers_ContactsProvider`,
   `platform_system_extras`, `platform_system_ca-certificates` @ 17
   (clone dirs under `/tmp/opencode/graphene-repos/`).
-- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **39 patches**
-  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **22× frameworks_base**, system_core,
+- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **40 patches**
+  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **23× frameworks_base**, system_core,
   frameworks_opt_telephony, packages_modules_Wifi, packages_apps_Settings, vendor_lineage,
   system_netd, packages_modules_Connectivity, packages_modules_Permission,
   packages_apps_CellBroadcastReceiver, packages_providers_MediaProvider, system_ca-certificates,
@@ -29,9 +29,11 @@ Evidence sources:
   defaults (packages_modules_Wifi/0001), the GrapheneOS PIN scrambling port
   (frameworks_base/0008 + packages_apps_Settings/0001), the LTE-only / 5G-only Settings port, the
   GNSS SUPL/PSDS privacy toggles (frameworks_base/0021 + packages_apps_Settings/0001), the
-  package-update enabled-state preservation (frameworks_base/0022) and the MediaProvider
-  directory-listing restriction (packages_providers_MediaProvider/0001) are all **done**;
-  sections 1–3 below carry status notes. §18 audits all 39 current patches.
+  package-update enabled-state preservation (frameworks_base/0022), the MediaProvider
+  directory-listing restriction (packages_providers_MediaProvider/0001) and the
+  prototype-device warning + bootloader-version visibility (frameworks_base/0023 +
+  packages_apps_Settings/0001) are all **done**;
+  sections 1–3 below carry status notes. §18 audits all 40 current patches.
 
 Caveat: GrapheneOS is on Android 17; lenOS is Android 16 (LineageOS 23.2). Where a GrapheneOS file uses
 APIs only present in 17, that is called out as "API risk". Line numbers/paths are branch-17 paths.
@@ -731,8 +733,8 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Alt touchscreen mode | `android/ext/settings/AltTouchscreenMode.java`; used in `PhoneWindowManager.java:5549/:5643` (display state prop) | depends on touch controller/firmware behavior on SM7635 | M | port later / verify hardware |
 | Removing auto location grant to system browsers | GrapheneOS `DefaultPermissionGrantPolicy` has no browser block: the stock `PACKAGE_BROWSER` role holder / `CATEGORY_APP_BROWSER` system handler never receives `FOREGROUND_LOCATION_PERMISSIONS` (the `BrowserUtils` helper is unrelated — it backs GrapheneOS SELinux flag handling) | remove the block; browsers need an explicit user grant | S | **done** (`frameworks_base/0019`) |
 | PIN scrambling (incl. SIM PIN/PUK) + other SIM/eSIM protections | GrapheneOS base-view `setupPinScrambling` (SecureRandom shuffle + digit→view remap); keyguard reads the primary ExtSettings key, SIM PIN/PUK views read the SIM key; Settings UI via `com.android.settings.ext` controllers | **Done in the fidelity redo:** `frameworks_base/0008` (SystemUI) + `packages_apps_Settings/0001` (Settings: lock-picker switch, SIM-lock switch, controller infra) + primary default flipped ON in `frameworks_base/0006` (documented lenOS deviation — GrapheneOS ships it off). Old Lineage plumbing deleted (`PinScramblePreferenceController`, device/0005, lineage_sdk/0001). Duress is *not* accepted as a SIM PIN in GrapheneOS either (same upstream — nothing to port); duress wipes eSIM profiles (§3, done) | done | — | **done** |
-| Prototype/EVT/PVT device warning | AMS `services/core/java/com/android/server/am/ActivityManagerService.java:6047-6081` (`ro.boot.secure_boot != PRODUCTION` → notification) | fwb + strings; note: on an unlockable Nothing device this fires as intended (gate on `ro.product.brand` if undesired) | S | quick win (consider gating) |
-| UART debugging warning fix; bootloader/radio/boot partition version+fingerprint checks | Not located in this scan (Settings/About + device props) | verify separately | S–M | verify |
+| Prototype/EVT/PVT device warning | AMS `services/core/java/com/android/server/am/ActivityManagerService.java:6047-6081` (`isPrototypeDevice()` + `showPrototypeNotificationIfPrototype()`: Pixel logic checks `ro.revision` for `MP` and `ro.boot.secure_boot` for `PRODUCTION`; the notification uses `SystemMessage.NOTE_PROTOTYPE_DETECTED = 400`) | **Done:** `frameworks_base/0023` — the Pixel branch is ported verbatim (brand gate, `ro.revision`, `ro.boot.secure_boot`); for other OEMs a new `isPrototypeDeviceNonPixel()` treats only an explicit `EVT`/`PVT`/`DVT` marker in `ro.boot.hwlevel`/`ro.boot.hardware.revision`/`ro.boot.device_release` as a prototype, so a retail Nothing unit whose bootloader reports nothing (or a numeric revision) never false-positives. Deliberate deviation: GrapheneOS returns early for every non-Google brand, which would make the warning dead code on Nothing | S | **done** |
+| UART debugging warning; bootloader/radio/boot partition version+fingerprint checks | AMS `showConsoleNotificationIfActive()` (`init.svc.console` running) + proto `NOTE_SERIAL_CONSOLE_ENABLED`; the pre-Treble version checks lived in `Build.isBuildConsistent()` (`ro.build.expect.bootloader`/`ro.build.expect.baseband`), which AOSP reduced to the VINTF check in the Treble era and `ActivityTaskManagerService.showSystemReadyErrorDialogsIfNeeded()` still surfaces | **Nothing left to port:** LineageOS 23.2 already ships the console notification unchanged (its check is the accurate `init.svc.console`-based one, so no Pixel-cmdline heuristic is added) and the VINTF build-consistency check + mismatch dialog; the user-visible "version verification" part is the bootloader field (`§14.5`) | — | **done** (no patch needed) |
 | Wireless alerts fully optional | `CellBroadcastReceiver` `res/values/config.xml:25` `show_presidential_alerts_settings=true` (LineageOS `false`) making the pref visible; `CellBroadcastChannelManager.java:283` (presidential `mAlwaysOn` commented out) so the pref actually controls delivery; `CellBroadcastAlertService.java:639` reads `KEY_ENABLE_CMAS_PRESIDENTIAL_ALERTS` | patch CellBroadcastReceiver (4 files, ~10 LOC) | S | quick win — **done** (`packages_apps_CellBroadcastReceiver/0001`, 9 files; also ports the 2024 "always allow disabling extreme alerts" commit) |
 | CA removal (Chunghwa Telecom, Netlock) | `platform_system_ca-certificates` commit `14ad6bb` deletes `files/53a1b57a.0`, `files/60afe812.0`, `files/9d6523ce.0` | remove the same files; re-apply on each CA update | S | quick win — **done** (`system_ca-certificates/0001`) |
 | FLAG_IMMUTABLE log+warp instead of crash | fwb `core/java/android/app/PendingIntent.java:457-467`: logs the error and `return flags \| PendingIntent.FLAG_IMMUTABLE`; LineageOS `:444-465` throws | replace throw with log+warp | S | quick win |
@@ -786,7 +788,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Minimal bundled apps | only essential apps integrated; no bundling partnerships | mechanism already exists (`LENOS_STRIP_PACKAGES`, vendor_lineage/0001); extend the strip list as policy | S | port now (policy step) |
 | Keyboard suggestions off by default | "personalized keyboard suggestions based on gathering input history are disabled by default" (privacy-by-default) | seat not pinned (IME/dictionary setting); AOSP exposes the opt-out — flip the default | S (verify) | port later (verify) |
 | Dialer call recording | GrapheneOS Dialer: recordings under `Recordings/Call Recordings`, no region restrictions or tone | LineageOS Dialer fork differs; app-level port + telecom checks | M | port later (app) |
-| Firmware security visibility | version/configuration verification reporting inconsistencies + debug features enabled (companion to the bootloader/radio/boot-partition checks row in 14.2) | same verify bucket as that row | S–M (verify) | port later (verify) |
+| Firmware security visibility | version/configuration verification reporting inconsistencies + debug features enabled (companion to the bootloader/radio/boot-partition checks row in 14.2) | **Done:** `frameworks_base/0023` (prototype warning, with the EVT/PVT/DVT phase-marker path for non-Pixel devices) + `packages_apps_Settings/0001` (bootloader version field, `BootloaderVersionPreferenceController` reading `ro.bootloader`); the "inconsistencies" reporting is AOSP's VINTF check + mismatch dialog, already shipped in LineageOS | S | **done** |
 
 **Coverage note:** every features-page ToC item is covered somewhere in this document — mapping:
 §5 (network), §6 (sensors), §7 (2FA), §8 (secure paste), §9 (delayed allow), §10 (USB-C),
@@ -877,14 +879,15 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **39** patches (the fidelity redos; the quick-win
+`GrapheneOS/*` fetches. Note: this series now has **40** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
 `packages_modules_Connectivity/0001` + `fwb/0017`/`0018`; the browser-location removal `fwb/0019`; the
 radio auto-off set `fwb/0020` + Settings rows; the LTE-only + GNSS batch `fwb/0021` + Settings rows,
-which also deleted the superseded `device/0003` so SUPL is controlled by the new framework toggle; and
-the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaProvider/0001`). Verdicts:
+which also deleted the superseded `device/0003` so SUPL is controlled by the new framework toggle;
+the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaProvider/0001`; and the
+firmware-visibility batch `fwb/0023` + the Settings bootloader field). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -924,22 +927,25 @@ the package-update + MediaProvider batch `fwb/0022` + `packages_providers_MediaP
 | `fwb/0021` GNSS SUPL/PSDS privacy | GrapheneOS `android/ext/settings/GnssSettings.java` (keys `force_disable_supl` / `psds_server`, values 0/1/2), `GnssConfiguration.applyConfigOverrides` applied after carrier + debug properties, and `GnssLocationProvider` SUPL/PSDS observers plus the `isPsdsEnabled()` download gate | Ported file-for-file with the proxy modes omitted: GrapheneOS defaults to its own SUPL/PSDS proxies and offers them in the UI; lenOS has no proxy infrastructure, so only `STANDARD`/`DISABLED` are valid and both settings default to `DISABLED` (documented deviation, privacy-max). The enforcement order, property names, SUPL mode 0 + host/port removal, PSDS server clearing and `ENABLE_PSDS_PERIODIC_DOWNLOAD=0` match GrapheneOS. `device/0003` (empty `gps.supl_host`) was deleted because it made the new "Standard server" choice a no-op | **Faithful** (proxy modes/defaults documented; stricter defaults) — keep |
 | `fwb/0022` package updates preserve enabled state | GrapheneOS `bff727d` ("always preserve package enabled setting after package update", 2026-07-29): removes the three implicit re-enable blocks in `InstallPackageHelper.updateSettingsInternalLI`, removes `InstallRequest.isApplicationEnabledSettingPersistent()`, and advertises `grapheneos.package_update_preserves_package_enabled_setting` from `SystemConfig` | Exact port of all three parts (verified against the commit diff). The `setApplicationEnabledSettingPersistent` session flag, `InstallingSession`/`InstallArgs` plumbing and `PackageInstallerSession` accessor stay (API + metrics), matching GrapheneOS; only the update path stops re-enabling. Feature name kept verbatim | **Faithful** — keep |
 | `packages_providers_MediaProvider/0001` directory listing | GrapheneOS `72492da1c` (Storage Scopes): Java returns a `["" , <dirs>]` suffix and JNI stops appending lower-FS dirs; apps with READ_MEDIA_* and `Android/` keep upstream behavior | The Java branch, native `skip_add_dirs` plumbing and the directory-name computation are line-level ports. Deviation: Storage Scopes (`GosPackageState`, `StorageScope`, scope UI, `LocalCallingIdentity` scope hooks) are **not ported**; `StorageScopesHooks.obtainDirContents` omits the scope loop and keeps the same name/shape for later. The app-created-file visibility query is unchanged | **Faithful** (subset: directory-listing hook only) — keep |
+| `fwb/0023` prototype-device warning + Settings bootloader field | AMS `isPrototypeDevice()`/`showPrototypeNotificationIfPrototype()` (Pixel: `ro.revision` contains `MP`, `ro.boot.secure_boot` is `PRODUCTION`; otherwise notify) with strings `prototype_device_notification_{title,message}` and proto `SystemMessage.NOTE_PROTOTYPE_DETECTED = 400`; Settings `BootloaderVersionPreferenceController` + row + string (`ro.bootloader`) | The Pixel branch, notification builder (same `SystemNotificationChannels.DEVELOPER` channel, `stat_sys_adb` icon, ongoing/public), proto id and call site (after `showMteOverrideNotificationIfActive()` in `finishBooting()`'s boot-complete path) are line-level ports; the Settings controller is a file-level port and the row/string match GrapheneOS. Documented deviation: GrapheneOS returns early for every non-Google brand; lenOS adds `isPrototypeDeviceNonPixel()`, which treats only an explicit EVT/PVT/DVT marker in `ro.boot.hwlevel` / `ro.boot.hardware.revision` / `ro.boot.device_release` as a prototype — without it the warning would be dead code on Nothing hardware. AOSP's serial-console notification already exists in LineageOS and is untouched (no Pixel `console=null` cmdline heuristic is added) | **Faithful** (non-Pixel detection extension documented) — keep; verify the phase properties on first boot |
 | `packages_apps_Settings/0001` LTE/5G-only entries | GrapheneOS commits `5310142ccc` ("LTE Only Mode") and `8d37b32db6` ("5G Only / 4G or 5G only") | Entries, `lteOnlyUnsupported` cases, NR-standalone detection, summary switch and strings are line-level ports (the atomic `is5GSupported` flag included, as GrapheneOS writes it). Deliberate deviation: GrapheneOS's commit also flips `getAvailabilityStatus` from `== EnabledNetworkMode` to `!= PreferredNetworkMode`, exposing the row when the carrier hides network settings (`None`); lenOS keeps the stock guard. GrapheneOS's non-world-mode `NETWORK_MODE_LTE_GSM_WCDMA` summary fallthrough is preserved verbatim | **Faithful** (availability guard deviation documented) — keep |
 | `device/0007` multiuser limit | GrapheneOS `core/res/res/values/config.xml:3288` (`config_multiuserMaximumUsers = 32`) | Same value, carried in the vendor overlay the device already uses (framework raw default is 1; the Lineage device overlay pinned 4). `config_enableMultiUserUI` is already `true` in that overlay, so both knobs the AOSP deprecation note asks for are set | **Faithful** — keep |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 39 patches: **30 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 40 patches: **31 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
-entries, single-credential-domain adaptation, explicit controller registration instead of GrapheneOS's
+entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
+registration instead of GrapheneOS's
 XML auto-wiring), the quick-win batch (`fwb/0009`–`0013`, `device/0007`, all value/line-level), the
 cross-profile clipboard policy (`fwb/0016`), the VPN leak-blocking set
 (`system_netd/0001`, `packages_modules_Connectivity/0001`, `fwb/0017`–`0018`), the
 browser-location removal (`fwb/0019`), the radio auto-off set (`fwb/0020`), the GNSS SUPL/PSDS
 set (`fwb/0021`), the package-update enabled-state port (`fwb/0022`), the MediaProvider
-directory-listing hook (`packages_providers_MediaProvider/0001`), the
+directory-listing hook (`packages_providers_MediaProvider/0001`), the firmware-visibility
+batch (`fwb/0023`, non-Pixel detection extension documented), the
 distrusted-CA removal (`ca-certificates/0001`), the FBE padding (`system_extras/0001`),
 the wireless-alerts optionalization (`packages_apps_CellBroadcastReceiver/0001`) and the delayed-Allow
 pair (`packages_modules_Permission/0001` + `fwb/0014`) — the
@@ -972,3 +978,9 @@ is superseded by this audit.
 7. Storage Scopes — `packages_providers_MediaProvider/0001` ships only the directory-listing hook.
    When scopes are ported, add `GosPackageState`/`StorageScope` support inside `StorageScopesHooks`
    (the scope loop was intentionally left out) and wire `LocalCallingIdentity.getStorageScopes()`.
+8. Non-Pixel prototype detection — `fwb/0023`'s EVT/PVT/DVT phase-property list
+   (`ro.boot.hwlevel`, `ro.boot.hardware.revision`, `ro.boot.device_release`) is best-effort: Nothing
+   bootloader documentation is not public. On the first flash, check which (if any) of those properties
+   the asteroids bootloader reports (`getprop ro.boot.hwlevel`, etc.); if the real unit type lives under
+   another `ro.boot.*` name, extend `PROTOTYPE_PHASE_PROPS` in the same patch (the check only fires on
+   an explicit EVT/PVT/DVT marker, so unknown names stay silent — no false positives).

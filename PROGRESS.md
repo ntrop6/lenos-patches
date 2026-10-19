@@ -3,6 +3,55 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-19 (fourteenth session) — prototype/EVT warning + firmware visibility
+
+* **Prototype/EVT device warning** (`frameworks_base/0023`; ports GrapheneOS's
+  AMS prototype check):
+  * `ActivityManagerService.isPrototypeDevice()` — the GrapheneOS Pixel logic
+    verbatim: brand `google`, `ro.revision` must contain `MP`, and
+    `ro.boot.secure_boot` must be `PRODUCTION`; anything else posts a
+    persistent "Device is an engineering prototype / Device security may be
+    affected." notification (the `DEVELOPER` channel, public visibility) from
+    the boot-complete path, next to the existing console/MTE notices.
+  * Non-Pixel extension (documented deviation): `isPrototypeDeviceNonPixel()`
+    treats only an explicit `EVT`/`PVT`/`DVT` marker in `ro.boot.hwlevel` /
+    `ro.boot.hardware.revision` / `ro.boot.device_release` as a prototype, so
+    a retail Nothing unit — whose bootloader may not report secure-boot state
+    at all — can never get a false warning. GrapheneOS returns early for
+    every non-Google brand, which would make the feature dead code on
+    asteroids.
+  * `SystemMessage.NOTE_PROTOTYPE_DETECTED = 400` added to
+    `proto/src/system_messages.proto` (same value as GrapheneOS, registered
+    before the legacy-ID boundary) plus the two `prototype_device_notification_*`
+    strings.
+  * AOSP's serial-console notification already exists in LineageOS and is
+    untouched; no Pixel `console=null` cmdline heuristic is added (it would be
+    unverifiable on Nothing bootloaders).
+* **Bootloader version field** (`packages_apps_Settings/0001`, regenerated;
+  ports GrapheneOS's `BootloaderVersionPreferenceController`):
+  * Settings → About phone → Firmware version now lists "Bootloader version"
+    (`ro.bootloader`, "unknown" fallback) between Baseband and Kernel, so the
+    persistent firmware state is visible.
+  * The pre-Treble `ro.build.expect.bootloader`/`expect.baseband` checks
+    GrapheneOS re-enabled in 2017 were reduced to the VINTF check upstream
+    (`Build.isBuildConsistent()` + the
+    `ActivityTaskManagerService.showSystemReadyErrorDialogsIfNeeded()`
+    mismatch dialog), which LineageOS already ships — nothing to port there.
+* Tests: new `tests/test_firmware_visibility.py` (12 checks). Full suite
+  **250 tests green**; `--check` applies all 40 patches cleanly from pristine.
+  Driver markers added for the prototype notification call, the proto id and
+  the bootloader row (plus the previously missing feature-flag marker for
+  `fwb/0022`).
+* Docs: features.md rows + checklist step, §14.2/§14.5 rows closed, §18
+  row/counts (31 faithful / 5 deliberate / 2 original / 2 plumbing) and
+  watch-list item 8, this log.
+* Not verified on a device (VM still unavailable). On first boot check: no
+  prototype notification on a retail unit
+  (`dumpsys notification --noredact | grep -i "engineering prototype"` is
+  empty), About phone → Firmware version shows the real `getprop ro.bootloader`
+  value, and record what `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
+  `ro.boot.device_release` report on this unit.
+
 ## 2026-10-19 (thirteenth session) — preserved disabled state + MediaProvider directory listing
 
 * **Package updates preserve enabled state** (`frameworks_base/0022`, exact port of
@@ -605,12 +654,16 @@ the approximations as faithful ports and lay shared infrastructure.
 6. Cromite/WebView decision (Jelly replacement), OTA/updater hardening,
    signed-update reporting.
 7. Framework work still out of the series: network permission, sensor
-   permission, 2nd PIN, prototype/EVT warning, memory hygiene on lock
+   permission, 2nd PIN, memory hygiene on lock
    (auto reboot to BFU, QS-tile gating, duress, LTE-only, the GNSS toggles,
-   preserved disabled state and the MediaProvider listing restriction are
-   done).
-8. First-boot checks for the new rows: LTE-only entry order/selection,
-   Network assistance defaults = Off, SUPL/PSDS switch survives reboot,
-   `dumpsys location` shows no SUPL/PSDS servers while off, `pm list features`
-   shows the GrapheneOS enabled-state flag, and directory listing without
-   media permissions only shows folders with the app's own files.
+   preserved disabled state, the MediaProvider listing restriction and the
+   prototype/EVT warning + firmware visibility are done).
+8. First-boot checks for the new rows and notifications: LTE-only entry
+   order/selection, Network assistance defaults = Off, SUPL/PSDS switch
+   survives reboot, `dumpsys location` shows no SUPL/PSDS servers while off,
+   `pm list features` shows the GrapheneOS enabled-state flag, directory
+   listing without media permissions only shows folders with the app's own
+   files, no "engineering prototype" notification on a retail unit (and
+   record the `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
+   `ro.boot.device_release` values for the phase-prop list), and the
+   Firmware version screen shows the real `ro.bootloader` value.

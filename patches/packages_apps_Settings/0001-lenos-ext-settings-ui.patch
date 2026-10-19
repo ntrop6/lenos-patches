@@ -1,9 +1,9 @@
 diff --git a/res/values/strings_ext.xml b/res/values/strings_ext.xml
 new file mode 100644
-index 0000000..a398e75
+index 0000000..600f30a
 --- /dev/null
 +++ b/res/values/strings_ext.xml
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,57 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!--
 +  Copyright (C) 2022 GrapheneOS
@@ -57,7 +57,30 @@ index 0000000..a398e75
 +    <string name="psds_enabled_standard_server">Standard server</string>
 +    <string name="psds_disabled">Off</string>
 +    <string name="psds_disabled_summary">Will make acquiring location lock significantly slower, especially if SUPL is turned off too</string>
++
++    <!-- Bootloader version field (GrapheneOS firmware security visibility). -->
++    <string name="bootloader_version">Bootloader version</string>
 +</resources>
+diff --git a/res/xml/firmware_version.xml b/res/xml/firmware_version.xml
+index 41f7733..1cceee9 100644
+--- a/res/xml/firmware_version.xml
++++ b/res/xml/firmware_version.xml
+@@ -54,6 +54,15 @@
+         settings:enableCopying="true"
+         settings:controller="com.android.settings.deviceinfo.firmwareversion.BasebandVersionPreferenceController"/>
+ 
++    <!-- Bootloader -->
++    <Preference
++        android:key="bootloader_version"
++        android:title="@string/bootloader_version"
++        android:summary="@string/summary_placeholder"
++        android:selectable="false"
++        settings:enableCopying="true"
++        settings:controller="com.android.settings.deviceinfo.firmwareversion.BootloaderVersionPreferenceController"/>
++
+     <!-- Kernel -->
+     <Preference
+         android:key="kernel_version"
 diff --git a/res/xml/location_settings.xml b/res/xml/location_settings.xml
 index 74bc00b..7c21fc8 100644
 --- a/res/xml/location_settings.xml
@@ -215,6 +238,57 @@ index 2c8416c..b7a3ada 100644
      }
  
      @Override
+diff --git a/src/com/android/settings/deviceinfo/firmwareversion/BootloaderVersionPreferenceController.java b/src/com/android/settings/deviceinfo/firmwareversion/BootloaderVersionPreferenceController.java
+new file mode 100644
+index 0000000..7ef1abc
+--- /dev/null
++++ b/src/com/android/settings/deviceinfo/firmwareversion/BootloaderVersionPreferenceController.java
+@@ -0,0 +1,45 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.deviceinfo.firmwareversion;
++
++import android.content.Context;
++import android.os.SystemProperties;
++
++import com.android.settings.R;
++import com.android.settings.Utils;
++import com.android.settings.core.BasePreferenceController;
++
++public class BootloaderVersionPreferenceController extends BasePreferenceController {
++
++    static final String BOOTLOADER_PROPERTY = "ro.bootloader";
++
++    public BootloaderVersionPreferenceController(Context context, String preferenceKey) {
++        super(context, preferenceKey);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        return AVAILABLE;
++    }
++
++    @Override
++    public CharSequence getSummary() {
++        return SystemProperties.get(BOOTLOADER_PROPERTY,
++                mContext.getString(R.string.device_info_default));
++    }
++}
 diff --git a/src/com/android/settings/ext/AbstractTogglePrefController.java b/src/com/android/settings/ext/AbstractTogglePrefController.java
 new file mode 100644
 index 0000000..e7f4d4c

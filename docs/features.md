@@ -94,6 +94,8 @@ their content until the user explicitly allows it.
 | No implicit location grant to browsers | `frameworks_base/0019` (GrapheneOS port) | the first-boot default-grant pass no longer gives the browser role holder (or the `CATEGORY_APP_BROWSER` system handler) foreground location; a browser must ask the user like any other app. Matches GrapheneOS, whose `DefaultPermissionGrantPolicy` has no browser block |
 | Package updates preserve the disabled state | `frameworks_base/0022` (GrapheneOS port) | an app the user disabled (or a system app disabled by default) stays disabled after an update: the three implicit re-enable paths in `InstallPackageHelper` are gone (system packages, the installing user, and other users). The `setApplicationEnabledSettingPersistent` session API remains for installers, and `grapheneos.package_update_preserves_package_enabled_setting` is advertised like GrapheneOS (commit `bff727d`). Apps can still be enabled explicitly by the user |
 | No directory listing without storage access | `packages_providers_MediaProvider/0001` (GrapheneOS port) | an app without `READ_MEDIA_AUDIO`/`IMAGES`/`VIDEO` no longer sees every user-created directory through the FUSE `readdir` path: it only sees directories that contain files it can see (its own files), plus `Android/`. Apps with a media read permission keep the upstream behavior. Ports the directory-listing part of GrapheneOS's Storage Scopes commit `72492da1c`; scopes themselves are not ported yet |
+| Prototype/EVT device warning | `frameworks_base/0023` (GrapheneOS port) | a persistent boot-time notification warns when the unit is an engineering prototype, which typically has relaxed security controls (secure-boot fuse not blown). The Pixel logic is ported verbatim (`ro.revision` / `ro.boot.secure_boot`); for other OEMs lenOS only treats an explicit EVT/PVT/DVT marker in the bootloader hardware-phase properties (`ro.boot.hwlevel`, `ro.boot.hardware.revision`, `ro.boot.device_release`) as a prototype, so unknown or numeric revisions never create a false warning. AOSP's serial-console notification already ships in LineageOS and is unchanged |
+| Bootloader version field | `packages_apps_Settings/0001` (GrapheneOS port) | Settings → About phone → Firmware version shows the bootloader version (`ro.bootloader`) next to baseband/kernel/security patch; Google removed the field from AOSP and GrapheneOS re-adds it, so the persistent firmware state stays visible. The pre-Treble `ro.build.expect.bootloader`/`expect.baseband` checks GrapheneOS enabled in 2017 were superseded by the VINTF build-consistency check (`Build.isBuildConsistent()`) and its mismatch dialog, both already present in LineageOS |
 
 ## Apps and UI
 
@@ -233,8 +235,15 @@ its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty
 clipboard for the other app's item while the keyboard still pastes, the
-cross-profile clipboard row accepts the four GrapheneOS policies, and on
-the lock screen tapping a sensitive tile (e.g.
+cross-profile clipboard row accepts the four GrapheneOS policies, About phone >
+Firmware version lists a Bootloader version row showing `getprop ro.bootloader`
+(or the "unknown" placeholder when the bootloader exposes nothing) and a
+retail unit shows no "Device is an engineering prototype" notification —
+`dumpsys notification --noredact | grep -i "engineering prototype"` prints
+nothing and either `getprop ro.boot.secure_boot` is `PRODUCTION` (Pixel-style)
+or none of `ro.boot.hwlevel` / `ro.boot.hardware.revision` /
+`ro.boot.device_release` contains EVT/PVT/DVT — and on the lock screen tapping
+a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
 

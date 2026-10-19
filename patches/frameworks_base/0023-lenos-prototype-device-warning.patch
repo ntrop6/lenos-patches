@@ -1,0 +1,126 @@
+diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
+index f9abbcd1..5b39b1d3 100644
+--- a/core/res/res/values/strings.xml
++++ b/core/res/res/values/strings.xml
+@@ -4043,6 +4043,11 @@
+     <!-- Message of notification shown when MTE status override is enabled. [CHAR LIMIT=NONE] -->
+     <string name="mte_override_notification_message">Performance and stability might be impacted. Reboot to disable. If enabled using arm64.memtag.bootctl, set it to "none" beforehand.</string>
+ 
++    <!-- Title of notification shown when a prototype device is detected. [CHAR LIMIT=NONE] -->
++    <string name="prototype_device_notification_title">Device is an engineering prototype</string>
++    <!-- Message of notification shown when a prototype device is detected. [CHAR LIMIT=NONE] -->
++    <string name="prototype_device_notification_message">Device security may be affected.</string>
++
+     <!-- Title of notification shown when contaminant is detected on the USB port. [CHAR LIMIT=NONE] -->
+     <string name="usb_contaminant_detected_title">Liquid or debris in USB port</string>
+     <!-- Message of notification shown when contaminant is detected on the USB port. [CHAR LIMIT=NONE] -->
+diff --git a/proto/src/system_messages.proto b/proto/src/system_messages.proto
+index 968325f2..8f31a196 100644
+--- a/proto/src/system_messages.proto
++++ b/proto/src/system_messages.proto
+@@ -318,6 +318,10 @@ message SystemMessage {
+     // Package: android
+     NOTE_WRONG_HSUM_STATUS = 77;
+ 
++    // Inform the user that the device appears to be a prototype.
++    // Package: android
++    NOTE_PROTOTYPE_DETECTED = 400;
++
+     // ADD_NEW_IDS_ABOVE_THIS_LINE
+     // Legacy IDs with arbitrary values appear below
+     // Legacy IDs existed as stable non-conflicting constants prior to the O release
+diff --git a/services/core/java/com/android/server/am/ActivityManagerService.java b/services/core/java/com/android/server/am/ActivityManagerService.java
+index 49b2efa1..97ee8d7a 100644
+--- a/services/core/java/com/android/server/am/ActivityManagerService.java
++++ b/services/core/java/com/android/server/am/ActivityManagerService.java
+@@ -5379,6 +5379,8 @@ public class ActivityManagerService extends IActivityManager.Stub
+         // UART is on if init's console service is running, send a warning notification.
+         showConsoleNotificationIfActive();
+         showMteOverrideNotificationIfActive();
++        // If device is not a mass production (MP) variant, send a warning notification.
++        showPrototypeNotificationIfPrototype();
+ 
+         t.traceEnd();
+     }
+@@ -5413,6 +5415,81 @@ public class ActivityManagerService extends IActivityManager.Stub
+ 
+     }
+ 
++    private static boolean isPrototypeDevice() {
++        switch (Build.BRAND) {
++            case "google":
++                break;
++            default:
++                // Other OEMs may deal with hardware revisions differently
++                return isPrototypeDeviceNonPixel();
++        }
++
++        if (!SystemProperties.get("ro.revision").contains("MP")) {
++            // MP1.0 is what all 3rd generation and newer Pixel devices have as their mass
++            // production revision.
++            // Account for future mass production device revisions by only checking for "MP".
++            return true;
++        }
++
++        if (!SystemProperties.get("ro.boot.secure_boot").equals("PRODUCTION")) {
++            // All devices with a blown secure boot fuse will have the bootloader report
++            // ro.boot.secure_boot as being in PRODUCTION mode.
++            // Engineering devices typically don't have a blown secure boot fuse as they are used
++            // for firmware development.
++            return true;
++        }
++
++        return false;
++    }
++
++    // lenOS: hardware development phase markers reported by the bootloaders of non-Pixel devices.
++    // Only an explicit EVT/PVT/DVT marker counts, so an OEM that reports a plain revision number
++    // or nothing at all never triggers the warning.
++    private static final String[] PROTOTYPE_PHASE_PROPS = {
++            "ro.boot.hwlevel",
++            "ro.boot.hardware.revision",
++            "ro.boot.device_release",
++    };
++
++    private static boolean isPrototypeDeviceNonPixel() {
++        for (String prop : PROTOTYPE_PHASE_PROPS) {
++            final String value = SystemProperties.get(prop, "");
++            if (value.contains("EVT") || value.contains("PVT") || value.contains("DVT")) {
++                return true;
++            }
++        }
++        return false;
++    }
++
++    private void showPrototypeNotificationIfPrototype() {
++        if (!isPrototypeDevice()) {
++            return;
++        }
++        String title = mContext
++                .getString(com.android.internal.R.string.prototype_device_notification_title);
++        String message = mContext
++                .getString(com.android.internal.R.string.prototype_device_notification_message);
++        Notification notification =
++                new Notification.Builder(mContext, SystemNotificationChannels.DEVELOPER)
++                        .setSmallIcon(com.android.internal.R.drawable.stat_sys_adb)
++                        .setWhen(0)
++                        .setOngoing(true)
++                        .setTicker(title)
++                        .setDefaults(0)  // please be quiet
++                        .setColor(mContext.getColor(
++                                com.android.internal.R.color
++                                        .system_notification_accent_color))
++                        .setContentTitle(title)
++                        .setContentText(message)
++                        .setVisibility(Notification.VISIBILITY_PUBLIC)
++                        .build();
++
++        NotificationManager notificationManager =
++                mContext.getSystemService(NotificationManager.class);
++        notificationManager.notifyAsUser(
++                null, SystemMessage.NOTE_PROTOTYPE_DETECTED, notification, UserHandle.ALL);
++    }
++
+     private void showMteOverrideNotificationIfActive() {
+         String bootctl = SystemProperties.get("arm64.memtag.bootctl");
+         // If MTE is on, there is one in three cases:

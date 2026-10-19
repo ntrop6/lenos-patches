@@ -318,6 +318,18 @@ cmd_apply() {
   grep -q 'StorageScopesHooks.obtainDirContents' \
     "$SRC/packages/providers/MediaProvider/src/com/android/providers/media/MediaProvider.java" \
     || die "MediaProvider directory-listing restriction missing"
+  grep -q 'grapheneos.package_update_preserves_package_enabled_setting' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/pm/SystemConfig.java" \
+    || die "package enabled-state preservation missing"
+  grep -q 'showPrototypeNotificationIfPrototype' \
+    "$SRC/frameworks/base/services/core/java/com/android/server/am/ActivityManagerService.java" \
+    || die "prototype device warning missing"
+  grep -q 'NOTE_PROTOTYPE_DETECTED = 400;' \
+    "$SRC/frameworks/base/proto/src/system_messages.proto" \
+    || die "prototype device system message id missing"
+  grep -q 'android:key="bootloader_version"' \
+    "$SRC/packages/apps/Settings/res/xml/firmware_version.xml" \
+    || die "bootloader version field missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 
