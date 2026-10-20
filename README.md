@@ -58,8 +58,9 @@ staging area, not part of the 1.0 series: its patches are **not** listed here, a
 verification. It currently carries the fs-verity/system-app update hardening (#20/#21), the
 screenshot-sound fix (#25), USB-C data-line control (#22), the on-device crash/ANR viewer (#17),
 the Setup Wizard unlocked-bootloader warning (#28), the Seedvault GrapheneOS-prefix port (#27),
-and three original OPSEC tools (metadata-scrubbing share target, Offline radio tile, and the
-opt-in screen-off clipboard wipe). The OPSEC tools are described in the experimental
+and the original OPSEC tools (metadata-scrubbing share target, Offline radio tile, opt-in
+screen-off clipboard wipe, and per-app clipboard access via the existing AOSP AppOp). The OPSEC
+tools are described in the experimental
 [`docs/opsec.md`](https://github.com/ntrop6/lenos-experimental/blob/main/docs/opsec.md); `STATUS.md`
 and a build-time verification checklist record what is static-only.
 

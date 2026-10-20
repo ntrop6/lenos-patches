@@ -1084,8 +1084,10 @@ unchanged and remains 53 patches / 348 tests.
 * **OPSEC additions (lenOS-original):** `vendor_lenos/0001` builds `LenosOpsec` with a
   metadata-scrubbing image share target (OPS-1) and an Offline Quick Settings tile (OPS-2);
   `frameworks_base/0004` + `packages_apps_Settings/0003` add the opt-in, per-user screen-off
-  clipboard wipe (OPS-3). No network code; no new trust anchors.
-* Experimental repo: 10 patches, 55 source-level tests, all strict `git apply --check` clean.
+  clipboard wipe (OPS-3). OPS-4 / Secure Paste stage 2 (`packages_apps_Settings/0004`) exposes the
+  existing AOSP `OP_READ_CLIPBOARD` AppOp per user-installed app, with no framework patch or new
+  permission. No network code; no new trust anchors.
+* Experimental repo: 11 patches, 60 source-level tests, all strict `git apply --check` clean.
   `STATUS.md`, `docs/opsec.md`, provenance and verification were updated. Nothing promoted to 1.0.
 * Remaining blockers: #23 (GosPackageState/sepolicy), #30/#31 (XL PackageManager/credential-domain
   ports), #33/#34 (runtime/SELinux workstreams), #35 (browser product decision). No flash, wipe or
