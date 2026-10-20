@@ -1209,3 +1209,35 @@ available. Also record boot time, idle memory and a few real workloads before
 and after the fragment, because `init_on_free` is the only option with a
 material cost. Until this runs on the device, #32 is **source-complete**, not
 verified.
+
+## 20. Experimental companion repository (unbuildable workstreams)
+
+The VM is unreachable, so implementations that are source-complete but cannot
+be built or device-validated are kept out of the 1.0 series. They live in
+[`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental),
+which is linked from the main README and feature matrix. The main
+`tools/lenos-patch.py` does **not** read that repository; the two series must
+not be applied together without a deliberate build/test decision.
+
+First experimental batch:
+
+* **#20/#21 — system-app update verification.** `frameworks_base/0001` ports
+  GrapheneOS's `PackageVerityExt`: immutable packages are recorded during the
+  boot scan before `/data` updates are considered; an update is rejected when
+  its versionCode is not greater (or is equal for static shared libraries),
+  when any split lacks fs-verity, or when its signing certificate lacks the
+  required capability. The install path also fails before committing for
+  fs-verity and same-versionCode cases. Debuggable-only recovery properties
+  are retained. GrapheneOS's original-package exception for Vanadium/PDF
+  viewer is not ported (lenOS ships neither).
+* **#25 — screenshot sound.** `frameworks_base/0002` removes the
+  `screenshotForceShutterSound` aconfig guard from the non-forced screenshot
+  sound and gates it on `Settings.System.SOUND_EFFECTS_ENABLED`; the forced
+  shutter path is unchanged.
+
+The repository carries its own strict patchkit, 18 source-level tests,
+provenance and a post-build verification checklist. The remaining workstreams
+(#22 USB-C port control, #23 ptrace, #27 Seedvault, #28 Setup Wizard, #30/#31
+scopes/2FA, #33–#35 runtime/SELinux/browser) are listed with their concrete
+blockers in the experimental `STATUS.md`; they are not implemented and are not
+claimed as shipped.

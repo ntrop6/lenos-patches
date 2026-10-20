@@ -37,7 +37,8 @@ One entry per working session. "Verified" = seen working on a booted device
   loop, versionCode/signature checks, debug guards, Kotlin patch scope,
   apply/reverse). Apply → status → reset was exercised on the real
   `frameworks/base` tree; it restored the tree and removed the created file.
-  The main series is still 53 patches; main tests are unaffected.
+  The main series is still 53 patches; `--check` is clean and the main 348
+  tests stay green (only README/feature-matrix/progress/porting docs changed).
 * **Honest scope:** #22 (USB-C port control) needs the vendor HAL and keyguard
   port-security path; #23 (ptrace) needs the `GosPackageState`/SELinux-flags
   core; #27 (Seedvault) needs an app fork/update; #28 (Setup Wizard) needs a
