@@ -1233,9 +1233,12 @@ First experimental batch:
 * **#25 — screenshot sound.** `frameworks_base/0002` removes the
   `screenshotForceShutterSound` aconfig guard from the non-forced screenshot
   sound and gates it on `Settings.System.SOUND_EFFECTS_ENABLED`; the forced
-  shutter path is unchanged.
+  shutter path is unchanged. lenOS evaluates the forced path first so a
+  mandatory shutter sound is not silenced by the touch-sounds setting (a
+  deliberate deviation from GrapheneOS branch 17's early return; see the
+  experimental provenance doc).
 
-The repository carries its own strict patchkit, 18 source-level tests,
+The repository carries its own strict patchkit, 19 source-level tests,
 provenance and a post-build verification checklist. The remaining workstreams
 (#22 USB-C port control, #23 ptrace, #27 Seedvault, #28 Setup Wizard, #30/#31
 scopes/2FA, #33–#35 runtime/SELinux/browser) are listed with their concrete

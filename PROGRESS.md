@@ -30,10 +30,13 @@ One entry per working session. "Verified" = seen working on a booted device
     `screenshotForceShutterSound` aconfig guard is gone, camera-availability
     tracking is registered unconditionally, and the forced-shutter path
     (`MediaActionSound.mustPlayShutterSound()` with the camera open) is
-    unchanged.
+    evaluated first, so a mandatory shutter is not silenced by the
+    touch-sounds setting. The existing `multivalentTests` are updated for the
+    new constructor/suspend API and cover the forced and sound-effects-off
+    paths.
 * **Verification:** the experimental repo has its own copy of the strict
   patchkit (`--check`, `--apply`, `--status`, `--reset`), a minimal project
-  map, and 18 source-level tests (Java tree-sitter parse, hook order, fs-verity
+  map, and 19 source-level tests (Java tree-sitter parse, hook order, fs-verity
   loop, versionCode/signature checks, debug guards, Kotlin patch scope,
   apply/reverse). Apply → status → reset was exercised on the real
   `frameworks/base` tree; it restored the tree and removed the created file.
