@@ -138,15 +138,32 @@ Source-complete work that cannot be built or device-validated in the current
 environment is staged in the separate
 [`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental)
 repository. It is not part of this series and is not applied by the 1.0
-patchkit. The first experimental batch implements:
+patchkit. The current experimental batches implement:
 
 * **#20/#21** — fs-verity enforcement for system-app updates and rejection of
   same/older `/data` updates across reboot (GrapheneOS `PackageVerityExt`);
 * **#25** — screenshot sound follows `Settings.System.SOUND_EFFECTS_ENABLED`,
-  while forced-shutter regions keep `MediaActionSound.mustPlayShutterSound()`.
+  while forced-shutter regions keep `MediaActionSound.mustPlayShutterSound()`;
+* **#22** — USB-C data-line control using AOSP's per-port `enableUsbData` HAL
+  operation, with the five GrapheneOS mode constants and
+  `persist.security.usb_mode`; HAL support on `asteroids` is not yet verified;
+* **#17** — a local-only DropBox crash/ANR viewer in Settings with explicit
+  sharing and no upload path;
+* **#28** — a non-blocking Setup Wizard warning when the bootloader is not
+  verified-green, with wording that does not encourage re-locking an unsigned
+  build;
+* **#27** — the Seedvault internal `app.grapheneos` prefix port and GrapheneOS
+  prebuilt chunker, preserving `com.stevesoltys.seedvault` as the app id;
+* **OPS-1** — a metadata-scrubbing image share target that re-encodes the
+  image and shares only a randomized, metadata-free copy;
+* **OPS-2** — an Offline Quick Settings tile that turns off Wi-Fi and
+  Bluetooth before enabling airplane mode;
+* **OPS-3** — an opt-in, per-user screen-off clipboard wipe.
 
-The repository's `STATUS.md` lists the remaining untestable workstreams
-(#22, #23, #27, #28, #30, #31, #33–#35) with the concrete blocker for each.
+The experimental [`docs/opsec.md`](https://github.com/ntrop6/lenos-experimental/blob/main/docs/opsec.md)
+documents the OPSEC threat model and limits. The repository's `STATUS.md` lists
+the remaining untestable workstreams (#23, #30, #31, #33–#35) with the
+concrete blocker for each.
 
 ## Not in the 1.0 series
 

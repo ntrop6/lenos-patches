@@ -1061,3 +1061,32 @@ the approximations as faithful ports and lay shared infrastructure.
    Firmware version screen shows the real `ro.bootloader` value, and locking
    with `log.tag.art` set to `VERBOSE` produces compacting-GC lines from both
    `system_server` and SystemUI.
+
+## 2026-10-20 — experimental batch 2 (source-only; no build, flash or lock)
+
+The VM is still unreachable. Work moved to `ntrop6/lenos-experimental`; the main 1.0 series is
+unchanged and remains 53 patches / 348 tests.
+
+* **#22 USB-C data-line control:** `frameworks_base/0003` + `packages_apps_Settings/0002`.
+  Uses AOSP 16 per-port `UsbPortManager.enableUsbData` rather than GrapheneOS's vendor sysprops;
+  preserves the five mode constants and `persist.security.usb_mode`, applies on boot/keyguard/first
+  unlock, rejects ordinary re-enables while blocking, and exposes the Settings row. Modes 0 and 1
+  are equivalent because the portable HAL only cuts data lines; `asteroids` HAL support is
+  unverified, so this stays experimental.
+* **#17 crash/ANR viewer:** `packages_apps_Settings/0001`. Local DropBox reader, bounded entries,
+  explicit sharing only, no network permission or upload path. Not GrapheneOS's crash service.
+* **#28 Setup Wizard warning:** `packages_apps_SetupWizard/0001`. Non-blocking welcome-page warning
+  when `ro.boot.verifiedbootstate` is not green; wording explicitly does not tell users to re-lock
+  an unsigned build.
+* **#27 Seedvault prefix:** `packages_apps_Seedvault/0001`. GrapheneOS internal `app.grapheneos`
+  prefix + prebuilt chunker, keeping `com.stevesoltys.seedvault` and `BASE_SPLIT`. Old backups may
+  not restore; migration is unverified.
+* **OPSEC additions (lenOS-original):** `vendor_lenos/0001` builds `LenosOpsec` with a
+  metadata-scrubbing image share target (OPS-1) and an Offline Quick Settings tile (OPS-2);
+  `frameworks_base/0004` + `packages_apps_Settings/0003` add the opt-in, per-user screen-off
+  clipboard wipe (OPS-3). No network code; no new trust anchors.
+* Experimental repo: 10 patches, 55 source-level tests, all strict `git apply --check` clean.
+  `STATUS.md`, `docs/opsec.md`, provenance and verification were updated. Nothing promoted to 1.0.
+* Remaining blockers: #23 (GosPackageState/sepolicy), #30/#31 (XL PackageManager/credential-domain
+  ports), #33/#34 (runtime/SELinux workstreams), #35 (browser product decision). No flash, wipe or
+  lock was performed.

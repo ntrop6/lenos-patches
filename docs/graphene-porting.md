@@ -666,6 +666,16 @@ USB-C alternate modes (DisplayPort) are disabled, plus a kernel/OS-level second 
 **Verdict: not feasible now (full feature); partial prototype possible (see step 1).** Put on the
 "research" list; do not promise GrapheneOS-equivalent guarantees.
 
+**Implemented in the experimental repository (not 1.0).** `frameworks_base/0003` +
+`packages_apps_Settings/0002` implement the OS-side subset using AOSP 16's existing per-port
+`UsbPortManager.enableUsbData` operation rather than the GrapheneOS vendor sysprops. The five
+GrapheneOS mode constants and the `persist.security.usb_mode` key are preserved; a controller
+applies the mode on boot, keyguard lock/unlock and first unlock, rejects ordinary re-enables while
+the policy is blocking, and exposes the setting in Settings. Because the portable operation only
+controls data lines, modes 0 (`ALL_PORTS_DISABLED`) and 1 (`CHARGING_ONLY`) are equivalent on this
+build; alternate-mode/PD disabling and persisted HAL-init enforcement remain vendor-firmware work.
+The `asteroids` USB HAL has not been validated, so this stays out of 1.0 and is marked experimental.
+
 ---
 
 ## 11. FBE filename padding 16 → 32 bytes
@@ -873,15 +883,15 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Install available apps | `UserSystemPackageInstaller.java` (fwb) + config **not enabled in AOSP/Pixel** per GrapheneOS; enable + UI | fwb config + Settings UI | M | port later |
 | Notification forwarding (cross-profile) | Not located in this fwb scan (verify their Settings/notification service changes) | verify | M–L (est.) | port later (verify) |
 | User-installed apps can be disabled | GrapheneOS `AppDisableButton.kt` (Settings SPA app info): the button is offered for every installed app (`!app.installed` gate instead of `!isSystemApp`); `canBeDisabled()` gains a `!isSystemApp -> isAllowUninstallOrArchive(...)` branch, so the uninstall/archive rules (incl. `DISALLOW_APPS_CONTROL`) still apply; clicking Disable on a user app disables it directly while the data-loss confirmation dialog stays for system apps (where disable means downgrade). No framework change: `PackageManagerService.setEnabledSettings` already accepts `DISABLED_USER` for any package and Settings holds `CHANGE_COMPONENT_ENABLED_STATE` | **Done:** `packages_apps_Settings/0002` — A16-adapted line-level port; the framework invariant is pinned by `tests/test_disable_user_apps.py`. The legacy `AppButtonsPreferenceController` screen is unmodified (GrapheneOS leaves it unmodified too; SPA is the default app-info screen) | S | **done** |
-| Encrypted backups (Seedvault) | LineageOS 23.2 ships Seedvault (`packages/apps/Seedvault`, via `snippets/lineage.xml`); GrapheneOS's `external/seedvault` fork is *newer upstream* (their tag `2026101600` vs Lineage's `16-5.9`) plus GrapheneOS-specific commits (app-id prefix, and a **prebuilt** `libs/seedvault-chunker-0.1.jar` built from `GrapheneOS/seedvault-chunker`) | **Deferred:** not a small security-fix sync. A faithful port means updating the Lineage fork to the newer 16.x upstream and deciding whether to vendor and build the GrapheneOS chunker source (the GOS tree ships only a binary jar). Both need build iteration — revisit when the VM is back | M–L | port later |
-| Log viewer + user-facing crash reporting | fwb `services/core/java/com/android/server/ext/` bundle (17 files, 2722 lines total: `TombstoneHandler.java` 468, `DropBoxMonitor.java` 339, `SystemJournalNotif.java` 103, `SystemErrorNotification.java` 43, `BgDexoptUi.java` 171, `IntentReceiver.java` 103, `PackageManagerHooks.java` 226, `SeInfoOverride.java` 84, `AppCompatConf.java` 195, `AppSwitchNotification.java` 227, …) + Settings log-viewer UI | log viewer alone: M; full crash reporting: L | M–L | port later |
+| Encrypted backups (Seedvault) | LineageOS 23.2 ships Seedvault (`packages/apps/Seedvault`, via `snippets/lineage.xml`); GrapheneOS's `external/seedvault` fork is *newer upstream* (their tag `2026101600` vs Lineage's `16-5.9`) plus GrapheneOS-specific commits (app-id prefix, and a **prebuilt** `libs/seedvault-chunker-0.1.jar` built from `GrapheneOS/seedvault-chunker`) | **Experimental implementation:** `packages_apps_Seedvault/0001` ports the internal `app.grapheneos` prefix and the GrapheneOS prebuilt chunker while keeping `com.stevesoltys.seedvault` and the legacy `BASE_SPLIT`. Existing old-prefix backups may not restore; migration is unverified. The full A17 upstream rebase is still out of scope | M–L | experimental |
+| Log viewer + user-facing crash reporting | fwb `services/core/java/com/android/server/ext/` bundle (17 files, 2722 lines total: `TombstoneHandler.java` 468, `DropBoxMonitor.java` 339, `SystemJournalNotif.java` 103, `SystemErrorNotification.java` 43, `BgDexoptUi.java` 171, `IntentReceiver.java` 103, `PackageManagerHooks.java` 226, `SeInfoOverride.java` 84, `AppCompatConf.java` 195, `AppSwitchNotification.java` 227, …) + Settings log-viewer UI | **Experimental local viewer:** `packages_apps_Settings/0001` reads the existing DropBox crash/ANR/watchdog tags, bounds the list and shares only on an explicit action. No upload, no background reporter, no network permission. GrapheneOS's full reporting service is not ported | M–L | experimental (local only) |
 
 ### 14.4 Anti-persistence, App-source and app-level items
 
 | Item | GrapheneOS implementation | lenOS port | Size | Verdict |
 |---|---|---|---|---|
-| fs-verity enforcement for out-of-band APK updates (`PackageVerityExt`) | install-time + boot-time verified metadata, downgrade prevention, parsing-cache disabled | design work; not pinned in this scan | L | port later |
-| System-app versionCode downgrade loophole | PM install + boot checks | as above | M–L | port later |
+| fs-verity enforcement for out-of-band APK updates (`PackageVerityExt`) | install-time + boot-time verified metadata, downgrade prevention, parsing-cache disabled | **Experimental:** `frameworks_base/0001` ports the boot/install checks and signing-capability policy; debug-only escape properties retained. Needs a system-app update test | L | experimental |
+| System-app versionCode downgrade loophole | PM install + boot checks | **Experimental:** same `frameworks_base/0001`, including the boot-time rejection of same/older `/data` updates | M–L | experimental |
 | Package updates preserve the disabled state | GrapheneOS `bff727d`: removes the three implicit `ps.setEnabled(COMPONENT_ENABLED_STATE_DEFAULT, …)` paths from `InstallPackageHelper.updateSettingsInternalLI`, drops `InstallRequest.isApplicationEnabledSettingPersistent()`, and advertises `grapheneos.package_update_preserves_package_enabled_setting` in `SystemConfig` | **Done:** `frameworks_base/0022`. Exact port of the commit; the `setApplicationEnabledSettingPersistent` session API/flag and `PackageInstallerSession` accessor remain (API/metrics), but updates no longer consult them. An app disabled by the user (or a disabled system app) survives every update | S | **done** |
 | MediaProvider directory listing | GrapheneOS `72492da1c` (Storage Scopes): `MediaProvider.getFilesInDirectoryForFuse` returns DB-visible files plus a empty-string separator and the subdirectories that contain visible files; JNI `MediaProviderWrapper.cpp` then skips appending lower-FS directory names. Apps with `READ_MEDIA_AUDIO/IMAGES/VIDEO` and the `Android/` directory keep upstream behavior | **Done (directory-listing part):** `packages_providers_MediaProvider/0001`. A caller with no storage permission now only sees directories containing files it can see, instead of every user-created directory. Storage Scopes themselves (`GosPackageState`, `StorageScope`, scopes UI) are not ported; `StorageScopesHooks` keeps GrapheneOS's name/shape so the rest can be added later | M | **done** (scopes later) |
 | Kernel LTS + hardening | their kernel forks + patches | **Started (Tier 3 #32):** `kernel_nothing_sm7635/0001` adds `arch/arm64/configs/vendor/lenos_hardening.config` (zero-on-free, randomized kmalloc caches, kernel-stack offset randomization, dmesg restriction, register zeroing) and `device_nothing_asteroids/0008` merges it last. `INIT_STACK_ALL_ZERO` is already the upstream 6.6 default; `INIT_ON_ALLOC_DEFAULT_ON`, SLUB hardening, CFI/SCS and `LIST_HARDENED` are already on. Not yet: 48-bit VA / 4-level page tables, module signing/lockdown, LTS cadence, custom allocator canaries/MTE. See §19 | M (shipped subset) / XL+ (remaining) | **started** |
@@ -890,7 +900,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Sandboxed Google Play / Android Auto | GmsCompatConfig + compatibility layer (their own repos; apps sandboxed, no special privileges) | a project of its own; no AOSP-path port | XL | app-level bundle (later) |
 | GrapheneOS app repository client | their client + server | alternatives exist (Obtainium/F-Droid); not source-portable | M | app-level bundle |
 | Auditor | app + attestation service (attestation.app) | installable APK on any OS; strong value only with their service; not source-portable | S (bundle) | app-level bundle |
-| Camera / PDF viewer / Setup Wizard | standalone apps | Camera & PDF viewer are standalone APKs (usable as a bundle); Setup Wizard is tied to their framework UX. **Setup Wizard specifically:** LineageOS 23.2 ships `packages/apps/SetupWizard` (a LineageOS wizard under `src/org/lineageos/setupwizard`), and GrapheneOS's fork of it contains **no** bootloader/OEM-unlock warning (no `bootloader`/`oem` references in `GrapheneOS/platform_packages_apps_SetupWizard`). Roadmap #28 as written has no GrapheneOS source to port from and needs a specification (what to show, where, and what "OEM unlock behavior" means) before implementation | S (bundle) / XL (wizard) | needs spec |
+| Camera / PDF viewer / Setup Wizard | standalone apps | Camera & PDF viewer are standalone APKs (usable as a bundle); Setup Wizard is tied to their framework UX. **Setup Wizard specifically:** LineageOS 23.2 ships `packages/apps/SetupWizard` (a LineageOS wizard under `src/org/lineageos/setupwizard`), and GrapheneOS's fork of it contains **no** bootloader/OEM-unlock warning (no `bootloader`/`oem` references in `GrapheneOS/platform_packages_apps_SetupWizard`). **Experimental lenOS implementation:** `packages_apps_SetupWizard/0001` adds a non-blocking welcome-page warning keyed on `ro.boot.verifiedbootstate`, with wording that does not encourage re-locking an unsigned build | S (bundle) / XL (wizard) | experimental |
 | Authenticated NTP + disabling network time | their NTP server with A-E; toggle | lenOS sets NTP server default via 0002; authenticated NTP needs a server (not portable); AOSP supports disabling time sync natively | S | done/not portable |
 
 ### 14.5 Other-features sweep (misc ToC items)
@@ -1219,7 +1229,7 @@ which is linked from the main README and feature matrix. The main
 `tools/lenos-patch.py` does **not** read that repository; the two series must
 not be applied together without a deliberate build/test decision.
 
-First experimental batch:
+Current experimental batches:
 
 * **#20/#21 — system-app update verification.** `frameworks_base/0001` ports
   GrapheneOS's `PackageVerityExt`: immutable packages are recorded during the
@@ -1237,10 +1247,26 @@ First experimental batch:
   mandatory shutter sound is not silenced by the touch-sounds setting (a
   deliberate deviation from GrapheneOS branch 17's early return; see the
   experimental provenance doc).
+* **#22 — USB-C data-line control.** `frameworks_base/0003` +
+  `packages_apps_Settings/0002` implement the portable OS-side subset with
+  AOSP's per-port `enableUsbData` HAL operation. Modes, keyguard transitions,
+  the `persist.security.usb_mode` key and the Settings UI are present; the
+  `asteroids` HAL and modes 0/1 are documented limitations (§10).
+* **#17 — crash/ANR viewer.** `packages_apps_Settings/0001` adds a local
+  DropBox reader with bounded entries and explicit sharing; no upload path.
+* **#28 — Setup Wizard warning.** `packages_apps_SetupWizard/0001` shows a
+  non-blocking warning on the welcome page when verified boot is not green.
+* **#27 — Seedvault prefix.** `packages_apps_Seedvault/0001` ports the
+  GrapheneOS internal `app.grapheneos` prefix and prebuilt chunker while
+  keeping `com.stevesoltys.seedvault`; backup migration is unverified.
+* **OPS-1/OPS-2/OPS-3 — original lenOS OPSEC tools.**
+  `vendor_lenos/0001` builds a metadata-scrubbing share target and Offline
+  radio tile; `frameworks_base/0004` + `packages_apps_Settings/0003` add the
+  opt-in screen-off clipboard wipe. These are not GrapheneOS ports; the
+  threat model and limits are in the experimental `docs/opsec.md`.
 
-The repository carries its own strict patchkit, 19 source-level tests,
+The repository carries its own strict patchkit, 55 source-level tests,
 provenance and a post-build verification checklist. The remaining workstreams
-(#22 USB-C port control, #23 ptrace, #27 Seedvault, #28 Setup Wizard, #30/#31
-scopes/2FA, #33–#35 runtime/SELinux/browser) are listed with their concrete
-blockers in the experimental `STATUS.md`; they are not implemented and are not
-claimed as shipped.
+(#23 ptrace, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are listed
+with their concrete blockers in the experimental `STATUS.md`; they are not
+implemented and are not claimed as shipped.
