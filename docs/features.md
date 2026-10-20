@@ -46,6 +46,7 @@ their content until the user explicitly allows it.
 | Feature | Where | Notes |
 |---|---|---|
 | Up to 32 users/profiles | `device_nothing_asteroids/0007` | GrapheneOS parity: `config_multiuserMaximumUsers` raised 4 → 32 in the vendor overlay (the framework raw default is 1; the overlay is what ships). Each profile is its own encryption domain, so more profiles support stronger per-identity separation; the limit is a ceiling, not a default |
+| Per-user app installation policy | `packages_apps_Settings/0003` (GrapheneOS port) | the owner can set, per user, whether that user may install and update apps: **enabled**, **first-party sources only** (unknown sources blocked), or **disabled** — GrapheneOS's `UserAppsInstallSettings` screen behind a new "App installs and updates" row in user details. It uses the standard `DISALLOW_INSTALL_APPS` / `DISALLOW_INSTALL_UNKNOWN_SOURCES` restrictions, which A16's framework already enforces in `PackageInstallerService`/`InstallPackageHelper`; the guest's choice is written to the guest-default bundle. No framework change; the helper's private-space inheritance half (a separate GrapheneOS feature) is not ported |
 
 ## Network
 
@@ -261,7 +262,9 @@ while it is accessing and the indicator clears a few seconds after it stops,
 reconnecting to a per-connection-randomized network shows a fresh DHCP
 DISCOVER instead of a renewal of the previous address
 (`adb logcat -b all -s DhcpClient`), a secondary user's lock screen offers no
-End session button (the power menu still has it), a fresh permission dialog keeps
+End session button (the power menu still has it), a secondary user's User
+details > App installs and updates offers the three policies and "Disabled"
+makes that user's package installer refuse installs, a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty

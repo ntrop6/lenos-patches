@@ -71,6 +71,19 @@ One entry per working session. "Verified" = seen working on a booted device
   marker, `tests/test_lock_screen_logout.py` (5 checks).
 * Suite is now 322 green; all 50 patches `--check` clean; §18 is a 50-patch
   audit (41 faithful); §14.3's end session row is marked done.
+* **#19 is in** — per-user app installation policy. GrapheneOS's
+  `UserAppsInstallSettings` screen (enabled / first-party sources only /
+  disabled) is behind a new "App installs and updates" row in user details and
+  writes the standard `DISALLOW_INSTALL_APPS` / `DISALLOW_INSTALL_UNKNOWN_SOURCES`
+  restrictions; the guest's choice goes through the guest-default bundle.
+  A16 needs no framework patch (both restrictions are already enforced in
+  `PackageInstallerService`/`InstallPackageHelper`). Deltas documented:
+  `SettingsEnums.PAGE_UNKNOWN` instead of the absent `METRICS_CATEGORY_UNKNOWN`,
+  a new `strings_lenos_users.xml`, and a trimmed `UserRestrictions` helper
+  (GrapheneOS's private-space inheritance stays out). `packages_apps_Settings/0003`,
+  driver marker, `tests/test_user_app_installs.py` (9 checks).
+* Suite is now 331 green; all 51 patches `--check` clean; §18 is a 51-patch
+  audit (42 faithful); §14.3's install row is marked done.
 * Not done: on-device verification (VM still unavailable), and the DHCP fix
   stays unexercised until the first build (it is a runtime path, not a build
   input). No Settings change for the indicator (it has no toggle — matches

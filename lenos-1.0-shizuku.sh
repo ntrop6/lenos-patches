@@ -376,6 +376,9 @@ cmd_apply() {
   grep -q 'if (false && mUserLogoutInteractor.isLogoutEnabled' \
     "$SRC/frameworks/base/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java" \
     || die "lock screen end session button not disabled"
+  grep -q 'DISALLOW_INSTALL_UNKNOWN_SOURCES' \
+    "$SRC/packages/apps/Settings/src/com/android/settings/users/UserAppsInstallSettings.java" \
+    || die "per-user app install policy missing"
   info "apply OK - tree carries the lenOS patch series"
 }
 

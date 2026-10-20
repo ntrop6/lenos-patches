@@ -1,0 +1,436 @@
+diff --git a/res/values/strings_lenos_users.xml b/res/values/strings_lenos_users.xml
+new file mode 100644
+index 0000000..e145c25
+--- /dev/null
++++ b/res/values/strings_lenos_users.xml
+@@ -0,0 +1,26 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2023 GrapheneOS
++     Copyright (C) 2026 The lenOS Project
++
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
++
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++<resources>
++    <!-- GrapheneOS: per-user app installation policy (UserAppsInstallSettings). -->
++    <string name="user_app_install">App installs and updates</string>
++    <string name="user_app_install_enabled">Enabled</string>
++    <string name="user_app_install_enabled_first_party_sources">Enabled for first party sources</string>
++    <string name="user_app_install_disabled">Disabled</string>
++    <string name="user_app_install_enabled_desc">Enable app installs and updates</string>
++    <string name="user_app_install_enabled_first_party_sources_desc">Enable app installs and updates from first party sources only</string>
++    <string name="user_app_install_disabled_desc">Disable app installs and updates</string>
++</resources>
+diff --git a/res/xml/user_details_settings.xml b/res/xml/user_details_settings.xml
+index 8e15d14..2cd01c1 100644
+--- a/res/xml/user_details_settings.xml
++++ b/res/xml/user_details_settings.xml
+@@ -33,6 +33,10 @@
+             android:key="app_and_content_access"
+             android:icon="@drawable/ic_lock_closed"
+             android:title="@string/user_restrictions_title" />
++    <com.android.settingslib.RestrictedPreference
++            android:key="app_installs"
++            android:icon="@drawable/ic_settings_install"
++            android:title="@string/user_app_install" />
+     <com.android.settingslib.RestrictedPreference
+             android:key="app_copying"
+             android:icon="@drawable/ic_apps"
+diff --git a/src/com/android/settings/users/UserAppsInstallSettings.java b/src/com/android/settings/users/UserAppsInstallSettings.java
+new file mode 100644
+index 0000000..12622d9
+--- /dev/null
++++ b/src/com/android/settings/users/UserAppsInstallSettings.java
+@@ -0,0 +1,203 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.users;
++
++import static com.android.settings.users.UserDetailsSettings.EXTRA_USER_ID;
++
++import android.app.settings.SettingsEnums;
++import android.content.Context;
++import android.content.pm.UserInfo;
++import android.os.Bundle;
++import android.os.UserHandle;
++import android.os.UserManager;
++import android.util.Log;
++
++import androidx.preference.Preference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.R;
++import com.android.settings.core.SubSettingLauncher;
++import com.android.settings.dashboard.DashboardFragment;
++import com.android.settings.utils.CandidateInfoExtra;
++import com.android.settings.widget.RadioButtonPickerFragment;
++import com.android.settingslib.widget.CandidateInfo;
++import com.android.settingslib.widget.SelectorWithWidgetPreference;
++
++import java.util.ArrayList;
++import java.util.List;
++
++/**
++ * Per-user app installation policy. GrapheneOS port: the owner can allow all
++ * installs and updates, only first-party sources, or nothing at all for the
++ * selected user, using the standard user restrictions the platform already
++ * enforces ({@link UserManager#DISALLOW_INSTALL_APPS} and
++ * {@link UserManager#DISALLOW_INSTALL_UNKNOWN_SOURCES}).
++ */
++public class UserAppsInstallSettings extends RadioButtonPickerFragment {
++
++    private static final String TAG = "UserAppsInstallSettings";
++    private static final String INSTALL_ENABLED = "install_apps_enabled";
++    private static final String INSTALL_FIRST_PARTY_ENABLED = "install_apps_first_party_enabled";
++    private static final String INSTALL_DISABLED = "install_apps_disabled";
++    private UserRestrictions userRestrictions;
++
++    static void launch(Preference preference, int userId) {
++
++        Bundle extras = preference.getExtras();
++        extras.putInt(EXTRA_USER_ID, userId);
++
++        new SubSettingLauncher(preference.getContext())
++                .setDestination(UserAppsInstallSettings.class.getName())
++                .setSourceMetricsCategory(extras.getInt(DashboardFragment.CATEGORY,
++                        SettingsEnums.PAGE_UNKNOWN))
++                .setTitleText(preference.getTitle())
++                .setArguments(extras)
++                .launch();
++    }
++
++    private static String getCurrentInstallRestriction(UserRestrictions userRestrictions) {
++        if (userRestrictions.isSet(UserManager.DISALLOW_INSTALL_APPS)) {
++            return INSTALL_DISABLED;
++        }
++
++        if (userRestrictions.isSet(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)) {
++            return INSTALL_FIRST_PARTY_ENABLED;
++        }
++
++        return INSTALL_ENABLED;
++    }
++
++    static String getDescription(Context context, UserRestrictions userRestrictions) {
++        switch (getCurrentInstallRestriction(userRestrictions)) {
++            case INSTALL_ENABLED:
++                return context.getString(R.string.user_app_install_enabled);
++            case INSTALL_FIRST_PARTY_ENABLED:
++                return context.getString(R.string.user_app_install_enabled_first_party_sources);
++            case INSTALL_DISABLED:
++                return context.getString(R.string.user_app_install_disabled);
++            default:
++                throw new IllegalStateException();
++        }
++    }
++
++    @Override
++    public void onCreate(Bundle savedInstanceState) {
++        Bundle args = requireArguments();
++        int userId = args.getInt(EXTRA_USER_ID, UserHandle.USER_NULL);
++        Context ctx = requireContext();
++        userRestrictions = UserRestrictions.createInstance(ctx, userId);
++        if (userRestrictions == null) {
++            Log.w(TAG, "Unable to fetch user info for provided userId");
++            finishFragment();
++            return;
++        }
++
++        super.onCreate(savedInstanceState);
++    }
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        PreferenceScreen ps = getPreferenceManager().createPreferenceScreen(requireContext());
++        setPreferenceScreen(ps);
++    }
++
++    @Override
++    protected int getPreferenceScreenResId() {
++        return -1;
++    }
++
++    @Override
++    protected List<? extends CandidateInfo> getCandidates() {
++        Context ctx = requireContext();
++        ArrayList<CandidateInfoExtra> candidates = new ArrayList<>(3);
++        if (!userRestrictions.userInfo.isGuest()) {
++            candidates.add(new CandidateInfoExtra(ctx.getString(R.string.user_app_install_enabled),
++                    ctx.getString(R.string.user_app_install_enabled_desc),
++                    INSTALL_ENABLED, true));
++        }
++        candidates.add(new CandidateInfoExtra(
++                ctx.getString(R.string.user_app_install_enabled_first_party_sources),
++                ctx.getString(R.string.user_app_install_enabled_first_party_sources_desc),
++                INSTALL_FIRST_PARTY_ENABLED, true));
++        candidates.add(new CandidateInfoExtra(ctx.getString(R.string.user_app_install_disabled),
++                ctx.getString(R.string.user_app_install_disabled_desc),
++                INSTALL_DISABLED, true));
++        return candidates;
++    }
++
++    @Override
++    public void bindPreferenceExtra(SelectorWithWidgetPreference pref, String key,
++            CandidateInfo info, String defaultKey, String systemDefaultKey) {
++        pref.setSingleLineTitle(false);
++
++        if (info instanceof CandidateInfoExtra) {
++            CandidateInfoExtra cie = (CandidateInfoExtra) info;
++            pref.setSummary(cie.loadSummary());
++        }
++    }
++
++    @Override
++    protected String getDefaultKey() {
++        return getCurrentInstallRestriction(userRestrictions);
++    }
++
++    @Override
++    protected boolean setDefaultKey(String key) {
++        if (key == null) {
++            return false;
++        }
++
++        switch (key) {
++            case INSTALL_ENABLED:
++                if (userRestrictions.userInfo.isGuest()) {
++                    return false;
++                }
++                userRestrictions.set(UserManager.DISALLOW_INSTALL_APPS, false);
++                userRestrictions.set(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, false);
++                return true;
++            case INSTALL_FIRST_PARTY_ENABLED:
++                userRestrictions.set(UserManager.DISALLOW_INSTALL_APPS, false);
++                if (!userRestrictions.userInfo.isGuest()) {
++                    userRestrictions.set(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, true);
++                }
++                return true;
++            case INSTALL_DISABLED:
++                userRestrictions.set(UserManager.DISALLOW_INSTALL_APPS, true);
++                if (!userRestrictions.userInfo.isGuest()) {
++                    userRestrictions.set(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, true);
++                }
++                return true;
++            default:
++                return false;
++        }
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        // lenOS: GrapheneOS returns METRICS_CATEGORY_UNKNOWN, which A16's
++        // RadioButtonPickerFragment does not define; PAGE_UNKNOWN is the same
++        // "no dedicated metric" value.
++        return SettingsEnums.PAGE_UNKNOWN;
++    }
++
++    @Override
++    public void onResume() {
++        super.onResume();
++        updateCandidates();
++    }
++}
+diff --git a/src/com/android/settings/users/UserDetailsSettings.java b/src/com/android/settings/users/UserDetailsSettings.java
+index 14fb6f3..2855a3c 100644
+--- a/src/com/android/settings/users/UserDetailsSettings.java
++++ b/src/com/android/settings/users/UserDetailsSettings.java
+@@ -78,6 +78,7 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+     private static final String KEY_GRANT_ADMIN = "user_grant_admin";
+     private static final String KEY_APP_AND_CONTENT_ACCESS = "app_and_content_access";
+     private static final String KEY_APP_COPYING = "app_copying";
++    private static final String KEY_APP_INSTALLS = "app_installs";
+ 
+     /** Integer extra containing the userId to manage */
+     static final String EXTRA_USER_ID = "user_id";
+@@ -115,10 +116,15 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+     @VisibleForTesting
+     TwoStatePreference mGrantAdminPref;
+ 
++    @VisibleForTesting
++    Preference mAppsInstallsPref;
++
+     @VisibleForTesting
+     /** The user being studied (not the user doing the studying). */
+     UserInfo mUserInfo;
+ 
++    private UserRestrictions userRestrictions;
++
+     @Override
+     public int getMetricsCategory() {
+         return SettingsEnums.USER_DETAILS;
+@@ -149,6 +155,8 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+         if (mUserInfo.isGuest() && mGuestUserAutoCreated) {
+             mRemoveUserPref.setEnabled((mUserInfo.flags & UserInfo.FLAG_INITIALIZED) != 0);
+         }
++        mAppsInstallsPref.setSummary(UserAppsInstallSettings.getDescription(
++                requireContext(), userRestrictions));
+     }
+ 
+     @Override
+@@ -189,6 +197,9 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+         } else if (preference == mAppCopyingPref) {
+             openAppCopyingScreen();
+             return true;
++        } else if (preference == mAppsInstallsPref) {
++            UserAppsInstallSettings.launch(preference, mUserInfo.id);
++            return true;
+         }
+         return false;
+     }
+@@ -365,6 +376,7 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+         boolean isNewUser =
+                 arguments.getBoolean(AppRestrictionsFragment.EXTRA_NEW_USER, false);
+         mUserInfo = mUserManager.getUserInfo(userId);
++        userRestrictions = UserRestrictions.createInstance(mUserManager, mUserInfo);
+ 
+         mSwitchUserPref = findPreference(KEY_SWITCH_USER);
+         mPhonePref = findPreference(KEY_ENABLE_TELEPHONY_CALLING);
+@@ -374,6 +386,7 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+         mGrantAdminPref = findPreference(KEY_GRANT_ADMIN);
+ 
+         mGrantAdminPref.setChecked(mUserInfo.isAdmin());
++        mAppsInstallsPref = findPreference(KEY_APP_INSTALLS);
+ 
+         mSwitchUserPref.setVisible(mUserCaps.mUserSwitchingUiEnabled
+                 && UserHandle.myUserId() != mUserInfo.id);
+@@ -430,6 +443,7 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+             removePreference(KEY_ENABLE_TELEPHONY_CALLING);
+             removePreference(KEY_APP_AND_CONTENT_ACCESS);
+             removePreference(KEY_APP_COPYING);
++            removePreference(KEY_APP_INSTALLS);
+         } else {
+             if (!Utils.isVoiceCapable(context)) { // no telephony
+                 removePreference(KEY_ENABLE_TELEPHONY_CALLING);
+@@ -469,6 +483,7 @@ public class UserDetailsSettings extends SettingsPreferenceFragment
+             mGrantAdminPref.setOnPreferenceChangeListener(this);
+             mAppAndContentAccessPref.setOnPreferenceClickListener(this);
+             mAppCopyingPref.setOnPreferenceClickListener(this);
++            mAppsInstallsPref.setOnPreferenceClickListener(this);
+         }
+     }
+ 
+diff --git a/src/com/android/settings/users/UserRestrictions.java b/src/com/android/settings/users/UserRestrictions.java
+new file mode 100644
+index 0000000..39344b3
+--- /dev/null
++++ b/src/com/android/settings/users/UserRestrictions.java
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (C) 2023 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.users;
++
++import android.content.Context;
++import android.content.pm.UserInfo;
++import android.os.Bundle;
++import android.os.UserManager;
++
++import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
++
++/**
++ * Reads and writes user restrictions on behalf of another user (or the guest
++ * defaults), so the same code works for regular users, guests and profiles.
++ *
++ * lenOS: trimmed port of GrapheneOS's helper. The private-space inheritance
++ * half of the original file ({@code INHERITED_PRIVATE_SPACE_RESTRICTIONS},
++ * {@code syncPrivateSpaceRestrictions}, {@code fixupPrivateSpaceRestrictions})
++ * is a separate GrapheneOS feature and is not part of this patch.
++ */
++public final class UserRestrictions {
++    @NonNull
++    private final UserManager userManager;
++    @NonNull
++    public final UserInfo userInfo;
++
++    @Nullable
++    public static UserRestrictions createInstance(@NonNull Context ctx, int userId) {
++        UserManager userManager = ctx.getSystemService(UserManager.class);
++        if (userManager == null) {
++            return null;
++        }
++
++        return createInstance(userManager, userId);
++    }
++
++    @Nullable
++    public static UserRestrictions createInstance(@NonNull UserManager userManager, int userId) {
++        UserInfo userInfo = userManager.getUserInfo(userId);
++        if (userInfo == null) {
++            return null;
++        }
++
++        return new UserRestrictions(userManager, userInfo);
++    }
++
++    @NonNull
++    public static UserRestrictions createInstance(@NonNull UserManager userManager,
++            @NonNull UserInfo userInfo) {
++        return new UserRestrictions(userManager, userInfo);
++    }
++
++    private UserRestrictions(@NonNull UserManager userManager, @NonNull UserInfo userInfo) {
++        this.userManager = userManager;
++        this.userInfo = userInfo;
++    }
++
++    public boolean isSet(String restrictionKey) {
++        final boolean isSetFromUser = userManager.hasUserRestrictionForUser(
++                restrictionKey, userInfo.getUserHandle());
++        if (userInfo.isGuest()) {
++            return isSetFromUser
++                    || userManager.getDefaultGuestRestrictions().getBoolean(restrictionKey);
++        }
++
++        return isSetFromUser;
++    }
++
++    public void set(String restrictionKey, boolean enableRestriction) {
++        if (userInfo.isGuest()) {
++            Bundle defaultGuestRestrictions = userManager.getDefaultGuestRestrictions();
++            defaultGuestRestrictions.putBoolean(restrictionKey, enableRestriction);
++            userManager.setDefaultGuestRestrictions(defaultGuestRestrictions);
++        } else {
++            userManager.setUserRestriction(
++                    restrictionKey, enableRestriction, userInfo.getUserHandle());
++        }
++    }
++}
