@@ -1,0 +1,102 @@
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index 36e2193c..8643bbc1 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -13371,6 +13371,18 @@ public final class Settings {
+          *
+          * @hide
+          */
++        /**
++         * Whether the clipboard is cleared when the screen turns off.
++         *
++         * <p>0 (default) keeps the clipboard; 1 wipes it. This is a lenOS
++         * OPSEC control: it removes copied secrets from a device that is
++         * about to be put down or handed to someone else.</p>
++         *
++         * @hide
++         */
++        public static final String CLIPBOARD_CLEAR_ON_SCREEN_OFF =
++                "clipboard_clear_on_screen_off";
++
+         public static final String CLIPBOARD_SHOW_ACCESS_NOTIFICATIONS =
+                 "clipboard_show_access_notifications";
+ 
+diff --git a/services/core/java/com/android/server/clipboard/ClipboardService.java b/services/core/java/com/android/server/clipboard/ClipboardService.java
+index fe037070..e265c8f7 100644
+--- a/services/core/java/com/android/server/clipboard/ClipboardService.java
++++ b/services/core/java/com/android/server/clipboard/ClipboardService.java
+@@ -62,7 +62,8 @@ import android.content.Context;
+ import android.content.IClipboard;
+ import android.content.IOnPrimaryClipChangedListener;
+ import android.content.Intent;
++import android.content.IntentFilter;
+ import android.content.pm.ApplicationInfo;
+ import android.content.pm.PackageManager;
+ import android.content.pm.PackageManagerInternal;
+ import android.content.pm.UserInfo;
+@@ -177,6 +178,15 @@ public class ClipboardService extends SystemService {
+     private final Consumer<ClipData> mClipboardMonitor;
+     private final Handler mWorkerHandler;
+ 
++    private final BroadcastReceiver mScreenOffReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
++                clearClipboardsOnScreenOff();
++            }
++        }
++    };
++
+     @GuardedBy("mLock")
+     // Maps (userId, deviceId) to Clipboard.
+     private final SparseArrayMap<Integer, Clipboard> mClipboards = new SparseArrayMap<>();
+@@ -252,6 +262,8 @@ public class ClipboardService extends SystemService {
+         publishBinderService(Context.CLIPBOARD_SERVICE, new ClipboardImpl());
+         LocalServices.addService(ClipboardManagerInternal.class, new ClipboardInternalImpl());
+         registerVirtualDeviceListener();
++        getContext().registerReceiver(mScreenOffReceiver,
++                new IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED);
+     }
+ 
+     private void registerVirtualDeviceListener() {
+@@ -278,6 +290,40 @@ public class ClipboardService extends SystemService {
+         }
+     }
+ 
++    /**
++     * Wipes the clipboard for every user who opted into the lenOS
++     * clear-on-screen-off policy. Protected broadcasts are delivered to the
++     * system context even when the device is locked, so the data is gone
++     * before the display turns fully off.
++     */
++    private void clearClipboardsOnScreenOff() {
++        final long ident = Binder.clearCallingIdentity();
++        try {
++            synchronized (mLock) {
++                for (int i = mClipboards.numMaps() - 1; i >= 0; i--) {
++                    final int userId = mClipboards.keyAt(i);
++                    final int enabled = Settings.Secure.getIntForUser(
++                            getContext().getContentResolver(),
++                            Settings.Secure.CLIPBOARD_CLEAR_ON_SCREEN_OFF, 0, userId);
++                    if (enabled == 0) {
++                        continue;
++                    }
++                    for (int j = mClipboards.numElementsForKeyAt(i) - 1; j >= 0; j--) {
++                        final Clipboard clipboard = mClipboards.valueAt(i, j);
++                        if (clipboard.primaryClip == null) {
++                            continue;
++                        }
++                        setPrimaryClipInternalLocked(null,
++                                UserHandle.getUid(userId, android.os.Process.SYSTEM_UID),
++                                clipboard.deviceId, null);
++                    }
++                }
++            }
++        } finally {
++            Binder.restoreCallingIdentity(ident);
++        }
++    }
++
+     private void updateConfig() {
+         synchronized (mLock) {
+             mShowAccessNotifications = DeviceConfig.getBoolean(

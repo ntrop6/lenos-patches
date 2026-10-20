@@ -12,6 +12,13 @@
 PRODUCT_PACKAGES += \
     LenosSecurity
 
+# Experimental features are opt-in at build time. The driver only applies the
+# patches-experimental/ series and installs experimental/app/ when
+# LENOS_EXPERIMENTAL=1; a normal 1.0 build never inherits this fragment.
+ifneq ($(filter 1 true yes,$(LENOS_EXPERIMENTAL)),)
+$(call inherit-product, vendor/lenos/config/lenos-experimental.mk)
+endif
+
 # Privacy overlays (enabled at boot, no user interaction required):
 # * LenosFrameworksOverlay        - non-Google NTP fallback pool (framework-res)
 # * LenosNetworkStackOverlay      - Cloudflare connectivity-check probes

@@ -1,0 +1,97 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index ccc591f..17399be 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -14941,2 +14941,8 @@
+     <string name="safety_center_app_security_footer"></string>
++    <!-- lenOS clipboard privacy -->
++    <string name="clipboard_privacy_title">Clipboard privacy</string>
++    <string name="clipboard_privacy_summary">Clear copied content when the screen turns off.</string>
++    <string name="clipboard_clear_on_screen_off_title">Clear clipboard when screen turns off</string>
++    <string name="clipboard_clear_on_screen_off_summary">Removes copied text, images and URIs from the clipboard when the screen turns off. The clipboard is wiped before the device is locked.</string>
++
+     <!-- Safety Center app security source search terms [CHAR LIMIT=NONE] -->
+diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
+index 0068872..688e26f 100644
+--- a/res/xml/more_security_privacy_settings.xml
++++ b/res/xml/more_security_privacy_settings.xml
+@@ -174,2 +174,9 @@
+         settings:controller="com.android.settings.enterprise.FinancedPrivacyPreferenceController"/>
++    <Preference
++        android:order="245"
++        android:key="clipboard_privacy"
++        android:title="@string/clipboard_privacy_title"
++        android:summary="@string/clipboard_privacy_summary"
++        android:fragment="com.android.settings.security.ClipboardPrivacySettings" />
++
+ 
+diff --git a/src/com/android/settings/security/ClipboardPrivacySettings.java b/src/com/android/settings/security/ClipboardPrivacySettings.java
+new file mode 100644
+index 0000000..63a4b9e
+--- /dev/null
++++ b/src/com/android/settings/security/ClipboardPrivacySettings.java
+@@ -0,0 +1,64 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.security;
++
++import android.app.settings.SettingsEnums;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.PreferenceScreen;
++import androidx.preference.SwitchPreference;
++
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * lenOS OPSEC control: wipe the clipboard when the screen turns off.
++ *
++ * <p>The framework side is ClipboardService. The preference is off by default
++ * because deleting a user's clipboard without warning would be surprising;
++ * users who handle secrets can opt in.</p>
++ */
++public class ClipboardPrivacySettings extends SettingsPreferenceFragment {
++    private static final String KEY_CLEAR_ON_SCREEN_OFF = "clipboard_clear_on_screen_off";
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        final SwitchPreference preference = new SwitchPreference(requireContext());
++        preference.setKey(KEY_CLEAR_ON_SCREEN_OFF);
++        preference.setTitle(R.string.clipboard_clear_on_screen_off_title);
++        preference.setSummary(R.string.clipboard_clear_on_screen_off_summary);
++        preference.setChecked(Settings.Secure.getInt(requireContext().getContentResolver(),
++                Settings.Secure.CLIPBOARD_CLEAR_ON_SCREEN_OFF, 0) == 1);
++        preference.setOnPreferenceChangeListener((pref, newValue) -> {
++            final boolean enabled = (Boolean) newValue;
++            Settings.Secure.putInt(requireContext().getContentResolver(),
++                    Settings.Secure.CLIPBOARD_CLEAR_ON_SCREEN_OFF, enabled ? 1 : 0);
++            return true;
++        });
++
++        final PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(
++                requireContext());
++        screen.addPreference(preference);
++        setPreferenceScreen(screen);
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.SECURITY;
++    }
++}

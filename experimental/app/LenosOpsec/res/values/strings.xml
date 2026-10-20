@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">lenOS OPSEC</string>
+    <string name="scrub_title">Remove image metadata</string>
+    <string name="scrub_explanation">The selected image is decoded and re-encoded without EXIF, GPS, XMP, ICC or file-name metadata. Re-encoding can change quality. No data leaves the device.</string>
+    <string name="scrub_share">Remove metadata and share</string>
+    <string name="scrub_save">Save sanitized copy</string>
+    <string name="scrub_cancel">Cancel</string>
+    <string name="scrub_working">Removing metadata…</string>
+    <string name="scrub_nothing">No image was provided.</string>
+    <string name="scrub_too_many">Select at most 20 images at a time.</string>
+    <string name="scrub_failed">Could not sanitize the image.</string>
+    <string name="scrub_saved">Saved %1$d sanitized image(s) to Pictures/lenOS.</string>
+    <string name="scrub_shared">Sanitized image is ready to share.</string>
+    <string name="scrub_choose">Choose an image to sanitize</string>
+    <string name="offline_tile_label">Offline</string>
+    <string name="offline_tile_on">Radios off</string>
+    <string name="offline_tile_off">Radios on</string>
+
+    <!-- OPS-5: tracking-parameter scrubber for shared text -->
+    <string name="scrub_text_title">Remove tracking from text</string>
+    <string name="scrub_text_explanation">Strips known tracking parameters from links in shared text. The links are not opened and nothing is sent off the device.</string>
+    <string name="scrub_text_remove">Remove tracking parameters</string>
+    <string name="scrub_text_share">Share cleaned text</string>
+    <string name="scrub_text_copy">Copy cleaned text</string>
+    <string name="scrub_text_cancel">Cancel</string>
+    <string name="scrub_text_nothing">No text was provided.</string>
+    <string name="scrub_text_removed">Removed %1$d tracking parameter(s).</string>
+    <string name="scrub_text_clean">No known tracking parameters found.</string>
+    <string name="scrub_text_copied">Cleaned text copied.</string>
+    <string name="scrub_text_clip_label">lenOS cleaned text</string>
+</resources>

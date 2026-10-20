@@ -1,0 +1,104 @@
+diff --git a/res/drawable/bootloader_warning_background.xml b/res/drawable/bootloader_warning_background.xml
+new file mode 100644
+index 0000000..a2c4043
+--- /dev/null
++++ b/res/drawable/bootloader_warning_background.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-FileCopyrightText: 2026 The lenOS Project
++     SPDX-License-Identifier: Apache-2.0
++-->
++<shape xmlns:android="http://schemas.android.com/apk/res/android"
++    android:shape="rectangle">
++    <solid android:color="@color/bootloader_warning_background" />
++    <corners android:radius="8dp" />
++    <stroke
++        android:width="1dp"
++        android:color="@color/bootloader_warning_stroke" />
++</shape>
+diff --git a/res/layout/welcome_activity.xml b/res/layout/welcome_activity.xml
+index b5b3ef0..a20186c 100644
+--- a/res/layout/welcome_activity.xml
++++ b/res/layout/welcome_activity.xml
+@@ -6,6 +6,7 @@
+ -->
+ <com.google.android.setupdesign.GlifLayout
+     xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools"
+     android:id="@+id/setup_wizard_layout"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent">
+@@ -57,6 +58,18 @@
+                 android:paddingEnd="@dimen/welcome_content_container_padding_end"
+                 android:paddingBottom="@dimen/welcome_content_container_padding_bottom">
+ 
++                <TextView
++                    android:id="@+id/bootloader_warning"
++                    android:layout_width="match_parent"
++                    android:layout_height="wrap_content"
++                    android:layout_marginBottom="@dimen/welcome_content_container_padding_bottom"
++                    android:background="@drawable/bootloader_warning_background"
++                    android:padding="16dp"
++                    android:textColor="@color/bootloader_warning_text"
++                    android:textSize="14sp"
++                    android:visibility="gone"
++                    tools:text="Bootloader is unlocked" />
++
+                 <TextView
+                     style="@style/WelcomeTitle"
+                     android:id="@+id/welcome_title"
+diff --git a/res/values/colors.xml b/res/values/colors.xml
+index be731d2..c363430 100644
+--- a/res/values/colors.xml
++++ b/res/values/colors.xml
+@@ -11,4 +11,8 @@
+     <color name="button_bar_text_disabled">#321e1e1e</color>
+ 
+     <color name="divider">#40000000</color>
++
++    <color name="bootloader_warning_background">#FFF4E5</color>
++    <color name="bootloader_warning_text">#5F4300</color>
++    <color name="bootloader_warning_stroke">#FFB300</color>
+ </resources>
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index 9603f48..231bf65 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -21,6 +21,10 @@
+     <string name="ok">OK</string>
+     <string name="loading">Just a sec\u2026</string>
+ 
++    <!-- Bootloader warning (shown on the welcome page only when verified boot is not green) -->
++    <string name="bootloader_unlocked_title">Bootloader is unlocked</string>
++    <string name="bootloader_unlocked_message">Verified boot is not protecting this device. The operating system can be modified without detection. Do not lock the bootloader unless you are flashing a verified lenOS build; locking with an unsigned or modified build can make the device unbootable.</string>
++
+     <!-- Welcome page -->
+     <string name="setup_welcome_message">Welcome to <xliff:g id="name" example="LineageOS">%1$s</xliff:g></string>
+     <string name="setup_managed_profile_welcome_message">Set up your work profile</string>
+diff --git a/src/org/lineageos/setupwizard/WelcomeActivity.java b/src/org/lineageos/setupwizard/WelcomeActivity.java
+index 0e2fa92..9ab3c1e 100644
+--- a/src/org/lineageos/setupwizard/WelcomeActivity.java
++++ b/src/org/lineageos/setupwizard/WelcomeActivity.java
+@@ -11,6 +11,7 @@ import static org.lineageos.setupwizard.SetupWizardApp.ACTION_EMERGENCY_DIAL;
+ import android.content.Intent;
+ import android.os.Bundle;
+ import android.os.Build;
++import android.os.SystemProperties;
+ import android.view.View;
+ import android.widget.Button;
+ import android.widget.TextView;
+@@ -63,6 +64,13 @@ public class WelcomeActivity extends SubBaseActivity {
+                     getString(R.string.os_name)));
+         }
+ 
++        TextView bootloaderWarning = findViewById(R.id.bootloader_warning);
++        if (!"green".equals(SystemProperties.get("ro.boot.verifiedbootstate", "green"))) {
++            bootloaderWarning.setText(getString(R.string.bootloader_unlocked_title) + "\n\n"
++                    + getString(R.string.bootloader_unlocked_message));
++            bootloaderWarning.setVisibility(View.VISIBLE);
++        }
++
+         if (Build.TYPE.equals("eng")) {
+             skipButton.setVisibility(View.VISIBLE);
+             skipButton.setOnClickListener(v -> {

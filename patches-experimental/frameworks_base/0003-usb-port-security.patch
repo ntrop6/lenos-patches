@@ -1,0 +1,429 @@
+diff --git a/core/java/android/hardware/usb/IUsbManager.aidl b/core/java/android/hardware/usb/IUsbManager.aidl
+index badcc34c..37a54a37 100644
+--- a/core/java/android/hardware/usb/IUsbManager.aidl
++++ b/core/java/android/hardware/usb/IUsbManager.aidl
+@@ -201,6 +201,13 @@ interface IUsbManager
+     /* Gets the list of USB ports. */
+     @EnforcePermission("MANAGE_USB")
+     List<ParcelableUsbPort> getPorts();
++    /* Gets/sets the USB port security mode. */
++    @EnforcePermission("MANAGE_USB")
++    int getPortSecuritySetting();
++
++    @EnforcePermission("MANAGE_USB")
++    void updatePortSecuritySetting(int newValue);
++
+ 
+     /* Gets the status of the specified USB port. */
+     UsbPortStatus getPortStatus(in String portId);
+diff --git a/core/java/android/hardware/usb/UsbManager.java b/core/java/android/hardware/usb/UsbManager.java
+index 9193dfb3..a5ec2243 100644
+--- a/core/java/android/hardware/usb/UsbManager.java
++++ b/core/java/android/hardware/usb/UsbManager.java
+@@ -1745,6 +1745,37 @@ public class UsbManager {
+         return setUsbDataSignal(getPorts(), !enable, /* revertOnFailure= */ true);
+     }
+ 
++    /**
++     * Returns the current USB port security mode.
++     *
++     * @hide
++     */
++    @RequiresPermission(Manifest.permission.MANAGE_USB)
++    public int getPortSecuritySetting() {
++        try {
++            return mService.getPortSecuritySetting();
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
++    /**
++     * Changes the USB port security mode.
++     *
++     * <p>The device must be unlocked. The setting is persisted in
++     * {@link UsbPortSecurity#MODE_SETTING} so the USB HAL can also see it.</p>
++     *
++     * @hide
++     */
++    @RequiresPermission(Manifest.permission.MANAGE_USB)
++    public void updatePortSecuritySetting(int newValue) {
++        try {
++            mService.updatePortSecuritySetting(newValue);
++        } catch (RemoteException e) {
++            throw e.rethrowFromSystemServer();
++        }
++    }
++
+     private boolean setUsbDataSignal(List<UsbPort> usbPorts, boolean disable,
+             boolean revertOnFailure) {
+         List<UsbPort> changedPorts = new ArrayList<>();
+diff --git a/core/java/android/hardware/usb/UsbPortSecurity.java b/core/java/android/hardware/usb/UsbPortSecurity.java
+new file mode 100644
+index 00000000..1b7964fc
+--- /dev/null
++++ b/core/java/android/hardware/usb/UsbPortSecurity.java
+@@ -0,0 +1,89 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.hardware.usb;
++
++import android.annotation.IntDef;
++import android.os.Build;
++import android.os.SystemProperties;
++
++import java.lang.annotation.Retention;
++import java.lang.annotation.RetentionPolicy;
++
++/**
++ * Controls whether USB data lines are available while the device is locked.
++ *
++ * <p>This is a lenOS experimental implementation of the USB-C port control
++ * feature. It uses the standard Android per-port {@code enableUsbData} HAL
++ * operation; devices whose USB HAL does not implement that operation will
++ * simply keep their existing data behaviour.
++ *
++ * @hide
++ */
++public final class UsbPortSecurity {
++    /** Block USB data on all ports; charging is still possible. */
++    public static final int MODE_ALL_PORTS_DISABLED = 0;
++    /** Block USB data on all ports; charging is still possible. */
++    public static final int MODE_CHARGING_ONLY = 1;
++    /** Block USB data while the keyguard is showing. */
++    public static final int MODE_CHARGING_ONLY_WHEN_LOCKED = 2;
++    /** Block USB data until the first unlock, then only while locked. */
++    public static final int MODE_CHARGING_ONLY_WHEN_LOCKED_AFU = 3;
++    /** Leave USB data enabled. */
++    public static final int MODE_ALL_PORTS_ENABLED = 4;
++
++    /**
++     * Persistent property shared with USB HAL implementations that enforce the
++     * same policy in firmware. Keep the GrapheneOS key verbatim.
++     */
++    public static final String MODE_SETTING = "persist.security.usb_mode";
++
++    /** Debuggable builds keep adb available for bring-up. */
++    public static final int DEFAULT_MODE = Build.IS_DEBUGGABLE
++            ? MODE_ALL_PORTS_ENABLED
++            : MODE_CHARGING_ONLY_WHEN_LOCKED;
++
++    @IntDef(prefix = {"MODE_"}, value = {
++            MODE_ALL_PORTS_DISABLED,
++            MODE_CHARGING_ONLY,
++            MODE_CHARGING_ONLY_WHEN_LOCKED,
++            MODE_CHARGING_ONLY_WHEN_LOCKED_AFU,
++            MODE_ALL_PORTS_ENABLED,
++    })
++    @Retention(RetentionPolicy.SOURCE)
++    public @interface PortSecurityMode {}
++
++    private UsbPortSecurity() {
++    }
++
++    /** Returns the configured mode, or the build-appropriate default. */
++    public static @PortSecurityMode int getMode() {
++        final int mode = SystemProperties.getInt(MODE_SETTING, DEFAULT_MODE);
++        return isValidMode(mode) ? mode : DEFAULT_MODE;
++    }
++
++    public static boolean isValidMode(int mode) {
++        return mode >= MODE_ALL_PORTS_DISABLED && mode <= MODE_ALL_PORTS_ENABLED;
++    }
++
++    /** Persists a mode. Callers must validate that the device is unlocked. */
++    public static void setMode(@PortSecurityMode int mode) {
++        if (!isValidMode(mode)) {
++            throw new IllegalArgumentException("invalid USB port security mode: " + mode);
++        }
++        SystemProperties.set(MODE_SETTING, Integer.toString(mode));
++    }
++}
+diff --git a/services/usb/java/com/android/server/usb/UsbPortSecurityController.java b/services/usb/java/com/android/server/usb/UsbPortSecurityController.java
+new file mode 100644
+index 00000000..d5257451
+--- /dev/null
++++ b/services/usb/java/com/android/server/usb/UsbPortSecurityController.java
+@@ -0,0 +1,154 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.usb;
++
++import android.app.KeyguardManager;
++import android.content.Context;
++import android.hardware.usb.UsbOperationInternal;
++import android.hardware.usb.UsbPort;
++import android.hardware.usb.UsbPortSecurity;
++import android.os.UserHandle;
++import android.util.Slog;
++
++import java.util.concurrent.atomic.AtomicInteger;
++
++/**
++ * Applies the lenOS USB data-line policy using the standard USB HAL
++ * {@code enableUsbData} operation.
++ *
++ * <p>This intentionally does not depend on a vendor-specific sysfs node. If
++ * the HAL does not implement the operation, the calls fail and the device
++ * keeps its existing behaviour; the feature is therefore explicitly
++ * experimental until the asteroid USB HAL has been validated.</p>
++ */
++final class UsbPortSecurityController {
++    private static final String TAG = "UsbPortSecurity";
++
++    private final UsbPortManager mPortManager;
++    private final KeyguardManager mKeyguardManager;
++    private final AtomicInteger mOperationId = new AtomicInteger();
++
++    private volatile boolean mBlockingData;
++    private boolean mApplied;
++    private boolean mUnlockedSinceBoot;
++
++    UsbPortSecurityController(Context context, UsbPortManager portManager) {
++        mPortManager = portManager;
++        mKeyguardManager = context.getSystemService(KeyguardManager.class);
++    }
++
++    void systemReady() {
++        // If there is no secure keyguard, the first-unlock condition is already
++        // satisfied. With a secure keyguard this stays false until onScreenLockChange(false).
++        mUnlockedSinceBoot = mKeyguardManager == null || !mKeyguardManager.isKeyguardLocked();
++        applyMode();
++    }
++
++    boolean isBlockingData() {
++        return mBlockingData;
++    }
++
++    @UsbPortSecurity.PortSecurityMode
++    int getMode() {
++        return UsbPortSecurity.getMode();
++    }
++
++    /**
++     * Changes the policy. The caller is responsible for checking that the
++     * device is unlocked and that the caller holds MANAGE_USB.
++     */
++    synchronized void updateSetting(int newValue) {
++        if (!UsbPortSecurity.isValidMode(newValue)) {
++            throw new IllegalArgumentException("invalid USB port security mode: " + newValue);
++        }
++        if (mKeyguardManager != null && mKeyguardManager.isKeyguardLocked()) {
++            throw new IllegalStateException("device must be unlocked to change USB port security");
++        }
++        UsbPortSecurity.setMode(newValue);
++        mUnlockedSinceBoot = true;
++        applyModeLocked();
++    }
++
++    synchronized void onScreenLockChange(boolean locked) {
++        if (!locked) {
++            mUnlockedSinceBoot = true;
++        }
++        applyModeLocked();
++    }
++
++    synchronized void onUserUnlocked(int userId) {
++        if (userId == UserHandle.USER_SYSTEM) {
++            mUnlockedSinceBoot = true;
++            applyModeLocked();
++        }
++    }
++
++    private void applyMode() {
++        synchronized (this) {
++            applyModeLocked();
++        }
++    }
++
++    private void applyModeLocked() {
++        final int mode = UsbPortSecurity.getMode();
++        final boolean locked = mKeyguardManager != null && mKeyguardManager.isKeyguardLocked();
++
++        final boolean block;
++        switch (mode) {
++            case UsbPortSecurity.MODE_ALL_PORTS_DISABLED:
++            case UsbPortSecurity.MODE_CHARGING_ONLY:
++                block = true;
++                break;
++            case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED:
++                block = locked;
++                break;
++            case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED_AFU:
++                block = !mUnlockedSinceBoot || locked;
++                break;
++            case UsbPortSecurity.MODE_ALL_PORTS_ENABLED:
++                block = false;
++                break;
++            default:
++                throw new IllegalStateException("invalid USB port security mode: " + mode);
++        }
++
++        if (mApplied && block == mBlockingData) {
++            return;
++        }
++        mBlockingData = block;
++        mApplied = true;
++
++        final UsbPort[] ports = mPortManager.getPorts();
++        Slog.i(TAG, "applying USB port security mode " + mode + ", blocking data=" + block
++                + ", ports=" + ports.length);
++        for (UsbPort port : ports) {
++            enablePortData(port, !block);
++        }
++    }
++
++    private void enablePortData(UsbPort port, boolean enable) {
++        final int operationId = mOperationId.incrementAndGet();
++        final UsbOperationInternal callback =
++                new UsbOperationInternal(operationId, port.getId());
++        try {
++            mPortManager.enableUsbData(port.getId(), enable, operationId, callback, null);
++        } catch (RuntimeException e) {
++            Slog.w(TAG, "unable to " + (enable ? "enable" : "disable")
++                    + " USB data on port " + port.getId(), e);
++        }
++    }
++}
+diff --git a/services/usb/java/com/android/server/usb/UsbService.java b/services/usb/java/com/android/server/usb/UsbService.java
+index 8a724d25..d053e802 100644
+--- a/services/usb/java/com/android/server/usb/UsbService.java
++++ b/services/usb/java/com/android/server/usb/UsbService.java
+@@ -54,6 +54,7 @@ import android.hardware.usb.UsbDevice;
+ import android.hardware.usb.UsbManager;
+ import android.hardware.usb.UsbOperationInternal;
+ import android.hardware.usb.UsbPort;
++import android.hardware.usb.UsbPortSecurity;
+ import android.hardware.usb.UsbPortStatus;
+ import android.os.Binder;
+ import android.os.Bundle;
+@@ -163,6 +164,7 @@ public class UsbService extends IUsbManager.Stub {
+     private UsbDeviceManager mDeviceManager;
+     private UsbHostManager mHostManager;
+     private UsbPortManager mPortManager;
++    private UsbPortSecurityController mPortSecurity;
+     private Usb4Manager mUsb4Manager;
+     private final UsbAlsaManager mAlsaManager;
+     private KeyguardManager.KeyguardLockedStateListener mKeyguardLockedStateListener;
+@@ -223,6 +225,9 @@ public class UsbService extends IUsbManager.Stub {
+         if (mHostManager != null || mDeviceManager != null) {
+             mPortManager = new UsbPortManager(context);
+         }
++        if (mPortManager != null) {
++            mPortSecurity = new UsbPortSecurityController(context, mPortManager);
++        }
+ 
+         onSwitchUser(UserHandle.USER_SYSTEM);
+ 
+@@ -258,6 +263,9 @@ public class UsbService extends IUsbManager.Stub {
+                       IUsbOperationInternalProvider usbOperationInternalProvider) {
+         mContext = context;
+         mPortManager = usbPortManager;
++        if (mPortManager != null) {
++            mPortSecurity = new UsbPortSecurityController(context, mPortManager);
++        }
+         mAlsaManager = usbAlsaManager;
+         mUserManager = userManager;
+         mSettingsManager = usbSettingsManager;
+@@ -293,6 +301,9 @@ public class UsbService extends IUsbManager.Stub {
+         if (mUsb4Manager != null) {
+             mUsb4Manager.onUpdateScreenLockedState(locked);
+         }
++        if (mPortSecurity != null) {
++            mPortSecurity.onScreenLockChange(locked);
++        }
+     }
+ 
+     /**
+@@ -348,8 +359,12 @@ public class UsbService extends IUsbManager.Stub {
+         if (mPortManager != null) {
+             mPortManager.systemReady();
+         }
++        if (mPortSecurity != null) {
++            mPortSecurity.systemReady();
++        }
+ 
+-        if (com.android.server.usb.flags.Flags.enableUsb4()
++        if (mPortSecurity != null
++                || com.android.server.usb.flags.Flags.enableUsb4()
+                 || com.android.server.usb.flags.Flags.enableUsbAuthorization()) {
+             registerForKeyguardCallbacks();
+         }
+@@ -374,6 +389,9 @@ public class UsbService extends IUsbManager.Stub {
+         if (mDeviceManager != null) {
+             mDeviceManager.onUnlockUser(user);
+         }
++        if (mPortSecurity != null) {
++            mPortSecurity.onUserUnlocked(user);
++        }
+     }
+ 
+     /* Returns a list of all currently attached USB devices (host mdoe) */
+@@ -977,6 +995,21 @@ public class UsbService extends IUsbManager.Stub {
+         }
+     }
+ 
++    @Override
++    public int getPortSecuritySetting() {
++        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
++        return mPortSecurity != null ? mPortSecurity.getMode() : UsbPortSecurity.getMode();
++    }
++
++    @Override
++    public void updatePortSecuritySetting(int newValue) {
++        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
++        if (mPortSecurity == null) {
++            throw new IllegalStateException("USB port security is unavailable");
++        }
++        mPortSecurity.updateSetting(newValue);
++    }
++
+     @Override
+     public UsbPortStatus getPortStatus(String portId) {
+         Objects.requireNonNull(portId, "portId must not be null");
+@@ -1098,6 +1131,17 @@ public class UsbService extends IUsbManager.Stub {
+                 + operationId);
+         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
+ 
++        // The port-security policy has priority over ordinary enable requests.
++        // The controller bypasses this method and talks to UsbPortManager directly.
++        if (enable && mPortSecurity != null && mPortSecurity.isBlockingData()) {
++            try {
++                callback.onOperationComplete(USB_OPERATION_ERROR_INTERNAL);
++            } catch (RemoteException e) {
++                Slog.w(TAG, "enableUsbData: failed to reject blocked request", e);
++            }
++            return false;
++        }
++
+         if (android.hardware.usb.flags.Flags.enableUsbDataSignalStaking()) {
+             if (!shouldUpdateUsbSignaling(portId, enable, requester, isInternalRequest)) {
+                 try {

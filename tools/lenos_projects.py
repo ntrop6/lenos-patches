@@ -15,6 +15,8 @@ PROJECT_ALIASES = {
     "packages/apps/Updater": "packages_apps_Updater",
     "packages/apps/LineageParts": "packages_apps_LineageParts",
     "packages/apps/CellBroadcastReceiver": "packages_apps_CellBroadcastReceiver",
+    "packages/apps/SetupWizard": "packages_apps_SetupWizard",
+    "packages/apps/Seedvault": "packages_apps_Seedvault",
     "packages/modules/Connectivity": "packages_modules_Connectivity",
     "packages/modules/Permission": "packages_modules_Permission",
     "packages/modules/Wifi": "packages_modules_Wifi",

@@ -1,0 +1,201 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index ccc591f..0283b30 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -14947,2 +14947,21 @@
+     <string name="safety_center_account_security_search_terms"></string>
++    <!-- lenOS USB port security -->
++    <string name="usb_port_security_title">USB data when locked</string>
++    <string name="usb_port_security_summary">Block USB data lines while the device is locked. Charging continues.</string>
++    <string name="usb_port_security_mode_block_all">Block data on all ports</string>
++    <string name="usb_port_security_mode_block_all_summary">USB data is blocked. Charging is still possible.</string>
++    <string name="usb_port_security_mode_charging_only">Charging only</string>
++    <string name="usb_port_security_mode_charging_only_summary">USB data is always blocked. Charging continues.</string>
++    <string name="usb_port_security_mode_when_locked">Charging only when locked</string>
++    <string name="usb_port_security_mode_when_locked_summary">USB data is blocked while the device is locked and restored after unlock.</string>
++    <string name="usb_port_security_mode_when_locked_afu">Charging only when locked (after first unlock)</string>
++    <string name="usb_port_security_mode_when_locked_afu_summary">USB data stays blocked until the first unlock after boot, then follows the lock state.</string>
++    <string name="usb_port_security_mode_enabled">Allow USB data</string>
++    <string name="usb_port_security_mode_enabled_summary">USB data is available even while the device is locked.</string>
++    <string name="usb_port_security_unsupported">This device does not expose any USB ports to Android, so the policy cannot be applied.</string>
++    <string name="usb_port_security_confirm_title">Allow USB data while locked?</string>
++    <string name="usb_port_security_confirm_message">An attacker with physical access to a locked device could use a USB accessory to attack it. Keep USB data blocked unless you need it.</string>
++    <string name="usb_port_security_confirm_enable">Allow</string>
++    <string name="usb_port_security_error">Could not change the USB port policy. Unlock the device and try again.</string>
++
+     <!-- Safety Center device finder source search terms [CHAR LIMIT=NONE] -->
+diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
+index 0068872..66f1977 100644
+--- a/res/xml/more_security_privacy_settings.xml
++++ b/res/xml/more_security_privacy_settings.xml
+@@ -166,2 +166,9 @@
+         settings:controller="com.android.settings.enterprise.EnterprisePrivacyPreferenceController"/>
++    <Preference
++        android:order="240"
++        android:key="usb_port_security"
++        android:title="@string/usb_port_security_title"
++        android:summary="@string/usb_port_security_summary"
++        android:fragment="com.android.settings.security.UsbPortSecuritySettings" />
++
+ 
+diff --git a/src/com/android/settings/security/UsbPortSecuritySettings.java b/src/com/android/settings/security/UsbPortSecuritySettings.java
+new file mode 100644
+index 0000000..404868a
+--- /dev/null
++++ b/src/com/android/settings/security/UsbPortSecuritySettings.java
+@@ -0,0 +1,155 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.security;
++
++import android.app.AlertDialog;
++import android.app.settings.SettingsEnums;
++import android.hardware.usb.UsbManager;
++import android.hardware.usb.UsbPortSecurity;
++import android.os.Bundle;
++import android.widget.Toast;
++
++import androidx.preference.ListPreference;
++import androidx.preference.Preference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Controls whether USB data lines are available while the device is locked.
++ *
++ * <p>Uses the standard Android USB HAL data-signal operation. This is an
++ * experimental lenOS feature; the device must have a USB HAL that implements
++ * {@code enableUsbData} for the policy to take effect.</p>
++ */
++public class UsbPortSecuritySettings extends SettingsPreferenceFragment {
++    private static final String KEY = "usb_port_security";
++
++    private UsbManager mUsbManager;
++    private ListPreference mPreference;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        mUsbManager = requireContext().getSystemService(UsbManager.class);
++        if (mUsbManager == null) {
++            return;
++        }
++
++        mPreference = new ListPreference(requireContext());
++        mPreference.setKey(KEY);
++        mPreference.setPersistent(false);
++        mPreference.setTitle(R.string.usb_port_security_title);
++        mPreference.setDialogTitle(R.string.usb_port_security_title);
++        mPreference.setEntries(new CharSequence[]{
++                getString(R.string.usb_port_security_mode_block_all),
++                getString(R.string.usb_port_security_mode_charging_only),
++                getString(R.string.usb_port_security_mode_when_locked),
++                getString(R.string.usb_port_security_mode_when_locked_afu),
++                getString(R.string.usb_port_security_mode_enabled),
++        });
++        mPreference.setEntryValues(new CharSequence[]{
++                String.valueOf(UsbPortSecurity.MODE_ALL_PORTS_DISABLED),
++                String.valueOf(UsbPortSecurity.MODE_CHARGING_ONLY),
++                String.valueOf(UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED),
++                String.valueOf(UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED_AFU),
++                String.valueOf(UsbPortSecurity.MODE_ALL_PORTS_ENABLED),
++        });
++        mPreference.setOnPreferenceChangeListener(this::onPreferenceChange);
++
++        final PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(requireContext());
++        screen.addPreference(mPreference);
++        setPreferenceScreen(screen);
++
++        if (mUsbManager.getPorts().isEmpty()) {
++            mPreference.setEnabled(false);
++            mPreference.setSummary(R.string.usb_port_security_unsupported);
++        } else {
++            updatePreference();
++        }
++    }
++
++    @Override
++    public void onResume() {
++        super.onResume();
++        if (mPreference != null && mPreference.isEnabled()) {
++            updatePreference();
++        }
++    }
++
++    private boolean onPreferenceChange(Preference preference, Object newValue) {
++        final int value;
++        try {
++            value = Integer.parseInt((String) newValue);
++        } catch (NumberFormatException e) {
++            return false;
++        }
++
++        if (value == UsbPortSecurity.MODE_ALL_PORTS_ENABLED) {
++            new AlertDialog.Builder(requireContext())
++                    .setTitle(R.string.usb_port_security_confirm_title)
++                    .setMessage(R.string.usb_port_security_confirm_message)
++                    .setPositiveButton(R.string.usb_port_security_confirm_enable,
++                            (dialog, which) -> applyMode(value))
++                    .setNegativeButton(android.R.string.cancel, null)
++                    .show();
++            return false;
++        }
++        return applyMode(value);
++    }
++
++    private boolean applyMode(int value) {
++        try {
++            mUsbManager.updatePortSecuritySetting(value);
++            updatePreference();
++            return true;
++        } catch (RuntimeException e) {
++            Toast.makeText(requireContext(), R.string.usb_port_security_error,
++                    Toast.LENGTH_LONG).show();
++            updatePreference();
++            return false;
++        }
++    }
++
++    private void updatePreference() {
++        final int mode = mUsbManager.getPortSecuritySetting();
++        mPreference.setValue(String.valueOf(mode));
++        mPreference.setSummary(entrySummary(mode));
++    }
++
++    private CharSequence entrySummary(int mode) {
++        switch (mode) {
++            case UsbPortSecurity.MODE_ALL_PORTS_DISABLED:
++                return getString(R.string.usb_port_security_mode_block_all_summary);
++            case UsbPortSecurity.MODE_CHARGING_ONLY:
++                return getString(R.string.usb_port_security_mode_charging_only_summary);
++            case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED:
++                return getString(R.string.usb_port_security_mode_when_locked_summary);
++            case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED_AFU:
++                return getString(R.string.usb_port_security_mode_when_locked_afu_summary);
++            case UsbPortSecurity.MODE_ALL_PORTS_ENABLED:
++                return getString(R.string.usb_port_security_mode_enabled_summary);
++            default:
++                return getString(R.string.usb_port_security_error);
++        }
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.SECURITY;
++    }
++}

@@ -132,13 +132,13 @@ their content until the user explicitly allows it.
 | Screenshot metadata | `frameworks_base/0013` + `packages_apps_Settings/0001` | SystemUI screenshot exports carry no timestamp, timezone or build-string EXIF metadata by default (GrapheneOS's `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` gate, default off; LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line removed to match GrapheneOS/AOSP). Per-user toggle: Settings → Security & privacy → More security & privacy → "Save screenshot timestamp to EXIF" |
 | User-installed apps can be disabled | `packages_apps_Settings/0002` (GrapheneOS port) | the app info screen offers "Disable" for user-installed apps, not only system apps: the app is completely prevented from running while keeping its data (strictly stronger than Force stop, which lets anything restart the app), and "Enable" brings it back. The uninstall/archive rules still apply (device-policy blocks, device provisioning package, uninstall already queued) and enabling still requires authentication. Framework support already exists (no patch): `PackageManagerService.setEnabledSettings` accepts `DISABLED_USER` for any package and Settings holds `CHANGE_COMPONENT_ENABLED_STATE`. Reaches users through the default SPA app-info screen; the legacy screen is unchanged, matching GrapheneOS |
 
-## Experimental companion (not in 1.0)
+## Experimental series (opt-in, not 1.0)
 
 Source-complete work that cannot be built or device-validated in the current
-environment is staged in the separate
-[`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental)
-repository. It is not part of this series and is not applied by the 1.0
-patchkit. The current experimental batches implement:
+environment is imported under `patches-experimental/` and `experimental/`, but
+is **not** part of the default 1.0 product. It is applied only after the stable
+series and only with `LENOS_EXPERIMENTAL=1`; see `docs/experimental.md`. The
+current experimental batches implement:
 
 * **#20/#21** — fs-verity enforcement for system-app updates and rejection of
   same/older `/data` updates across reboot (GrapheneOS `PackageVerityExt`);
@@ -171,10 +171,11 @@ patchkit. The current experimental batches implement:
   parameters from links, preserving functional query parameters and
   fragments, without opening or resolving the links.
 
-The experimental [`docs/opsec.md`](https://github.com/ntrop6/lenos-experimental/blob/main/docs/opsec.md)
-documents the OPSEC threat model and limits. The repository's `STATUS.md` lists
+The experimental [`experimental/docs/opsec.md`](../experimental/docs/opsec.md)
+documents the OPSEC threat model and limits. `experimental/STATUS.md` lists
 the remaining untestable workstreams (full per-app #23, #30, #31, #33–#35)
-with the concrete blocker for each.
+with the concrete blocker for each, and `experimental/docs/security-review.md`
+records the source-level security review.
 
 ## Not in the 1.0 series
 

@@ -1,0 +1,119 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index ccc591f..1ee16a1 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -14943,2 +14943,7 @@
+     <string name="safety_center_app_security_search_terms"></string>
++    <!-- lenOS experimental global native-debugging block (partial #23) -->
++    <string name="native_debugging_block_title">Block native debugging</string>
++    <string name="native_debugging_block_summary">Stop newly started user apps from being traced by same-UID processes.</string>
++    <string name="native_debugging_block_note">This is a global experimental approximation of GrapheneOS per-app native-debugging control. It clears the kernel dumpable bit for user apps that are not debuggable or profileable. System apps are exempt.</string>
++    <string name="native_debugging_block_limitations">Changing this setting affects newly started app processes only; reboot or force-stop an app for it to take effect. It is not a substitute for SELinux, verified boot or a non-debuggable build, and it does not add a per-app denial prompt.</string>
+     <!-- Safety Center account security subpage summary [CHAR LIMIT=NONE] -->
+diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
+index 0068872..a555724 100644
+--- a/res/xml/more_security_privacy_settings.xml
++++ b/res/xml/more_security_privacy_settings.xml
+@@ -196,4 +196,11 @@
+             android:targetClass="com.android.settings.Settings$IccLockSettingsActivity" />
+ 
+     </Preference>
++    <Preference
++        android:order="247"
++        android:key="native_debugging_block"
++        android:title="@string/native_debugging_block_title"
++        android:summary="@string/native_debugging_block_summary"
++        android:fragment="com.android.settings.security.NativeDebuggingBlockSettings" />
++
+ 
+diff --git a/res/xml/native_debugging_block.xml b/res/xml/native_debugging_block.xml
+new file mode 100644
+index 0000000..6fe8877
+--- /dev/null
++++ b/res/xml/native_debugging_block.xml
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2026 The lenOS Project. SPDX-License-Identifier: Apache-2.0 -->
++<PreferenceScreen
++    xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <SwitchPreference
++        android:key="block_native_debugging"
++        android:title="@string/native_debugging_block_title"
++        android:summary="@string/native_debugging_block_summary"
++        android:persistent="false" />
++
++    <Preference
++        android:title="@string/native_debugging_block_note"
++        android:selectable="false" />
++
++    <Preference
++        android:title="@string/native_debugging_block_limitations"
++        android:selectable="false" />
++</PreferenceScreen>
+diff --git a/src/com/android/settings/security/NativeDebuggingBlockSettings.java b/src/com/android/settings/security/NativeDebuggingBlockSettings.java
+new file mode 100644
+index 0000000..716c96a
+--- /dev/null
++++ b/src/com/android/settings/security/NativeDebuggingBlockSettings.java
+@@ -0,0 +1,60 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.security;
++
++import android.app.settings.SettingsEnums;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.SwitchPreference;
++
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++/**
++ * Experimental global native-debugging block.
++ *
++ * <p>This is deliberately not GrapheneOS's per-app native-debugging screen. It controls one
++ * secure setting that {@code ActivityThread} reads for newly started app processes. The kernel
++ * clear-dumpable policy is applied only to non-system, non-debuggable and non-profileable apps.
++ * Running processes keep their current dumpable state until they are restarted.</p>
++ */
++public class NativeDebuggingBlockSettings extends SettingsPreferenceFragment {
++    private SwitchPreference mBlock;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        addPreferencesFromResource(R.xml.native_debugging_block);
++        mBlock = findPreference(Settings.Secure.BLOCK_NATIVE_DEBUGGING);
++        if (mBlock == null) {
++            return;
++        }
++        mBlock.setChecked(Settings.Secure.getInt(getContentResolver(),
++                Settings.Secure.BLOCK_NATIVE_DEBUGGING, 0) == 1);
++        mBlock.setOnPreferenceChangeListener((preference, newValue) -> {
++            final boolean enabled = (Boolean) newValue;
++            Settings.Secure.putInt(getContentResolver(),
++                    Settings.Secure.BLOCK_NATIVE_DEBUGGING, enabled ? 1 : 0);
++            return true;
++        });
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.SECURITY;
++    }
++}

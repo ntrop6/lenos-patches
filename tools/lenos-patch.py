@@ -21,28 +21,43 @@ Usage:
     lenos-patch.py --tree /path/to/lineage --apply --project frameworks/base
     lenos-patch.py --tree /path/to/lineage --reverse --apply
     lenos-patch.py --tree /path/to/lineage --reset
-    lenos-patch.py --list
+    lenos-patch.py --tree /path/to/lineage --experimental --check
+    lenos-patch.py --tree /path/to/lineage --experimental --apply
+    lenos-patch.py --tree /path/to/lineage --experimental --reset
+    lenos-patch.py --tree /path/to/lineage --require-applied
+    lenos-patch.py --tree /path/to/lineage --experimental --require-applied
+    lenos-patch.py --list [--experimental]
+
+The experimental series is always applied **after** the stable 1.0 series and
+must be checked/applied separately. It is not part of a default build.
 """
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lenos_projects import PROJECT_ALIASES, alias_for, project_for  # noqa: E402
 
 HERE = Path(__file__).resolve().parent.parent  # vendor/lenos
-PATCH_ROOT = HERE / "patches"
+STABLE_PATCH_ROOT = HERE / "patches"
+EXPERIMENTAL_PATCH_ROOT = HERE / "patches-experimental"
 
 
-def patch_dir_for(project: str) -> Path:
-    return PATCH_ROOT / alias_for(project)
+def patch_root_for(experimental: bool) -> Path:
+    return EXPERIMENTAL_PATCH_ROOT if experimental else STABLE_PATCH_ROOT
 
 
-def series(project: str) -> list[Path]:
-    pdir = patch_dir_for(project)
+def patch_dir_for(project: str, root: Path) -> Path:
+    return root / alias_for(project)
+
+
+def series(project: str, root: Path) -> list[Path]:
+    pdir = patch_dir_for(project, root)
     sfile = pdir / "series"
     if not sfile.is_file():
         return []
@@ -58,9 +73,11 @@ def series(project: str) -> list[Path]:
     return out
 
 
-def projects() -> list[str]:
+def projects(root: Path) -> list[str]:
     out = []
-    for d in sorted(PATCH_ROOT.iterdir()):
+    if not root.is_dir():
+        return out
+    for d in sorted(root.iterdir()):
         if not d.is_dir() or not (d / "series").is_file():
             continue
         project = project_for(d.name)
@@ -96,8 +113,63 @@ def is_applied(project_dir: Path, patch: Path) -> bool:
     return proc.returncode == 0
 
 
+def patch_paths(patch: Path) -> list[str]:
+    """Every file path the patch touches, including rename/copy ends."""
+    out: list[str] = []
+
+    def add(p: str) -> None:
+        p = p.split("\t")[0].strip()
+        if p.startswith("a/") or p.startswith("b/"):
+            p = p[2:]
+        if p not in ("", "/dev/null") and p not in out:
+            out.append(p)
+
+    for line in patch.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                add(parts[2])
+                add(parts[3])
+        elif line.startswith("--- ") or line.startswith("+++ "):
+            add(line[4:])
+        elif line.startswith(("rename from ", "rename to ",
+                              "copy from ", "copy to ")):
+            add(line.split(" ", 2)[2])
+    return out
+
+
+def series_applied(project_dir: Path, patches: list[Path]) -> bool:
+    """True if the whole series is applied.
+
+    Reverse-checking one patch in isolation is not enough: a later patch can
+    change the context of an earlier one, so its reverse check fails even
+    though the series is fully applied. Reverse the series in reverse order in
+    a throwaway copy of every touched file instead. This never writes to the
+    real checkout.
+    """
+    if not patches:
+        return True
+    with tempfile.TemporaryDirectory(prefix="lenos-series-") as td:
+        tmp = Path(td)
+        for patch in patches:
+            for rel in patch_paths(patch):
+                src = project_dir / rel
+                if not src.is_file():
+                    continue
+                dst = tmp / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+        for patch in reversed(patches):
+            proc = subprocess.run(
+                ["git", "apply", "--reverse", "--whitespace=nowarn", str(patch)],
+                cwd=tmp, capture_output=True, text=True)
+            if proc.returncode != 0:
+                return False
+        return True
+
+
 def created_paths(patch: Path) -> list[str]:
-    """Files the patch creates (old side is /dev/null), as project-relative paths."""
+    """Files the patch creates or renames to, as project-relative paths."""
     out: list[str] = []
     old_is_null = False
     for line in patch.read_text(encoding="utf-8").splitlines():
@@ -108,6 +180,10 @@ def created_paths(patch: Path) -> list[str]:
             if old_is_null and p not in ("", "/dev/null"):
                 out.append(p[2:] if p.startswith("b/") else p)
             old_is_null = False
+        elif line.startswith(("rename to ", "copy to ")):
+            p = line.split(" to ", 1)[1].strip()
+            if p not in ("", "/dev/null"):
+                out.append(p[2:] if p.startswith("b/") else p)
     return out
 
 
@@ -138,6 +214,13 @@ def reset_project(project: str, pdir: Path, patches: list[Path]) -> None:
                     "The patch set does not match the pinned revision; do not reset blindly.")
             f.unlink()
             print(f"  removed {project}: {rel}")
+            parent = f.parent
+            while parent != pdir and parent.is_dir():
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
 
     status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
                             cwd=pdir, capture_output=True, text=True)
@@ -158,33 +241,44 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="list project/patch pairs")
     ap.add_argument("--status", action="store_true",
                     help="report applied/not applied per patch (needs --tree)")
+    ap.add_argument("--require-applied", action="store_true",
+                    help="exit non-zero unless the whole series is applied (needs --tree)")
     ap.add_argument("--reset", action="store_true",
                     help="restore the series' projects to the pinned revision "
                          "(git checkout + remove files the series created)")
+    ap.add_argument("--experimental", action="store_true",
+                    help="use patches-experimental/ (apply only after the stable series)")
     args = ap.parse_args()
 
+    root = patch_root_for(args.experimental)
+
     if args.list:
-        for project in projects():
+        for project in projects(root):
             if args.project and project not in args.project:
                 continue
-            for patch in series(project):
+            for patch in series(project, root):
                 print(f"{project}\t{patch.name}")
         return 0
 
-    if args.reset and (args.apply or args.check or args.reverse or args.status):
-        ap.error("--reset is exclusive; run it as its own step")
+    actions = (args.apply, args.check, args.status,
+               args.require_applied, args.reset)
+    if sum(bool(a) for a in actions) != 1:
+        ap.error("choose exactly one of --check/--apply/--status/"
+                 "--require-applied/--reset")
+    if args.reverse and not (args.apply or args.check):
+        ap.error("--reverse is a modifier for --check or --apply")
 
     if not args.tree:
         ap.error("--tree is required unless --list")
     tree = Path(args.tree).resolve()
 
-    targets = args.project or projects()
+    targets = args.project or projects(root)
     if not targets:
-        raise SystemExit("ERROR: no projects with a series file found in " + str(PATCH_ROOT))
+        raise SystemExit("ERROR: no projects with a series file found in " + str(root))
 
     rc = 0
     for project in targets:
-        patches = series(project)
+        patches = series(project, root)
         if not patches:
             print(f"  skip  {project}: no patches")
             continue
@@ -196,8 +290,19 @@ def main() -> int:
         if args.reset:
             reset_project(project, pdir, patches)
             continue
-        for patch in patches:
-            applied = is_applied(pdir, patch)
+        if args.require_applied:
+            if series_applied(pdir, patches):
+                print(f"  applied series {project}: {len(patches)} patches")
+            else:
+                print(f"  NOT applied  {project}: series is missing or partial")
+                rc = 1
+            continue
+        applied_flags = [is_applied(pdir, patch) for patch in patches]
+        if not all(applied_flags) and series_applied(pdir, patches):
+            # An earlier patch may no longer reverse on its own after a later
+            # patch in the same file. The whole-series check is authoritative.
+            applied_flags = [True] * len(patches)
+        for patch, applied in zip(patches, applied_flags):
             if args.status:
                 state = "applied" if applied else "missing"
                 print(f"  {state:7} {project}: {patch.name}")

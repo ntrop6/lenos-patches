@@ -1,0 +1,14 @@
+// lenOS OPSEC tools: metadata-scrubbing share target and offline tile.
+// Experimental companion app; not part of the lenOS 1.0 series.
+android_app {
+    name: "LenosOpsec",
+    srcs: ["src/**/*.java"],
+    resource_dirs: ["res"],
+    manifest: "AndroidManifest.xml",
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: ["androidx.core_core-ktx"],
+    optimize: {
+        enabled: false,
+    },
+}

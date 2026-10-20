@@ -72,6 +72,40 @@ series is missing — a half-patched tree never builds.
 Then run the VM's normal reset/build steps (rootless + hardening profile as
 before). Keys and the avbroot step stay exactly as the driver does them.
 
+### Experimental builds (opt-in)
+
+The imported experimental series is **not** part of the default 1.0 build. It
+is applied after the stable series and is selected only with
+`LENOS_EXPERIMENTAL=1`:
+
+```bash
+LENOS_EXPERIMENTAL=1 ~/lenos-1.0-shizuku.sh apply
+LENOS_EXPERIMENTAL=1 ~/lenos-1.0-shizuku.sh build
+```
+
+The driver normalizes the flag, runs `--experimental --check/--apply`, installs
+`experimental/app/LenosOpsec` into the build tree, and exports the same flag so
+`config/lenos.mk` inherits `config/lenos-experimental.mk`. For a manual build,
+pass `LENOS_EXPERIMENTAL=1` to `mka` yourself. Without it, `LenosOpsec` is not
+in `PRODUCT_PACKAGES` and the app source is not installed.
+
+Switching back to a stable build is automatic: the driver detects an applied
+experimental series before resetting, removes its created/renamed files, then
+resets the stable series. Do not leave a partially applied experimental tree.
+The complete flag/apply-order contract is in `docs/experimental.md`.
+
+Experimental source-level tests (each sandbox rebuilds the stable base first):
+
+```bash
+cd vendor/lenos/experimental/tests
+LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY ./run-tests.sh
+```
+
+No combined experimental image has been built or booted. The first build must
+be treated as a bring-up, not as validation; use
+`experimental/docs/verification.md` and the read-only helpers
+`tools/verify-build.sh` / `tools/verify-device.sh`.
+
 Transfer the driver + patchkit to the VM with:
 
 ```bash

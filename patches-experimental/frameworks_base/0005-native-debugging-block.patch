@@ -1,0 +1,174 @@
+diff --git a/core/java/android/app/ActivityThread.java b/core/java/android/app/ActivityThread.java
+index 6777dbaa..097932f7 100644
+--- a/core/java/android/app/ActivityThread.java
++++ b/core/java/android/app/ActivityThread.java
+@@ -7870,6 +7870,9 @@ public final class ActivityThread extends ClientTransactionHandler
+                                                 data.appInfo.packageName,
+                                                 UserHandle.myUserId());
+         VMRuntime.setProcessPackageName(data.appInfo.packageName);
++        // lenOS experimental ENF-1: apply the opt-in global native-debugging block before any
++        // application code runs. The helper exempts system, debuggable and profileable apps.
++        NativeDebuggingBlock.apply(data.appInfo, getSystemContext());
+         mDdmSyncStageUpdater.next(Stage.Named);
+ 
+         // Pass data directory path to ART. This is used for caching information and
+diff --git a/core/java/android/app/NativeDebuggingBlock.java b/core/java/android/app/NativeDebuggingBlock.java
+new file mode 100644
+index 00000000..ac497314
+--- /dev/null
++++ b/core/java/android/app/NativeDebuggingBlock.java
+@@ -0,0 +1,76 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package android.app;
++
++import android.content.Context;
++import android.content.pm.ApplicationInfo;
++import android.os.Process;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.util.Slog;
++
++/**
++ * Experimental lenOS native-debugging block.
++ *
++ * <p>This is a deliberately small, global approximation of GrapheneOS's per-app
++ * {@code BLOCK_NATIVE_DEBUGGING} policy. It clears the process dumpable bit for newly started
++ * non-system, non-debuggable, non-profileable app processes when the secure setting is enabled.
++ * The kernel then refuses same-UID ptrace, /proc/pid/mem and similar accesses unless the caller
++ * has CAP_SYS_PTRACE (for example, root or the crash dumper).</p>
++ *
++ * <p>It is not the full GrapheneOS feature: there is no per-app allow/deny state, no
++ * {@code GosPackageState}, no SELinux per-package domain, and no denial UI. Running processes are
++ * not changed; reboot or force-stop an app after changing the setting. System apps, debuggable
++ * apps and profileable apps are exempt so normal development and profiling continue to work.
++ * The setting is off by default and this path is not included in the 1.0 series.</p>
++ */
++final class NativeDebuggingBlock {
++    private static final String TAG = "NativeDebuggingBlock";
++
++    private NativeDebuggingBlock() {
++    }
++
++    static void apply(ApplicationInfo appInfo, Context context) {
++        if (appInfo == null || context == null) {
++            return;
++        }
++        if (appInfo.isSystemApp() || appInfo.isUpdatedSystemApp() || appInfo.isDebuggable()
++                || appInfo.isProfileable()) {
++            return;
++        }
++
++        final int enabled;
++        try {
++            enabled = Settings.Secure.getIntForUser(context.getContentResolver(),
++                    Settings.Secure.BLOCK_NATIVE_DEBUGGING, 0, UserHandle.myUserId());
++        } catch (Exception e) {
++            Slog.w(TAG, "Unable to read native-debugging policy", e);
++            return;
++        }
++        if (enabled != 1) {
++            return;
++        }
++
++        try {
++            Process.setDumpable(false);
++        } catch (Exception e) {
++            // A denied prctl is logged rather than crashing the app process. The setting is a
++            // hardening layer, not a replacement for SELinux or verified boot.
++            Slog.w(TAG, "Unable to clear process dumpable bit", e);
++        }
++    }
++}
+diff --git a/core/java/android/os/Process.java b/core/java/android/os/Process.java
+index 793b0556..86c7f575 100644
+--- a/core/java/android/os/Process.java
++++ b/core/java/android/os/Process.java
+@@ -1412,6 +1412,17 @@ public class Process {
+ 
+     private static native void setArgV0Native(String text);
+ 
++    /**
++     * Change this process's dumpable attribute. A non-dumpable process cannot be ptraced or
++     * inspected through /proc by another process of the same UID without CAP_SYS_PTRACE.
++     *
++     * <p>This is a lenOS internal hardening hook. It is intentionally not a public API and is
++     * only used for app processes after the native debugging policy has been evaluated.</p>
++     *
++     * @hide
++     */
++    public static native void setDumpable(boolean dumpable);
++
+     /**
+      * Return the name of this process. By default, the process name is the same as the app's
+      * package name, but this can be changed using {@code android:process}.
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index 36e2193c..acc2e4de 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -18900,6 +18900,17 @@ public final class Settings {
+         @Readable
+         public static final String HIDDEN_API_POLICY = "hidden_api_policy";
+ 
++        /**
++         * lenOS experimental: clear the process dumpable bit for newly started non-system,
++         * non-debuggable, non-profileable app processes. This is a global approximation of
++         * GrapheneOS's per-app native-debugging policy; it is off by default and is not a
++         * replacement for SELinux or verified boot.
++         *
++         * @hide
++         */
++        @Readable
++        public static final String BLOCK_NATIVE_DEBUGGING = "block_native_debugging";
++
+         /**
+          * Flag for forcing {@link com.android.server.compat.OverrideValidatorImpl}
+          * to consider this a non-debuggable build.
+diff --git a/core/jni/android_util_Process.cpp b/core/jni/android_util_Process.cpp
+index fe69dd9a..24bd941c 100644
+--- a/core/jni/android_util_Process.cpp
++++ b/core/jni/android_util_Process.cpp
+@@ -54,6 +54,7 @@
+ #include <pwd.h>
+ #include <signal.h>
+ #include <sys/epoll.h>
++#include <sys/prctl.h>
+ #include <sys/errno.h>
+ #include <sys/pidfd.h>
+ #include <sys/resource.h>
+@@ -606,6 +607,13 @@ void android_os_Process_setArgV0(JNIEnv* env, jobject clazz, jstring name)
+     }
+ }
+ 
++static void android_os_Process_setDumpable(JNIEnv* env, jobject clazz, jboolean dumpable)
++{
++    if (prctl(PR_SET_DUMPABLE, dumpable ? 1 : 0, 0, 0, 0) == -1) {
++        jniThrowErrnoException(env, "setDumpable", errno);
++    }
++}
++
+ jint android_os_Process_setUid(JNIEnv* env, jobject clazz, jint uid)
+ {
+     if (uid < 0) {
+@@ -1373,6 +1381,7 @@ static const JNINativeMethod methods[] = {
+         {"getExclusiveCores", "()[I", (void*)android_os_Process_getExclusiveCores},
+         {"getSchedAffinity", "(I)[J", (void*)android_os_Process_getSchedAffinity},
+         {"setArgV0Native", "(Ljava/lang/String;)V", (void*)android_os_Process_setArgV0},
++        {"setDumpable", "(Z)V", (void*)android_os_Process_setDumpable},
+         {"setUid", "(I)I", (void*)android_os_Process_setUid},
+         {"setGid", "(I)I", (void*)android_os_Process_setGid},
+         {"sendSignal", "(II)V", (void*)android_os_Process_sendSignal},

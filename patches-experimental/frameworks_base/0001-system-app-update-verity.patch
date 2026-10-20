@@ -1,0 +1,309 @@
+diff --git a/services/core/java/com/android/server/pm/InstallPackageHelper.java b/services/core/java/com/android/server/pm/InstallPackageHelper.java
+index f3c62ebc..d7c14f0c 100644
+--- a/services/core/java/com/android/server/pm/InstallPackageHelper.java
++++ b/services/core/java/com/android/server/pm/InstallPackageHelper.java
+@@ -139,6 +139,7 @@ import android.os.Process;
+ import android.os.RemoteException;
+ import android.os.SELinux;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.os.UserManager;
+@@ -2007,6 +2008,49 @@ final class InstallPackageHelper {
+             parsedPackage.setBaseApkPath(request.getApexInfo().modulePath);
+         }
+ 
++        final AndroidPackage systemPackage = PackageVerityExt.getSystemPackage(parsedPackage);
++
++        if (systemPackage != null) {
++            // This is an update to a system package.
++
++            try {
++                PackageVerityExt.checkFsVerity(parsedPackage);
++            } catch (PackageManagerException e) {
++                String message = "fs-verity not set up for system package update " + e;
++                boolean abortInstall = true;
++
++                if (Build.IS_DEBUGGABLE) {
++                    if (SystemProperties.getBoolean(
++                            "persist.disable_install_time_fsverity_check", false)) {
++                        Slog.d(TAG, message);
++                        abortInstall = false;
++                    }
++                }
++
++                if (abortInstall) {
++                    throw new PrepareFailure(PackageManager.INSTALL_FAILED_INTERNAL_ERROR,
++                            message);
++                }
++            }
++
++            if (parsedPackage.getLongVersionCode() == systemPackage.getLongVersionCode()) {
++                String message = "Not allowed to update system package to the same versionCode";
++                boolean abortInstall = true;
++
++                if (Build.IS_DEBUGGABLE) {
++                    if (SystemProperties.getBoolean(
++                            "persist.disable_same_versionCode_sys_pkg_update_check", false)) {
++                        Slog.d(TAG, message + ": " + parsedPackage.getManifestPackageName());
++                        abortInstall = false;
++                    }
++                }
++                if (abortInstall) {
++                    throw new PrepareFailure(PackageManager.INSTALL_FAILED_INTERNAL_ERROR,
++                            message);
++                }
++            }
++        }
++
+         final PackageSetting oldPackageState;
+         final AndroidPackage oldPackage;
+         String renamedPackage;
+@@ -4343,6 +4387,13 @@ final class InstallPackageHelper {
+         try {
+             final boolean scanSystemPartition =
+                 (parseFlags & ParsingPackageUtils.PARSE_IS_SYSTEM_DIR) != 0;
++            if ((scanFlags & SCAN_BOOTING) != 0) {
++                if (scanSystemPartition) {
++                    PackageVerityExt.addSystemPackage(parsedPackage);
++                } else {
++                    PackageVerityExt.checkSystemPackageUpdate(parsedPackage);
++                }
++            }
+             final ScanRequest initialScanRequest = prepareInitialScanRequest(parsedPackage,
+                     parseFlags, scanFlags, user, null /*cpuAbiOverride*/, null /*installSource*/);
+             final PackageSetting installedPkgSetting = initialScanRequest.mPkgSetting;
+diff --git a/services/core/java/com/android/server/pm/PackageVerityExt.java b/services/core/java/com/android/server/pm/PackageVerityExt.java
+new file mode 100644
+index 00000000..697493cf
+--- /dev/null
++++ b/services/core/java/com/android/server/pm/PackageVerityExt.java
+@@ -0,0 +1,227 @@
++/*
++ * Copyright (C) 2022 GrapheneOS
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.pm;
++
++import android.annotation.Nullable;
++import android.content.pm.SigningDetails;
++import android.content.pm.parsing.result.ParseResult;
++import android.content.pm.parsing.result.ParseTypeImpl;
++import android.os.Build;
++import android.os.SystemProperties;
++import android.util.ArrayMap;
++import android.util.Slog;
++
++import com.android.internal.pm.parsing.pkg.ParsedPackage;
++import com.android.internal.pm.pkg.parsing.ParsingPackageUtils;
++import com.android.internal.security.VerityUtils;
++import com.android.server.pm.pkg.AndroidPackage;
++import com.android.server.pm.pkg.AndroidPackageSplit;
++
++import static android.content.pm.PackageManager.INSTALL_FAILED_BAD_SIGNATURE;
++import static android.content.pm.PackageManager.INSTALL_FAILED_INVALID_APK;
++import static android.content.pm.PackageManager.INSTALL_FAILED_UPDATE_INCOMPATIBLE;
++
++/**
++ * Additional checks for updates to packages that are part of the immutable system image.
++ *
++ * <p>Without this, an attacker who can write to /data can replace a system app with an older
++ * version (including one with known vulnerabilities) and keep it across reboots. The checks are
++ * intentionally performed at two points:
++ *
++ * <ul>
++ *   <li>During boot, after all immutable packages have been scanned and before /data packages are
++ *       allowed to replace them: versionCode, fs-verity and signing certificate checks.</li>
++ *   <li>At install time: fs-verity and "same versionCode" checks, so an invalid update is rejected
++ *       before it is committed instead of being silently rolled back at the next boot.</li>
++ * </ul>
++ *
++ * <p>This is a lenOS port of GrapheneOS's {@code PackageVerityExt}. It is a source-only
++ * implementation in the lenOS experimental repository until it has been built and validated on a
++ * device.
++ */
++public class PackageVerityExt {
++    private static final String TAG = PackageVerityExt.class.getSimpleName();
++
++    // Parsed packages from immutable partitions. Static shared libraries are handled separately
++    // due to a different policy that OS uses for their replacement.
++    private static final ArrayMap<String, AndroidPackage> packages = new ArrayMap<>();
++    private static final ArrayMap<String, AndroidPackage> staticSharedLibraries = new ArrayMap<>();
++
++    // Called when PackageManager scans a package from an immutable system image partition during
++    // OS boot. All packages from immutable partitions are scanned before any packages from
++    // mutable partitions.
++    public static void addSystemPackage(AndroidPackage pkg) {
++        if (pkg.isStaticSharedLibrary()) {
++            String name = pkg.getStaticSharedLibraryName();
++            AndroidPackage prev;
++            synchronized (staticSharedLibraries) {
++                prev = staticSharedLibraries.put(name, pkg);
++            }
++            if (prev != null) {
++                Slog.w(TAG, "duplicate static shared lib " + name
++                        + ": prev " + prev.getPath() + " -> new " + pkg.getPath());
++            }
++        } else {
++            String name = pkg.getManifestPackageName();
++            AndroidPackage prev;
++            synchronized (packages) {
++                prev = packages.put(name, pkg);
++            }
++            if (prev != null) {
++                Slog.w(TAG, "duplicate system package " + name + ": prev " + prev.getPath()
++                        + " -> new " + pkg.getPath());
++            }
++        }
++    }
++
++    // If pkg is a system package update, returns its matching system image package.
++    @Nullable
++    public static AndroidPackage getSystemPackage(AndroidPackage pkg) {
++        if (pkg.isStaticSharedLibrary()) {
++            String name = pkg.getStaticSharedLibraryName();
++            synchronized (staticSharedLibraries) {
++                return staticSharedLibraries.get(name);
++            }
++        } else {
++            String name = pkg.getManifestPackageName();
++            synchronized (packages) {
++                return packages.get(name);
++            }
++        }
++    }
++
++    // Called when PackageManager scans a package from a mutable partition (i.e. /data) during OS
++    // boot. A PackageManagerException thrown from here prevents this package from replacing its
++    // system image version.
++    public static void checkSystemPackageUpdate(AndroidPackage maybeSystemPackageUpdate)
++            throws PackageManagerException {
++        final AndroidPackage systemPkg = getSystemPackage(maybeSystemPackageUpdate);
++
++        if (systemPkg == null) {
++            // Not a system package update.
++            return;
++        }
++
++        final AndroidPackage systemPkgUpdate = maybeSystemPackageUpdate;
++
++        Slog.d(TAG, "Performing verification of system package update "
++                + systemPkgUpdate.getManifestPackageName());
++
++        boolean checkVersionCode = true;
++        if (Build.IS_DEBUGGABLE) {
++            // Also checked in InstallPackageHelper before package installation.
++            if (SystemProperties.getBoolean(
++                    "persist.disable_same_versionCode_sys_pkg_update_check", false)) {
++                checkVersionCode = false;
++                long version = systemPkgUpdate.getLongVersionCode();
++                if (systemPkg.getLongVersionCode() == version) {
++                    Slog.w(TAG, "Updated system package is used for "
++                            + systemPkg.getPackageName()
++                            + " despite it having same version code ("
++                            + version + ") as the system image package");
++                }
++            }
++        }
++
++        if (checkVersionCode) {
++            boolean shouldReject;
++            String op;
++            if (systemPkg.isStaticSharedLibrary()) {
++                // Each version of a static shared library is treated by the OS as a completely
++                // separate package with its own package state. Note that rejecting static shared
++                // libraries with mismatching version code would only delete their APKs; package
++                // state would be left behind.
++                shouldReject = systemPkg.getLongVersionCode()
++                        == systemPkgUpdate.getLongVersionCode();
++                op = "==";
++            } else {
++                shouldReject = systemPkg.getLongVersionCode()
++                        >= systemPkgUpdate.getLongVersionCode();
++                op = ">=";
++            }
++            if (shouldReject) {
++                throw new PackageManagerException(INSTALL_FAILED_UPDATE_INCOMPATIBLE,
++                        "versionCode of system image package (" + systemPkg.getLongVersionCode()
++                                + ") is " + op + " versionCode of system package update ("
++                                + systemPkgUpdate.getLongVersionCode() + ")");
++            }
++        }
++
++        boolean checkFsVerity = true;
++        if (Build.IS_DEBUGGABLE) {
++            if (SystemProperties.getBoolean(
++                    "persist.disable_boot_time_fsverity_check", false)) {
++                checkFsVerity = false;
++            }
++        }
++
++        if (checkFsVerity) {
++            checkFsVerity(systemPkgUpdate);
++        }
++
++        final SigningDetails updatePkgSigningDetails = parseSigningDetails(systemPkgUpdate,
++                // Verify APK against its signature.
++                false);
++
++        final SigningDetails systemPkgSigningDetails = parseSigningDetails(systemPkg,
++                // Skip signature verification; system image APKs are protected by verified boot.
++                true);
++
++        final boolean valid = updatePkgSigningDetails.checkCapability(systemPkgSigningDetails,
++                    SigningDetails.CertCapabilities.INSTALLED_DATA)
++                || systemPkgSigningDetails.checkCapability(updatePkgSigningDetails,
++                    SigningDetails.CertCapabilities.ROLLBACK);
++
++        if (!valid) {
++            String msg = "System package update " + systemPkgUpdate.getManifestPackageName()
++                    + " signature doesn't match the signature of system image package";
++            throw new PackageManagerException(INSTALL_FAILED_BAD_SIGNATURE, msg);
++        }
++    }
++
++    public static void checkFsVerity(AndroidPackage pkg) throws PackageManagerException {
++        // The base APK is considered to be a split too.
++        for (AndroidPackageSplit split : pkg.getSplits()) {
++            String apkPath = split.getPath();
++            if (!VerityUtils.hasFsverity(apkPath)) {
++                throw new PackageManagerException(INSTALL_FAILED_BAD_SIGNATURE,
++                        "APK doesn't have fs-verity: " + apkPath);
++            }
++        }
++    }
++
++    private static SigningDetails parseSigningDetails(AndroidPackage pkg, boolean skipVerify)
++            throws PackageManagerException {
++        final ParseTypeImpl input = ParseTypeImpl.forDefaultParsing();
++        final ParseResult<SigningDetails> result = ParsingPackageUtils.getSigningDetails(
++                input, (ParsedPackage) pkg, skipVerify);
++
++        if (result.isError()) {
++            throw new PackageManagerException(
++                    result.getErrorCode(), result.getErrorMessage(), result.getException());
++        }
++
++        final SigningDetails sd = result.getResult();
++        if (sd == null) {
++            throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
++                    "Null signing details of package " + pkg.getManifestPackageName());
++        }
++
++        return sd;
++    }
++}

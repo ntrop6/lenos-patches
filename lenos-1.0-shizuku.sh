@@ -13,6 +13,12 @@
 #
 # Subcommands: doctor | apply | build | package | extract | flash-plan | lock-gates
 # (`hardwire` is kept as an alias of `apply` for the older scripts/manuals)
+#
+# Experimental mode: set LENOS_EXPERIMENTAL=1. The driver then applies
+# patches-experimental/ after the stable series, installs experimental/app/,
+# and exports the same flag to the build so config/lenos.mk inherits the
+# experimental product fragment. Default is 0; no experimental source is
+# patched into the tree and LenosOpsec is not built.
 set -euo pipefail
 umask 077
 
@@ -32,6 +38,7 @@ WIZARD="${LENOS_WIZARD:-$HOME/lenOS-2.8.1-ReSukiSU-single.sh}"
 VENDOR="${LENOS_VENDOR:-}"
 if [[ -z "$VENDOR" ]]; then
   if [[ -d "$SELF_DIR/vendor-lenos" ]]; then VENDOR="$SELF_DIR/vendor-lenos"
+  elif [[ -f "$SELF_DIR/tools/lenos-patch.py" ]]; then VENDOR="$SELF_DIR"
   elif [[ -d "$HOME/vendor-lenos" ]]; then VENDOR="$HOME/vendor-lenos"
   else VENDOR="$SELF_DIR/vendor-lenos"
   fi
@@ -60,12 +67,23 @@ lenOS $LENOS_VERSION  (asteroids / Nothing Phone 3a)
   $0 flash-plan     print laptop commands. does not talk to the phone
   $0 lock-gates     print lock checklist. always exits 1 (this script will not lock)
 
+Default build: stable 1.0 series only.
+Experimental build: LENOS_EXPERIMENTAL=1 $0 apply|build
+  (patches-experimental + experimental/app/LenosOpsec; never device-validated)
+
 Never: repo sync, git apply, flash, lock, firmware --re-sign, prepatched.
 EOF
 }
 
 need_file() { [[ -s "$1" ]] || die "missing $1"; }
 need_exec() { [[ -x "$1" ]] || die "missing executable $1"; }
+
+experimental_enabled() {
+  case "${LENOS_EXPERIMENTAL:-0}" in
+    1|true|TRUE|yes|YES) return 0;;
+    *) return 1;;
+  esac
+}
 
 is_firmware() {
   local p="$1" x
@@ -90,6 +108,15 @@ cmd_doctor() {
   [[ -d "$VENDOR" && -f "$VENDOR/tools/lenos-patch.py" \
      && -f "$VENDOR/tools/lenos_projects.py" ]] \
     || die "vendor/lenos patchkit not next to this script and not at $VENDOR"
+  if experimental_enabled; then
+    [[ -d "$VENDOR/patches-experimental" ]] \
+      || die "experimental patch series missing: $VENDOR/patches-experimental"
+    [[ -d "$VENDOR/experimental/app/LenosOpsec" ]] \
+      || die "experimental app source missing: $VENDOR/experimental/app/LenosOpsec"
+    info "mode:    experimental (LENOS_EXPERIMENTAL=1)"
+  else
+    info "mode:    stable 1.0"
+  fi
   need_file "$KEYS/avb.key"
   need_file "$KEYS/ota.key"
   need_file "$KEYS/ota.crt"
@@ -103,9 +130,14 @@ cmd_doctor() {
   info "OK. do not repo sync. do not lock."
 }
 
-# Projects touched by the patch series (unique), read from the patchkit.
+# Projects touched by the selected patch series (unique), read from the patchkit.
 series_projects() {
-  python3 "$VENDOR/tools/lenos-patch.py" --list | cut -f1 | sort -u
+  {
+    python3 "$VENDOR/tools/lenos-patch.py" --list
+    if experimental_enabled; then
+      python3 "$VENDOR/tools/lenos-patch.py" --list --experimental
+    fi
+  } | cut -f1 | sort -u
 }
 
 # Refuse to patch a project that still has tracked modifications: the
@@ -144,6 +176,13 @@ install_vendor_lenos() {
   for part in config app rro release; do
     cp -a "$VENDOR/$part" "$SRC/vendor/lenos/"
   done
+  if experimental_enabled; then
+    [[ -d "$VENDOR/experimental/app" ]] \
+      || die "experimental app tree missing: $VENDOR/experimental/app"
+    info "install experimental app inputs -> $SRC/vendor/lenos/app"
+    cp -a "$VENDOR/experimental/app/." "$SRC/vendor/lenos/app/"
+    need_file "$SRC/vendor/lenos/app/LenosOpsec/Android.bp"
+  fi
   need_file "$SRC/vendor/lenos/config/lenos.mk"
   need_file "$SRC/vendor/lenos/config/privapp-permissions-org.lenos.security.xml"
   need_file "$SRC/vendor/lenos/release/release_config_map.textproto"
@@ -153,8 +192,31 @@ cmd_apply() {
   cmd_doctor
   export LENOS_ALLOW_LOW_MEMORY="${LENOS_ALLOW_LOW_MEMORY:-1}"
   export LENOS_BUILD_JOBS="${LENOS_BUILD_JOBS:-4}"
+
+  local experimental=0 exp_was_applied=0 exp_status
+  if experimental_enabled; then experimental=1; fi
+  export LENOS_EXPERIMENTAL="$experimental"
+  if [[ "$experimental" -eq 1 ]]; then
+    info "build mode: EXPERIMENTAL (patches-experimental + LenosOpsec; not device-validated)"
+  else
+    info "build mode: stable 1.0 (experimental series disabled)"
+  fi
+
+  # Detect an applied experimental series before either reset reverts its
+  # tracked hunks. Its created files must still be removed when switching back
+  # to a stable build.
+  exp_status="$(python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" \
+      --experimental --status 2>/dev/null || true)"
+  if grep -q '^  applied' <<< "$exp_status"; then exp_was_applied=1; fi
+
   info "wizard reset hardening (git reset of patched projects)"
   "$WIZARD" reset hardening
+
+  if [[ "$experimental" -eq 1 || "$exp_was_applied" -eq 1 ]]; then
+    info "patchkit --experimental --reset (remove experimental files)"
+    python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --experimental --reset \
+      || die "experimental patchkit --reset failed"
+  fi
 
   info "patchkit --reset (pinned state; also removes files the series created)"
   python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --reset \
@@ -170,11 +232,26 @@ cmd_apply() {
   python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --apply \
     || die "patchkit --apply failed"
 
-  local status
-  status="$(python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --status)"
-  printf '%s\n' "$status" >&2
-  if grep -q 'missing' <<< "$status"; then
-    die "patches missing after apply. do not build a half-patched tree."
+  # Validate the stable series before the experimental patches change any of
+  # its context. --require-applied reverse-replays the whole series in a
+  # throwaway copy, so overlapping patches cannot produce a false "missing".
+  info "patchkit --require-applied"
+  python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --require-applied \
+    || die "stable series is not fully applied. do not build a half-patched tree."
+
+  if [[ "$experimental" -eq 1 ]]; then
+    info "experimental patchkit --check (strict, after the stable series)"
+    python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --experimental --check \
+      || die "experimental patchkit --check failed: stable tree does not match"
+
+    info "experimental patchkit --apply"
+    python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" --experimental --apply \
+      || die "experimental patchkit --apply failed"
+
+    info "experimental patchkit --require-applied"
+    python3 "$VENDOR/tools/lenos-patch.py" --tree "$SRC" \
+      --experimental --require-applied \
+      || die "experimental series is not fully applied. refusing a half-patched build."
   fi
 
   # Markers of this series, independent of the patchkit's own reporting.
@@ -381,7 +458,48 @@ cmd_apply() {
   grep -q 'DISALLOW_INSTALL_UNKNOWN_SOURCES' \
     "$SRC/packages/apps/Settings/src/com/android/settings/users/UserAppsInstallSettings.java" \
     || die "per-user app install policy missing"
-  info "apply OK - tree carries the lenOS patch series"
+
+  if [[ "$experimental" -eq 1 ]]; then
+    # Independent experimental markers. These are source-level assertions, not
+    # proof that the features build or behave correctly.
+    grep -q 'CLIPBOARD_CLEAR_ON_SCREEN_OFF' \
+      "$SRC/frameworks/base/core/java/android/provider/Settings.java" \
+      || die "experimental screen-off clipboard setting missing"
+    grep -q 'NativeDebuggingBlock.apply' \
+      "$SRC/frameworks/base/core/java/android/app/ActivityThread.java" \
+      || die "experimental native-debugging hook missing"
+    grep -q 'UsbPortSecurityController' \
+      "$SRC/frameworks/base/services/usb/java/com/android/server/usb/UsbService.java" \
+      || die "experimental USB port security missing"
+    grep -q 'lenos_crash_logs' \
+      "$SRC/packages/apps/Settings/res/xml/my_device_info.xml" \
+      || die "experimental crash-log viewer missing"
+    grep -q 'ro.boot.verifiedbootstate' \
+      "$SRC/packages/apps/SetupWizard/src/org/lineageos/setupwizard/WelcomeActivity.java" \
+      || die "experimental Setup Wizard warning missing"
+    grep -q 'app.grapheneos' \
+      "$SRC/packages/apps/Seedvault/app/src/main/java/com/stevesoltys/seedvault/App.kt" \
+      || die "experimental Seedvault prefix missing"
+    need_file "$SRC/vendor/lenos/app/LenosOpsec/Android.bp"
+    grep -q 'LenosOpsec' "$SRC/vendor/lenos/config/lenos-experimental.mk" \
+      || die "experimental product fragment does not include LenosOpsec"
+    grep -q 'ro.lenos.experimental=1' "$SRC/vendor/lenos/config/lenos-experimental.mk" \
+      || die "experimental product marker missing"
+    info "experimental markers OK - build is experimental, not device-validated"
+  else
+    [[ ! -e "$SRC/vendor/lenos/app/LenosOpsec" ]] \
+      || die "experimental app present in a stable build tree"
+    if grep -q 'lenos_crash_logs' \
+        "$SRC/packages/apps/Settings/res/xml/my_device_info.xml" 2>/dev/null; then
+      die "experimental Settings changes present in a stable build tree"
+    fi
+  fi
+
+  if [[ "$experimental" -eq 1 ]]; then
+    info "apply OK - tree carries the stable + experimental lenOS series"
+  else
+    info "apply OK - tree carries the lenOS 1.0 patch series"
+  fi
 }
 
 cmd_build() {

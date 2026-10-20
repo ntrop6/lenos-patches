@@ -3,6 +3,45 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-21 (twentieth session) — experimental work imported behind a build flag
+
+The VM is still unreachable. No build, flash, wipe or lock was performed. The
+experimental implementations are now in the main patchkit, but remain a
+separate opt-in series; the default 1.0 product is unchanged.
+
+* **Imported series:** `patches-experimental/` carries 12 patches against
+  `frameworks/base`, `packages/apps/Settings`, `packages/apps/SetupWizard` and
+  `packages/apps/Seedvault`. The former `vendor_lenos/0001` app patch became
+  `experimental/app/LenosOpsec` so the patchkit never patches its own checkout.
+  `config/lenos-experimental.mk` adds `LenosOpsec` and
+  `ro.lenos.experimental=1`.
+* **Build gate:** `LENOS_EXPERIMENTAL=1` makes
+  `lenos-1.0-shizuku.sh apply/build` reset any prior experimental series, apply
+  the stable series first, then run `lenos-patch.py --experimental
+  --check/--apply`, install the app source, and export the flag for the product
+  makefile. Without it, the app is neither installed nor built, and the stable
+  path is unchanged.
+* **Apply-order fix:** experimental `frameworks_base/0004` (screen-off
+  clipboard wipe) now carries the stable Secure Paste import context
+  (`ApplicationInfo`) in its `ClipboardService` hunk. All 12 patches apply
+  individually and in series order after the stable series.
+* **Reset/applied gate:** `--experimental --reset` removes renamed/created
+  files and empty directories; the driver detects an applied experimental
+  series before the stable reset and removes it first. The new
+  `--require-applied` reverse-replays the whole series in a throwaway copy, so
+  overlapping patches cannot produce a false `missing`; the driver gates both
+  series on it before building.
+* **Tests/docs:** main suite gains 14 experimental gate tests and 4 read-only
+  verification-script tests (366 total, stable series still 53 patches / 348
+  original tests green). `experimental/tests/` carries 79 feature/integration tests; every
+  sandbox rebuilds the stable base before applying an experimental patch. Added
+  `docs/experimental.md`, `tools/verify-build.sh`, `tools/verify-device.sh`, and
+  updated the README, feature matrix, build guide and porting guide.
+* **Still unvalidated:** combined experimental build/boot, #22 USB HAL behavior,
+  #27 restore migration, ENF-1 seccomp/prctl behavior, #20/#21 fs-verity update
+  paths, #28 verified-boot states, and all OPSEC UI/share flows. Experimental
+  work stays out of the 1.0 release until a build window and device tests pass.
+
 ## 2026-10-20 (nineteenth session) — experimental repository + anti-persistence pair
 
 * **New sister repository:** [`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental).

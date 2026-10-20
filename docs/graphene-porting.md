@@ -598,7 +598,7 @@ off, third-party apps may only read content they own; the default IME and system
 denial notifications, SystemUI paste grants/toolbar) is not ported; the feature is opt-in, so stock
 paste keeps working until the user enables it.
 
-**Experimental stage 2 (OPS-4):** `packages_apps_Settings/0004` in the experimental repository
+**Experimental stage 2 (OPS-4):** `packages_apps_Settings/0004` in `patches-experimental/`
 exposes the existing AOSP `OP_READ_CLIPBOARD` AppOp as a per-app switch for user-installed apps.
 It adds no framework patch, permission or new AppOp, excludes system apps/enabled keyboards/disabled
 packages, and lets the global Secure Paste setting remain authoritative. GrapheneOS's
@@ -673,7 +673,7 @@ USB-C alternate modes (DisplayPort) are disabled, plus a kernel/OS-level second 
 **Verdict: not feasible now (full feature); partial prototype possible (see step 1).** Put on the
 "research" list; do not promise GrapheneOS-equivalent guarantees.
 
-**Implemented in the experimental repository (not 1.0).** `frameworks_base/0003` +
+**Implemented in the opt-in experimental series (not 1.0).** `frameworks_base/0003` +
 `packages_apps_Settings/0002` implement the OS-side subset using AOSP 16's existing per-port
 `UsbPortManager.enableUsbData` operation rather than the GrapheneOS vendor sysprops. The five
 GrapheneOS mode constants and the `persist.security.usb_mode` key are preserved; a controller
@@ -1227,14 +1227,16 @@ and after the fragment, because `init_on_free` is the only option with a
 material cost. Until this runs on the device, #32 is **source-complete**, not
 verified.
 
-## 20. Experimental companion repository (unbuildable workstreams)
+## 20. Experimental series (opt-in, imported)
 
 The VM is unreachable, so implementations that are source-complete but cannot
-be built or device-validated are kept out of the 1.0 series. They live in
-[`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental),
-which is linked from the main README and feature matrix. The main
-`tools/lenos-patch.py` does **not** read that repository; the two series must
-not be applied together without a deliberate build/test decision.
+be built or device-validated are kept out of the default 1.0 product. They are
+imported into this repository under `patches-experimental/` and
+`experimental/`, but remain a second series applied **after** the stable 1.0
+series. `tools/lenos-patch.py --experimental` selects them; the build driver
+does so only when `LENOS_EXPERIMENTAL=1`, and installs
+`experimental/app/LenosOpsec` only in that mode. The default build never applies
+or compiles them. See `docs/experimental.md`.
 
 Current experimental batches:
 
@@ -1272,23 +1274,24 @@ Current experimental batches:
   GrapheneOS internal `app.grapheneos` prefix and prebuilt chunker while
   keeping `com.stevesoltys.seedvault`; backup migration is unverified.
 * **OPS-1/OPS-2/OPS-3 — original lenOS OPSEC tools.**
-  `vendor_lenos/0001` builds a metadata-scrubbing share target and Offline
-  radio tile; `frameworks_base/0004` + `packages_apps_Settings/0003` add the
-  opt-in screen-off clipboard wipe. These are not GrapheneOS ports; the
-  threat model and limits are in the experimental `docs/opsec.md`.
+  `experimental/app/LenosOpsec` builds a metadata-scrubbing share target and
+  Offline radio tile; `frameworks_base/0004` + `packages_apps_Settings/0003`
+  add the opt-in screen-off clipboard wipe. These are not GrapheneOS ports;
+  the threat model and limits are in `experimental/docs/opsec.md`.
 * **OPS-4 / #8 stage 2 — per-app clipboard access.**
   `packages_apps_Settings/0004` exposes the existing AOSP
   `OP_READ_CLIPBOARD` AppOp for user-installed apps. No framework patch, new
   permission or new AppOp; the global Secure Paste setting still wins.
 * **OPS-5 — tracking-parameter scrubber.**
-  `vendor_lenos/0001` adds a `text/plain` share target that removes known
-  tracking fields from links while preserving functional query parameters and
-  fragments. It never opens, resolves or uploads the links.
+  `experimental/app/LenosOpsec` adds a `text/plain` share target that removes
+  known tracking fields from links while preserving functional query
+  parameters and fragments. It never opens, resolves or uploads the links.
 
-The repository carries its own strict patchkit, 79 source-level tests,
-provenance and a post-build verification checklist. The remaining workstreams
-(full per-app #23, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are
-listed with their concrete blockers in the experimental `STATUS.md`; they are
-not implemented and are not claimed as shipped. The experimental repository also carries a
-source-level `docs/security-review.md` with the deliberate non-goals and the findings from the
-patch-order/reset audit.
+The imported series carries 12 patches, 79 experimental source-level tests in
+`experimental/tests/` (each sandbox rebuilds the stable base first), 14 build-gate
+tests in the main suite, provenance and a post-build verification checklist. The
+remaining workstreams (full per-app #23, #30/#31 scopes/2FA, #33–#35
+runtime/SELinux/browser) are listed with their concrete blockers in
+`experimental/STATUS.md`; they are not implemented and are not claimed as
+shipped. `experimental/docs/security-review.md` carries the source-level review,
+deliberate non-goals and the findings from the patch-order/reset audit.

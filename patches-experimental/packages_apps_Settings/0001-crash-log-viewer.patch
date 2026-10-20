@@ -1,0 +1,277 @@
+diff --git a/AndroidManifest.xml b/AndroidManifest.xml
+index f4691b4..ae5fb56 100644
+--- a/AndroidManifest.xml
++++ b/AndroidManifest.xml
+@@ -16,6 +16,7 @@
+         android:name="com.android.settings.USE_BIOMETRIC_PROVIDER"
+         android:protectionLevel="signature|privileged"/>
+ 
++    <uses-permission android:name="android.permission.READ_LOGS" />
+     <uses-permission android:name="android.permission.REQUEST_NETWORK_SCORES" />
+     <uses-permission android:name="android.permission.WRITE_MEDIA_STORAGE" />
+     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index ccc591f..39c89ba 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -14949,2 +14949,10 @@
+     <string name="safety_center_device_finder_search_terms"></string>
++    <!-- lenOS crash log viewer -->
++    <string name="lenos_crash_logs_title">Crash logs</string>
++    <string name="lenos_crash_logs_summary">View local crash and ANR reports. Nothing is uploaded automatically.</string>
++    <string name="lenos_crash_logs_refresh">Refresh</string>
++    <string name="lenos_crash_logs_empty">No crash logs found.</string>
++    <string name="lenos_crash_logs_share">Share</string>
++    <string name="lenos_crash_logs_share_title">Share crash log</string>
++
+     <!-- Safety Center system component update search terms [CHAR LIMIT=NONE] -->
+diff --git a/res/xml/my_device_info.xml b/res/xml/my_device_info.xml
+index 9148a9d..c34ef5d 100644
+--- a/res/xml/my_device_info.xml
++++ b/res/xml/my_device_info.xml
+@@ -145,6 +145,14 @@
+             android:fragment="com.android.settings.deviceinfo.firmwareversion.FirmwareVersionSettings"
+             settings:controller="com.android.settings.deviceinfo.firmwareversion.FirmwareVersionPreferenceController"/>
+ 
++        <!-- lenOS local crash logs -->
++        <Preference
++            android:key="lenos_crash_logs"
++            android:order="44"
++            android:title="@string/lenos_crash_logs_title"
++            android:summary="@string/lenos_crash_logs_summary"
++            android:fragment="com.android.settings.lenos.CrashLogSettings" />
++
+         <!-- Lineage version -->
+         <Preference
+             android:key="lineage_os_version"
+diff --git a/src/com/android/settings/lenos/CrashLogSettings.java b/src/com/android/settings/lenos/CrashLogSettings.java
+new file mode 100644
+index 0000000..14d410f
+--- /dev/null
++++ b/src/com/android/settings/lenos/CrashLogSettings.java
+@@ -0,0 +1,225 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.lenos;
++
++import android.app.AlertDialog;
++import android.app.settings.SettingsEnums;
++import android.content.Context;
++import android.content.Intent;
++import android.os.Bundle;
++import android.os.DropBoxManager;
++import android.text.TextUtils;
++import android.text.format.DateUtils;
++import android.util.Log;
++import android.widget.TextView;
++
++import androidx.preference.Preference;
++import androidx.preference.PreferenceScreen;
++
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.List;
++
++/**
++ * Local, user-initiated crash/ANR log viewer.
++ *
++ * <p>This is intentionally not a crash reporter: it never uploads anything. It reads the
++ * existing {@link DropBoxManager} records on the device, shows them newest-first, and lets the
++ * user share one entry with an app of their choice. The feature is a lenOS implementation of
++ * Tier 2 #17; it is experimental until it has been built and exercised on a device.
++ */
++public class CrashLogSettings extends SettingsPreferenceFragment {
++    private static final String TAG = "CrashLogSettings";
++
++    // DropBox tags written by ActivityManager, system_server and the native crash handler.
++    private static final String[] DROPBOX_TAGS = {
++            "system_app_crash",
++            "system_app_anr",
++            "data_app_crash",
++            "data_app_anr",
++            "system_server_crash",
++            "system_server_native_crash",
++            "system_server_watchdog",
++            "SYSTEM_TOMBSTONE",
++            "SYSTEM_RESTART",
++            "SYSTEM_BOOT",
++    };
++
++    private static final int MAX_ENTRIES = 100;
++    private static final int MAX_TEXT_BYTES = 64 * 1024;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        buildScreen();
++    }
++
++    private void buildScreen() {
++        final Context context = requireContext();
++        final PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(context);
++
++        final Preference refresh = new Preference(context);
++        refresh.setTitle(R.string.lenos_crash_logs_refresh);
++        refresh.setSummary(R.string.lenos_crash_logs_summary);
++        refresh.setOnPreferenceClickListener(preference -> {
++            buildScreen();
++            return true;
++        });
++        screen.addPreference(refresh);
++
++        final List<LogEntry> entries = collectEntries(context);
++        if (entries.isEmpty()) {
++            final Preference empty = new Preference(context);
++            empty.setTitle(R.string.lenos_crash_logs_empty);
++            empty.setSelectable(false);
++            screen.addPreference(empty);
++        } else {
++            for (LogEntry entry : entries) {
++                final Preference preference = new Preference(context);
++                preference.setTitle(entry.tag);
++                preference.setSummary(entry.summary(context));
++                preference.setOnPreferenceClickListener(p -> {
++                    showEntry(context, entry);
++                    return true;
++                });
++                screen.addPreference(preference);
++            }
++        }
++
++        setPreferenceScreen(screen);
++    }
++
++    private static List<LogEntry> collectEntries(Context context) {
++        final DropBoxManager dropBox = context.getSystemService(DropBoxManager.class);
++        final List<LogEntry> entries = new ArrayList<>();
++        if (dropBox == null) {
++            return entries;
++        }
++
++        for (String tag : DROPBOX_TAGS) {
++            DropBoxManager.Entry entry = null;
++            try {
++                while ((entry = dropBox.getNextEntry(tag, 0)) != null) {
++                    final String text = readEntry(entry);
++                    if (!TextUtils.isEmpty(text)) {
++                        entries.add(new LogEntry(entry.getTag(), entry.getTimeMillis(), text));
++                    }
++                    entry.close();
++                    entry = null;
++                    if (entries.size() >= MAX_ENTRIES * 2) {
++                        break;
++                    }
++                }
++            } catch (RuntimeException e) {
++                Log.w(TAG, "Unable to read DropBox tag " + tag, e);
++            } finally {
++                if (entry != null) {
++                    entry.close();
++                }
++            }
++        }
++
++        entries.sort(Comparator.comparingLong((LogEntry e) -> e.timeMillis).reversed());
++        if (entries.size() > MAX_ENTRIES) {
++            return new ArrayList<>(entries.subList(0, MAX_ENTRIES));
++        }
++        return entries;
++    }
++
++    private static String readEntry(DropBoxManager.Entry entry) {
++        final String text = entry.getText(MAX_TEXT_BYTES);
++        if (text != null) {
++            return text;
++        }
++
++        // Tombstones and some native records are binary. Keep a bounded, printable preview
++        // rather than dumping arbitrary bytes into a share intent.
++        try (InputStream in = entry.getInputStream()) {
++            if (in == null) {
++                return null;
++            }
++            final ByteArrayOutputStream out = new ByteArrayOutputStream();
++            final byte[] buffer = new byte[4096];
++            int total = 0;
++            int read;
++            while (total < MAX_TEXT_BYTES && (read = in.read(buffer)) != -1) {
++                out.write(buffer, 0, read);
++                total += read;
++            }
++            return out.toString(StandardCharsets.UTF_8.name());
++        } catch (IOException e) {
++            Log.w(TAG, "Unable to read DropBox entry " + entry.getTag(), e);
++            return null;
++        }
++    }
++
++    private void showEntry(Context context, LogEntry entry) {
++        final AlertDialog dialog = new AlertDialog.Builder(context)
++                .setTitle(entry.tag)
++                .setMessage(entry.text)
++                .setPositiveButton(R.string.lenos_crash_logs_share,
++                        (d, which) -> shareEntry(context, entry))
++                .setNegativeButton(android.R.string.cancel, null)
++                .create();
++        dialog.show();
++
++        // Keep the dialog usable for long stack traces.
++        final TextView message = dialog.findViewById(android.R.id.message);
++        if (message != null) {
++            message.setTextIsSelectable(true);
++        }
++    }
++
++    private void shareEntry(Context context, LogEntry entry) {
++        final Intent send = new Intent(Intent.ACTION_SEND);
++        send.setType("text/plain");
++        send.putExtra(Intent.EXTRA_SUBJECT, "lenOS " + entry.tag);
++        send.putExtra(Intent.EXTRA_TEXT, entry.text);
++        startActivity(Intent.createChooser(send, getString(R.string.lenos_crash_logs_share_title)));
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.ABOUT_LEGAL_SETTINGS;
++    }
++
++    private static final class LogEntry {
++        final String tag;
++        final long timeMillis;
++        final String text;
++
++        LogEntry(String tag, long timeMillis, String text) {
++            this.tag = tag;
++            this.timeMillis = timeMillis;
++            this.text = text;
++        }
++
++        String summary(Context context) {
++            final String time = DateUtils.formatDateTime(context, timeMillis,
++                    DateUtils.FORMAT_SHOW_DATE | DateUtils.FORMAT_SHOW_TIME
++                            | DateUtils.FORMAT_ABBREV_MONTH);
++            final String firstLine = text.split("\\r?\\n", 2)[0];
++            return time + " · " + firstLine;
++        }
++    }
++}

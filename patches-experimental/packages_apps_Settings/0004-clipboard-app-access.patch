@@ -1,0 +1,235 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index ccc591f..cbb45de 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -14951,2 +14951,10 @@
+     <string name="safety_center_system_component_update_search_terms"></string>
++    <!-- lenOS per-app clipboard access (Secure Paste stage 2) -->
++    <string name="clipboard_app_access_title">Clipboard access by app</string>
++    <string name="clipboard_app_access_summary">Choose which installed apps can read content copied by other apps.</string>
++    <string name="clipboard_app_access_loading">Loading installed apps…</string>
++    <string name="clipboard_app_access_note">Only apps you installed are listed. System apps and enabled keyboards keep access so paste continues to work. This setting blocks reading, not writing.</string>
++    <string name="clipboard_app_access_empty">No user-installed apps found.</string>
++    <string name="clipboard_app_access_shared">%1$s (shares a UID with other apps)</string>
++    <string name="clipboard_app_access_failed">Could not change clipboard access for this app.</string>
+ </resources>
+diff --git a/res/xml/more_security_privacy_settings.xml b/res/xml/more_security_privacy_settings.xml
+index 0068872..033e371 100644
+--- a/res/xml/more_security_privacy_settings.xml
++++ b/res/xml/more_security_privacy_settings.xml
+@@ -206,2 +206,9 @@
+         settings:controller="com.android.settings.security.EncryptionStatusPreferenceController" />
++    <Preference
++        android:order="246"
++        android:key="clipboard_app_access"
++        android:title="@string/clipboard_app_access_title"
++        android:summary="@string/clipboard_app_access_summary"
++        android:fragment="com.android.settings.security.ClipboardAppAccessSettings" />
++
+ 
+diff --git a/src/com/android/settings/security/ClipboardAppAccessSettings.java b/src/com/android/settings/security/ClipboardAppAccessSettings.java
+new file mode 100644
+index 0000000..4e35c22
+--- /dev/null
++++ b/src/com/android/settings/security/ClipboardAppAccessSettings.java
+@@ -0,0 +1,200 @@
++/*
++ * Copyright (C) 2026 The lenOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.security;
++
++import android.app.AppOpsManager;
++import android.app.settings.SettingsEnums;
++import android.content.Context;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
++import android.graphics.drawable.Drawable;
++import android.os.Bundle;
++import android.os.Handler;
++import android.os.Looper;
++import android.view.inputmethod.InputMethodInfo;
++import android.view.inputmethod.InputMethodManager;
++import android.widget.Toast;
++
++import androidx.preference.Preference;
++import androidx.preference.PreferenceScreen;
++import androidx.preference.SwitchPreference;
++
++import com.android.settings.R;
++import com.android.settings.SettingsPreferenceFragment;
++
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++/**
++ * lenOS Secure Paste stage 2: per-app clipboard read control.
++ *
++ * <p>Android already has {@link AppOpsManager#OP_READ_CLIPBOARD}; the default mode is
++ * allowed. This screen flips individual user-installed apps to
++ * {@link AppOpsManager#MODE_IGNORED}, which the clipboard service checks after its
++ * focus/system-service exemptions. It deliberately lists only user-installed apps:
++ * system apps and enabled keyboards are part of the trusted paste path, and hiding
++ * them avoids a one-tap way to break keyboard paste.</p>
++ *
++ * <p>This is a Settings-only feature. It does not add a framework patch, a new
++ * permission or a new app-op; it exposes the existing AppOps policy. It composes
++ * with the global Secure Paste default: a global block still wins, and a per-app
++ * allow cannot override it unless that framework policy is changed.</p>
++ */
++public class ClipboardAppAccessSettings extends SettingsPreferenceFragment {
++    private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
++    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
++
++    private AppOpsManager mAppOps;
++    private PreferenceScreen mScreen;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        final Context context = requireContext();
++        mAppOps = context.getSystemService(AppOpsManager.class);
++        mScreen = getPreferenceManager().createPreferenceScreen(context);
++        setPreferenceScreen(mScreen);
++
++        final Preference loading = new Preference(context);
++        loading.setTitle(R.string.clipboard_app_access_loading);
++        loading.setSelectable(false);
++        mScreen.addPreference(loading);
++
++        final Preference note = new Preference(context);
++        note.setTitle(R.string.clipboard_app_access_note);
++        note.setSelectable(false);
++        mScreen.addPreference(note);
++
++        mExecutor.execute(() -> {
++            final List<AppEntry> apps = loadUserApps(context);
++            mMainHandler.post(() -> {
++                if (!isAdded()) {
++                    return;
++                }
++                mScreen.removePreference(loading);
++                for (AppEntry app : apps) {
++                    mScreen.addPreference(createSwitch(context, app));
++                }
++                if (apps.isEmpty()) {
++                    final Preference empty = new Preference(context);
++                    empty.setTitle(R.string.clipboard_app_access_empty);
++                    empty.setSelectable(false);
++                    mScreen.addPreference(empty);
++                }
++            });
++        });
++    }
++
++    private List<AppEntry> loadUserApps(Context context) {
++        final PackageManager pm = context.getPackageManager();
++        final List<ApplicationInfo> installed = pm.getInstalledApplications(0);
++        final HashSet<String> imePackages = enabledImePackages(context);
++        final ArrayList<AppEntry> result = new ArrayList<>();
++        for (ApplicationInfo info : installed) {
++            if ((info.flags & ApplicationInfo.FLAG_SYSTEM) != 0
++                    || (info.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
++                    || !info.enabled
++                    || imePackages.contains(info.packageName)) {
++                continue;
++            }
++            final String label = info.loadLabel(pm).toString();
++            final Drawable icon = info.loadIcon(pm);
++            final String[] shared = pm.getPackagesForUid(info.uid);
++            result.add(new AppEntry(info.packageName, info.uid, label, icon,
++                    shared != null && shared.length > 1));
++        }
++        result.sort(Comparator.comparing(entry -> entry.label, String.CASE_INSENSITIVE_ORDER));
++        return result;
++    }
++
++    private static HashSet<String> enabledImePackages(Context context) {
++        final HashSet<String> packages = new HashSet<>();
++        final InputMethodManager imm = context.getSystemService(InputMethodManager.class);
++        if (imm != null) {
++            for (InputMethodInfo ime : imm.getEnabledInputMethodList()) {
++                packages.add(ime.getPackageName());
++            }
++        }
++        return packages;
++    }
++
++    private SwitchPreference createSwitch(Context context, AppEntry app) {
++        final SwitchPreference preference = new SwitchPreference(context);
++        preference.setKey(app.packageName + "/" + app.uid);
++        preference.setTitle(app.label);
++        preference.setSummary(app.sharedUid
++                ? context.getString(R.string.clipboard_app_access_shared, app.packageName)
++                : app.packageName);
++        preference.setIcon(app.icon);
++        preference.setChecked(currentlyAllowed(app));
++        preference.setOnPreferenceChangeListener((pref, newValue) -> {
++            final boolean allow = (Boolean) newValue;
++            try {
++                mAppOps.setMode(AppOpsManager.OP_READ_CLIPBOARD, app.uid, app.packageName,
++                        allow ? AppOpsManager.MODE_ALLOWED : AppOpsManager.MODE_IGNORED);
++                // setMode returns silently when package verification fails; do not
++                // leave the switch in a state the service is not enforcing.
++                return currentlyAllowed(app) == allow;
++            } catch (SecurityException e) {
++                Toast.makeText(context, R.string.clipboard_app_access_failed,
++                        Toast.LENGTH_LONG).show();
++                return false;
++            }
++        });
++        return preference;
++    }
++
++    private boolean currentlyAllowed(AppEntry app) {
++        try {
++            return mAppOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_READ_CLIPBOARD, app.uid,
++                    app.packageName) != AppOpsManager.MODE_IGNORED;
++        } catch (SecurityException e) {
++            return false;
++        }
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.SECURITY;
++    }
++
++    @Override
++    public void onDestroy() {
++        super.onDestroy();
++        mExecutor.shutdownNow();
++    }
++
++    private static final class AppEntry {
++        final String packageName;
++        final int uid;
++        final String label;
++        final Drawable icon;
++        final boolean sharedUid;
++
++        AppEntry(String packageName, int uid, String label, Drawable icon, boolean sharedUid) {
++            this.packageName = packageName;
++            this.uid = uid;
++            this.label = label;
++            this.icon = icon;
++            this.sharedUid = sharedUid;
++        }
++    }
++}
