@@ -21,6 +21,15 @@ PRODUCT_PACKAGES += \
     LenosNetworkStackOverlay \
     LenosSettingsProviderOverlay
 
+# GrapheneOS parity: pre-installed APEXes stay uncompressed. The AOSP product
+# fragment updatable_apex.mk (pulled in by full_base_telephony.mk inside
+# lineage_asteroids.mk) sets PRODUCT_COMPRESSED_APEX := true; this file is
+# inherited after it, so the assignment below wins. The cost is a few MiB on
+# the system partition; the gain is that boot no longer has to decompress APEX
+# payloads before mounting them, which removes a decompression/parsing surface
+# from early boot.
+PRODUCT_COMPRESSED_APEX := false
+
 # Privileged permission allowlist for LenosSecurity. The APK is signed with
 # the platform key, so most permissions are already satisfied by the signature;
 # the allowlist keeps the app working (and documents the intent) if it is ever

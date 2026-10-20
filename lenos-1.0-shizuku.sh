@@ -186,6 +186,8 @@ cmd_apply() {
     || die "first-boot default resources missing from SettingsProvider"
   grep -q 'ro.lenos.version' "$SRC/vendor/lenos/config/lenos.mk" \
     || die "lenOS version prop missing from config/lenos.mk"
+  grep -q 'PRODUCT_COMPRESSED_APEX := false' "$SRC/vendor/lenos/config/lenos.mk" \
+    || die "compressed APEX not disabled in the lenOS product config"
   grep -q 'SendDhcpHostname2' \
     "$SRC/packages/modules/Wifi/service/java/com/android/server/wifi/util/XmlUtil.java" \
     || die "Wi-Fi DHCP-hostname privacy default missing from the Wi-Fi module"

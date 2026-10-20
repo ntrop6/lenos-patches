@@ -87,9 +87,17 @@ One entry per working session. "Verified" = seen working on a booted device
 * Not done: on-device verification (VM still unavailable), and the DHCP fix
   stays unexercised until the first build (it is a runtime path, not a build
   input). No Settings change for the indicator (it has no toggle — matches
-  GrapheneOS). Next in the Tier 2 order is #19 (disable app installation for
-  secondary users), which adds Settings `users/` files; #17 (log viewer) stays
-  deferred until a separate GrapheneOS UI app exists.
+  GrapheneOS).
+* **#24 is in** — uncompressed APEXes. LineageOS 23.2's build defaults
+  `PRODUCT_COMPRESSED_APEX` to true (`build/make/core/product_config.mk`);
+  `vendor/lenos/config/lenos.mk` is inherited after
+  `generic_system.mk`/`updatable_apex.mk` and sets it false, so
+  `core/soong_config.mk` exports `CompressedApex=false` to Soong and the
+  build carries `apexd.config.compressed_apex=false`. Config-only change (no
+  patch, no upstream file touched); driver marker added and
+  `tests/test_product_config.py` extended. Next is #20 (fs-verity for
+  out-of-band updates), which is rated L (design work) — it waits for the VM
+  to return so it can be iterated against a real build.
 
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 

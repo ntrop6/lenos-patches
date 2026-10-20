@@ -860,7 +860,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | Longer passwords | `DevicePolicyManager.MAX_PASSWORD_LENGTH`: GrapheneOS 128, LineageOS 23.2 = **64** (`DevicePolicyManager.java:3812`) | 1-line constant + audit `PasswordMetrics`/UI assumptions | S | quick win |
 | More secure fingerprint unlock (5 attempts) | fwb `services/core/java/com/android/server/biometrics/sensors/fingerprint/hidl/LockoutFrameworkImpl.java`: `MAX_FAILED_ATTEMPTS_LOCKOUT_PERMANENT = 5` (LineageOS = 20 with 30 s timeouts) | 1-line constant | S | quick win |
 | Package installer preserves disabled state | GrapheneOS forks `platform_packages_apps_PackageInstaller` and sets `SessionParams#setApplicationEnabledSettingPersistent()` on updates; the API exists in LineageOS 23.2 (`PackageInstaller.java:3949`, honored by the session/installer) | patch the AOSP PackageInstaller app | S | quick win |
-| Compressed APEX disabled | build/product config | verify flag name | S | quick win (verify) |
+| Compressed APEX disabled | build/product config | **Done:** `vendor/lenos/config/lenos.mk` sets `PRODUCT_COMPRESSED_APEX := false`; the lenOS product fragment is inherited after `generic_system.mk` → `updatable_apex.mk`, and LineageOS 23.2's `core/product_config.mk` defaults the flag to true, so the override wins. `core/soong_config.mk` then exports `CompressedApex=false` and the build ships `apexd.config.compressed_apex=false`. No upstream file is patched | S | done |
 | "Always-on VPN"/"Block connections without VPN" default | Already the AOSP 16 behavior (toggles available for all VPN apps); GrapheneOS delta is only "don't unset unsupported always-on" — see §12 | 1 hunk | S | port now (with §12) |
 
 ### 14.3 User/profile items

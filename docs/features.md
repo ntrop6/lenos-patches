@@ -103,6 +103,12 @@ their content until the user explicitly allows it.
 | Prototype/EVT device warning | `frameworks_base/0023` (GrapheneOS port) | a persistent boot-time notification warns when the unit is an engineering prototype, which typically has relaxed security controls (secure-boot fuse not blown). The Pixel logic is ported verbatim (`ro.revision` / `ro.boot.secure_boot`); for other OEMs lenOS only treats an explicit EVT/PVT/DVT marker in the bootloader hardware-phase properties (`ro.boot.hwlevel`, `ro.boot.hardware.revision`, `ro.boot.device_release`) as a prototype, so unknown or numeric revisions never create a false warning. AOSP's serial-console notification already ships in LineageOS and is unchanged |
 | Bootloader version field | `packages_apps_Settings/0001` (GrapheneOS port) | Settings → About phone → Firmware version shows the bootloader version (`ro.bootloader`) next to baseband/kernel/security patch; Google removed the field from AOSP and GrapheneOS re-adds it, so the persistent firmware state stays visible. The pre-Treble `ro.build.expect.bootloader`/`expect.baseband` checks GrapheneOS enabled in 2017 were superseded by the VINTF build-consistency check (`Build.isBuildConsistent()`) and its mismatch dialog, both already present in LineageOS |
 
+## Build and system image
+
+| Feature | Where | Notes |
+|---|---|---|
+| Uncompressed APEXes | `vendor/lenos/config/lenos.mk` | GrapheneOS parity: pre-installed APEXes are built uncompressed (`PRODUCT_COMPRESSED_APEX := false`). AOSP/LineageOS 23.2 defaults to compressed APEXes (`build/make/core/product_config.mk`: `_default_compressed_apex := true`); the lenOS product fragment is inherited after `updatable_apex.mk`/`generic_system.mk`, so `core/soong_config.mk` exports `CompressedApex=false` to Soong and the system property `apexd.config.compressed_apex=false` ships with the build. Cost: a few MiB on the system partition; gain: no APEX decompression in early boot |
+
 ## Privacy indicators
 
 | Feature | Where | Notes |
@@ -264,7 +270,9 @@ DISCOVER instead of a renewal of the previous address
 (`adb logcat -b all -s DhcpClient`), a secondary user's lock screen offers no
 End session button (the power menu still has it), a secondary user's User
 details > App installs and updates offers the three policies and "Disabled"
-makes that user's package installer refuse installs, a fresh permission dialog keeps
+makes that user's package installer refuse installs, `getprop
+apexd.config.compressed_apex` reports `false` (no compressed APEX in the
+system image), a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty

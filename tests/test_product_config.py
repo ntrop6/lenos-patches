@@ -74,6 +74,19 @@ class TestProductMakefile(ProductConfigTestCase):
         # ExactCalculator is already part of the Lineage common app set.
         self.assertNotIn("ExactCalculator", body)
 
+    def test_compressed_apex_is_disabled(self):
+        # GrapheneOS parity. updatable_apex.mk is inherited earlier, through
+        # lineage_asteroids.mk -> full_base_telephony.mk -> generic_system.mk,
+        # and sets PRODUCT_COMPRESSED_APEX := true; lenos.mk is inherited
+        # afterwards, so the last (this) assignment wins.
+        body = self.text(self.MK)
+        self.assertEqual(
+            len(re.findall(r"(?m)^PRODUCT_COMPRESSED_APEX := false$", body)), 1)
+        # And no other assignment that could win later (comments mention the
+        # upstream "true" default, so anchor to line starts).
+        self.assertEqual(
+            len(re.findall(r"(?m)^PRODUCT_COMPRESSED_APEX\s*:?=", body)), 1)
+
     def test_build_time_overlay_approach_is_gone(self):
         # Replaced by input RROs: PRODUCT_ENFORCE_RRO_TARGETS := * in the
         # device tree converts product overlays to RROs anyway, and the RROs
