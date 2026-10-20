@@ -94,6 +94,8 @@ adb shell settings get global captive_portal_mode            # 1
 adb shell getprop ro.lenos.version                           # 1.0.0
 adb shell getprop ro.boot.veritymode                         # enforcing (before locking)
 adb logcat -d -s NetworkMonitor | grep cp.cloudflare.com     # checks use Cloudflare
+adb shell 'zcat /proc/config.gz | grep -E "CONFIG_(INIT_ON_FREE_DEFAULT_ON|RANDOM_KMALLOC_CACHES|RANDOMIZE_KSTACK_OFFSET_DEFAULT|SECURITY_DMESG_RESTRICT|ZERO_CALL_USED_REGS)=y"'  # all five
+adb shell cat /proc/sys/kernel/dmesg_restrict                # 1
 ```
 
 The Wi-Fi hostname toggle (lenOS security app) writes
@@ -101,6 +103,13 @@ The Wi-Fi hostname toggle (lenOS security app) writes
 `adb shell settings get global lenos_wifi_send_dhcp_hostname_restriction`
 (`null` before the first change means the effective default, 3 = blocked
 everywhere).
+
+The kernel hardening fragment (`vendor/lenos_hardening.config`, Tier 3 #32)
+is merged last by `TARGET_KERNEL_CONFIG`. `init_on_free` is the only option
+with a material cost (3–5% typical); record boot time, idle memory and a few
+workload timings. The pinned GKI defconfig is debug-heavy (`KASAN`/`UBSAN`),
+so do not present those debug features as production hardening results — a
+debug-option review is a separate decision.
 
 ## 4. What "verified" means for a feature
 

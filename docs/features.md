@@ -103,6 +103,12 @@ their content until the user explicitly allows it.
 | Prototype/EVT device warning | `frameworks_base/0023` (GrapheneOS port) | a persistent boot-time notification warns when the unit is an engineering prototype, which typically has relaxed security controls (secure-boot fuse not blown). The Pixel logic is ported verbatim (`ro.revision` / `ro.boot.secure_boot`); for other OEMs lenOS only treats an explicit EVT/PVT/DVT marker in the bootloader hardware-phase properties (`ro.boot.hwlevel`, `ro.boot.hardware.revision`, `ro.boot.device_release`) as a prototype, so unknown or numeric revisions never create a false warning. AOSP's serial-console notification already ships in LineageOS and is unchanged |
 | Bootloader version field | `packages_apps_Settings/0001` (GrapheneOS port) | Settings → About phone → Firmware version shows the bootloader version (`ro.bootloader`) next to baseband/kernel/security patch; Google removed the field from AOSP and GrapheneOS re-adds it, so the persistent firmware state stays visible. The pre-Treble `ro.build.expect.bootloader`/`expect.baseband` checks GrapheneOS enabled in 2017 were superseded by the VINTF build-consistency check (`Build.isBuildConsistent()`) and its mismatch dialog, both already present in LineageOS |
 
+## Kernel
+
+| Feature | Where | Notes |
+|---|---|---|
+| Kernel hardening (portable subset, Tier 3 #32) | `kernel_nothing_sm7635/0001` + `device_nothing_asteroids/0008` | an additive 6.6 GKI config fragment, merged last by `TARGET_KERNEL_CONFIG`: `INIT_ON_FREE_DEFAULT_ON` (zero freed heap/page memory), `RANDOM_KMALLOC_CACHES` (16 randomized kmalloc caches), `RANDOMIZE_KSTACK_OFFSET_DEFAULT`, `SECURITY_DMESG_RESTRICT` and `ZERO_CALL_USED_REGS`. No vendor/GKI option is disabled. Already on in the pinned baseline: zero-on-alloc, SLUB freelist randomisation/hardening, page-allocator shuffling, hardened usercopy, FORTIFY_SOURCE, CFI, ShadowCallStack, `BUG_ON_DATA_CORRUPTION`/`LIST_HARDENED`, KFENCE, `RANDOMIZE_BASE`, strict RWX and VMAP_STACK; `INIT_STACK_ALL_ZERO` is the upstream 6.6 default with the GKI Clang. Not attempted: 48-bit VA / 4-level page tables, forced module signing/lockdown (vendor modules cannot be re-signed), LTS point-release cadence, custom allocator canaries/MTE. Expected cost of `init_on_free`: 3–5% typical. Boot/performance validation pending — see `graphene-porting.md` §19 |
+
 ## Build and system image
 
 | Feature | Where | Notes |
@@ -129,7 +135,9 @@ their content until the user explicitly allows it.
 ## Not in the 1.0 series
 
 Anything not listed above (safe recovery, signed OTA/updater, reproducible
-builds, custom AVB key) is **not implemented yet**.
+builds, custom AVB key, and the remaining kernel workstream: 48-bit VA /
+4-level page tables, forced module signing/lockdown, LTS point-release
+cadence) is **not implemented yet**.
 
 ## Honest limits
 
@@ -244,6 +252,13 @@ builds, custom AVB key) is **not implemented yet**.
 * **Jelly (WebView-based browser) still ships.** It is the Lineage default and
   gets WebView security updates from the system; replacing it with Cromite and
   updating WebView are separate work items.
+* **Kernel hardening is config-only and not yet device-verified.** The shipped
+  fragment covers the portable Kconfig subset; 48-bit VA / 4-level page
+  tables, forced module signing/lockdown and the LTS point-release cadence need
+  a kernel/firmware workstream, and the vendor modules cannot be re-signed.
+  `init_on_free` typically costs 3–5% and the pinned GKI defconfig is
+  debug-heavy (`KASAN`/`UBSAN`), so the first device build must measure boot
+  time and memory before quoting performance numbers.
 
 ## Verification checklist (on the first flash)
 
@@ -302,6 +317,13 @@ restores it, and on the lock screen tapping
 a sensitive tile (e.g.
 airplane mode) opens the unlock prompt without changing state until unlock,
 while the flashlight tile keeps working.
+
+Kernel hardening: `adb shell 'zcat /proc/config.gz | grep -E
+"CONFIG_(INIT_ON_FREE_DEFAULT_ON|RANDOM_KMALLOC_CACHES|RANDOMIZE_KSTACK_OFFSET_DEFAULT|SECURITY_DMESG_RESTRICT|ZERO_CALL_USED_REGS)=y"'`
+prints all five options, `cat /proc/sys/kernel/dmesg_restrict` prints `1`, and
+`adb shell dmesg` is permission-denied for the shell user. Record boot time and
+idle memory for the first build (the debug-heavy GKI config and `init_on_free`
+both affect the numbers).
 
 Network permission: app info → Permissions for an installed user app offers a
 "Network" switch and it is granted by default (the app got it at install with

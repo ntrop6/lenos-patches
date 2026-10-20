@@ -24,7 +24,7 @@ for p in frameworks/base frameworks/opt/telephony packages/apps/Settings \
          system/netd system/vold system/core \
          system/ca-certificates system/extras \
          packages/services/Telephony lineage-sdk vendor/lineage \
-         device/nothing/asteroids; do
+         device/nothing/asteroids kernel/nothing/sm7635; do
   if [[ "$p" == "$PROJECT" ]]; then ALIAS="$(echo "$p" | tr '/' '_')"; fi
 done
 # projects whose patch directory alias differs from tr '/' '_'

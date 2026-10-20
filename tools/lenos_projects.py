@@ -29,6 +29,7 @@ PROJECT_ALIASES = {
     "lineage-sdk": "lineage_sdk",
     "vendor/lineage": "vendor_lineage",
     "device/nothing/asteroids": "device_nothing_asteroids",
+    "kernel/nothing/sm7635": "kernel_nothing_sm7635",
 }
 
 

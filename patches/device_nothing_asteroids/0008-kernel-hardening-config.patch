@@ -1,0 +1,14 @@
+diff --git a/BoardConfig.mk b/BoardConfig.mk
+index eeabc7f..c70ee5a 100644
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -132,7 +132,8 @@ TARGET_KERNEL_SOURCE := kernel/nothing/sm7635
+ TARGET_KERNEL_CONFIG := \
+     gki_defconfig \
+     vendor/pineapple_perf.config \
+-    vendor/asteroids_perf.config
++    vendor/asteroids_perf.config \
++    vendor/lenos_hardening.config
+ TARGET_MERGE_DTBS_WILDCARD := *volcano*
+ 
+ # Kernel Modules

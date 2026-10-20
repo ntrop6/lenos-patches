@@ -3,3 +3,4 @@
 0004-default-network-without-2g.patch
 0006-privacy-device-name.patch
 0007-multiuser-max-users.patch
+0008-kernel-hardening-config.patch

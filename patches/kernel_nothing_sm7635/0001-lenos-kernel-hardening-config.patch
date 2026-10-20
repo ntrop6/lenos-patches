@@ -1,0 +1,32 @@
+diff --git a/arch/arm64/configs/vendor/lenos_hardening.config b/arch/arm64/configs/vendor/lenos_hardening.config
+new file mode 100644
+index 0000000..09f4da2
+--- /dev/null
++++ b/arch/arm64/configs/vendor/lenos_hardening.config
+@@ -0,0 +1,26 @@
++# lenOS kernel hardening (Tier 3 #32)
++#
++# Additive fragment, merged after the vendor configs by TARGET_KERNEL_CONFIG
++# (device/nothing/asteroids/BoardConfig.mk). It only turns protections on;
++# it never disables a vendor or GKI option.
++#
++# This is the portability-safe subset of GrapheneOS's kernel hardening.
++# Deliberately not attempted here (they need vendor firmware/module or
++# device validation): 48-bit VA / 4-level page tables, forced module
++# signing and lockdown, custom allocator canaries, and MTE-for-apps.
++#
++# Already enabled by gki_defconfig, the vendor fragments or upstream Kconfig
++# defaults: heap zeroing on allocation, INIT_STACK_ALL_ZERO (6.6 defaults it
++# on when the compiler supports auto-var-init, which the GKI Clang does),
++# SLUB freelist randomisation/hardening, page-allocator shuffling, hardened
++# usercopy, FORTIFY_SOURCE, CFI, ShadowCallStack, BUG_ON_DATA_CORRUPTION
++# (which selects LIST_HARDENED), KFENCE, RANDOMIZE_BASE, strict kernel/module
++# RWX (arch default), and VMAP_STACK (arch default).
++#
++# Boot and performance validation is required on the device; see
++# docs/graphene-porting.md section 19 and docs/build.md.
++CONFIG_INIT_ON_FREE_DEFAULT_ON=y
++CONFIG_RANDOM_KMALLOC_CACHES=y
++CONFIG_RANDOMIZE_KSTACK_OFFSET_DEFAULT=y
++CONFIG_SECURITY_DMESG_RESTRICT=y
++CONFIG_ZERO_CALL_USED_REGS=y

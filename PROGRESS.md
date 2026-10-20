@@ -3,6 +3,52 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-20 (eighteenth session) — Tier 3 starts: kernel hardening (#32)
+
+* **Tier 3 is open, with #32 first.** #30 (Storage/Contact Scopes) needs the
+  `GosPackageState` package-state core (64 framework files plus PackageManager
+  persistence), #31 (2FA fingerprint) is an XL `LockDomain` backport, and
+  #33/#34/#35 are runtime/SELinux/browser workstreams. Those need a build
+  (and mostly a device) to land safely; the kernel tree is checked out and its
+  config is statically verifiable, so the kernel workstream is the one Tier 3
+  item that can start now.
+* **What shipped:**
+  * `kernel_nothing_sm7635/0001` — new
+    `arch/arm64/configs/vendor/lenos_hardening.config`, an additive 6.6 GKI
+    fragment: `INIT_ON_FREE_DEFAULT_ON`, `RANDOM_KMALLOC_CACHES`,
+    `RANDOMIZE_KSTACK_OFFSET_DEFAULT`, `SECURITY_DMESG_RESTRICT`,
+    `ZERO_CALL_USED_REGS`.
+  * `device_nothing_asteroids/0008` — merges the fragment last in
+    `TARGET_KERNEL_CONFIG` (after GKI and the two vendor fragments), so it can
+    only enable protections.
+  * `tests/test_kernel_hardening.py` — 11 checks: exact option set, no
+    disable/debug lines, every symbol exists in the pinned 6.6.114 Kconfig,
+    none already on in the baseline, the upstream `INIT_STACK_ALL_ZERO`
+    default is not double-claimed, BoardConfig ordering, series registration
+    and the project registry.
+  * Docs: `graphene-porting.md` §19 (what/why/cost/remaining/verification),
+    the §14.4 and §17 rows, and the §18 audit (now 53 patches);
+    `features.md` kernel row, honest limit and first-flash checks;
+    `build.md` kernel checks; `tools/lenos_projects.py` + `tools/mkpatch.sh`
+    know the new project.
+* **Already on in the baseline:** zero-on-alloc, SLUB freelist
+  randomisation/hardening, page-allocator shuffling, hardened usercopy,
+  FORTIFY_SOURCE, CFI, ShadowCallStack, BUG_ON_DATA_CORRUPTION/
+  LIST_HARDENED, KFENCE, RANDOMIZE_BASE, strict RWX and VMAP_STACK;
+  `INIT_STACK_ALL_ZERO` is the upstream 6.6 default with the GKI Clang.
+* **Not attempted (documented in §19):** 48-bit VA/4-level page tables,
+  forced module signing/lockdown (vendor modules cannot be re-signed), LTS
+  point-release cadence, custom allocator canaries/MTE.
+* **Caveat:** the pinned `gki_defconfig` is debug-heavy (KASAN/UBSAN/KFENCE);
+  the fragment does not change debug options. `init_on_free` costs 3–5%
+  typically, so the first build must measure boot time and memory.
+* **Verification:** 53 patches `--check` clean; **348 tests green**. Kernel
+  hardening is source-complete, not device-verified (the VM is still
+  unreachable).
+* Next when the VM returns: build and run the kernel checks in `docs/build.md`,
+  then continue #20/#21 (fs-verity/versionCode) and the first device-verified
+  Tier 2 features; #30/#31 remain large workstreams.
+
 ## 2026-10-20 (seventeenth session) — location privacy indicator (Tier 2 #16)
 
 * **The location indicator is in** — Tier 2 #16, and the first lenOS feature

@@ -884,7 +884,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 | System-app versionCode downgrade loophole | PM install + boot checks | as above | M–L | port later |
 | Package updates preserve the disabled state | GrapheneOS `bff727d`: removes the three implicit `ps.setEnabled(COMPONENT_ENABLED_STATE_DEFAULT, …)` paths from `InstallPackageHelper.updateSettingsInternalLI`, drops `InstallRequest.isApplicationEnabledSettingPersistent()`, and advertises `grapheneos.package_update_preserves_package_enabled_setting` in `SystemConfig` | **Done:** `frameworks_base/0022`. Exact port of the commit; the `setApplicationEnabledSettingPersistent` session API/flag and `PackageInstallerSession` accessor remain (API/metrics), but updates no longer consult them. An app disabled by the user (or a disabled system app) survives every update | S | **done** |
 | MediaProvider directory listing | GrapheneOS `72492da1c` (Storage Scopes): `MediaProvider.getFilesInDirectoryForFuse` returns DB-visible files plus a empty-string separator and the subdirectories that contain visible files; JNI `MediaProviderWrapper.cpp` then skips appending lower-FS directory names. Apps with `READ_MEDIA_AUDIO/IMAGES/VIDEO` and the `Android/` directory keep upstream behavior | **Done (directory-listing part):** `packages_providers_MediaProvider/0001`. A caller with no storage permission now only sees directories containing files it can see, instead of every user-created directory. Storage Scopes themselves (`GosPackageState`, `StorageScope`, scopes UI) are not ported; `StorageScopesHooks` keeps GrapheneOS's name/shape so the rest can be added later | M | **done** (scopes later) |
-| Kernel LTS + hardening | their kernel forks + patches | we build `kernel/nothing/sm7635` from LineageOS source, but porting GrapheneOS's kernel hardening (zero-on-free, canaries, SCS/PAC, 4-level page tables, module signing) is a large kernel project with no firmware support | XL+ | not feasible now |
+| Kernel LTS + hardening | their kernel forks + patches | **Started (Tier 3 #32):** `kernel_nothing_sm7635/0001` adds `arch/arm64/configs/vendor/lenos_hardening.config` (zero-on-free, randomized kmalloc caches, kernel-stack offset randomization, dmesg restriction, register zeroing) and `device_nothing_asteroids/0008` merges it last. `INIT_STACK_ALL_ZERO` is already the upstream 6.6 default; `INIT_ON_ALLOC_DEFAULT_ON`, SLUB hardening, CFI/SCS and `LIST_HARDENED` are already on. Not yet: 48-bit VA / 4-level page tables, module signing/lockdown, LTS cadence, custom allocator canaries/MTE. See §19 | M (shipped subset) / XL+ (remaining) | **started** |
 | Compressed-APEX / firmware-security reporting items | see 14.2 | verify | S–M | verify |
 | Broad carrier support (CarrierConfig2) | their carrier-config conversion scripts + stripped anti-user configs (tethering provisioning, 2G forbidding, OMA-DM) | run their generator on the carrier DBs we can obtain; ship the generated configs; strip anti-user bits | M–L | port later |
 | Sandboxed Google Play / Android Auto | GmsCompatConfig + compatibility layer (their own repos; apps sandboxed, no special privileges) | a project of its own; no AOSP-path port | XL | app-level bundle (later) |
@@ -982,7 +982,7 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 | Item | Why it is out of reach now | What we can do instead |
 |---|---|---|
 | Exploit-mitigation program: `hardened_malloc`, exec spawning, MTE-for-apps defaults, BTI/PAC userspace hardening, JIT-disabled base OS, base-OS dynamic-code-loading block | These are bionic/ART/kernel/toolchain projects, not patch ports; the ExtSettings/ASW toggles registered in `fwb/0006` are config only and stay inert by design | Keep the toggles hidden; revisit only if lenOS adopts a runtime-hardening workstream |
-| Kernel LTS + hardening | We build `kernel/nothing/sm7635` from LineageOS source, so kernel patches are *possible*, but GrapheneOS-grade kernel hardening (zero-on-free, canaries, hardened slab, module signing) targets their supported Pixels and is a project of its own against the vendor baseline | Track as a separate workstream; nothing in this inventory requires it |
+| Kernel LTS + hardening (remaining pieces) | We build `kernel/nothing/sm7635` from LineageOS source, so kernel patches are *possible*, but GrapheneOS-grade kernel hardening targets their supported Pixels and is a project of its own against the vendor baseline | **Started (Tier 3 #32, §19):** the portability-safe config fragment is in (`kernel_nothing_sm7635/0001` + `device_nothing_asteroids/0008`). Still out of reach without a dedicated kernel/firmware effort: 48-bit VA / 4-level page tables, forced module signing + lockdown (vendor modules cannot be re-signed), LTS point-release cadence, GrapheneOS's custom allocator canaries and MTE-for-apps. Boot/performance validation is pending |
 | USB-C port control (full semantics) | Hardware data-line disable, alternate-mode (DisplayPort) block and boot-time `persist.security.usb_mode` enforcement live in the vendor USB HAL/kernel/firmware; Nothing controls them | OS-side prototype only if the SM7635 HAL implements AOSP `IUsb.enableUsbData` (verify with VINTF/`dumpsys usb`); see §10 |
 | Battery charge limit (80 %) | GrapheneOS's mechanism is gated to Google devices (`BatteryChargeLimit.isGoogleDevice()`) and depends on Pixel charger/kernel support | Nothing's stock firmware has a vendor battery-protection feature, but it is not exposed via an AOSP path we can call; skip unless the kernel exposes a charge-stop node |
 | Sandboxed Google Play + Android Auto + GmsCompatConfig | GrapheneOS's compatibility layer (their own repositories and app) — a separate large project; Android Auto support is tied to the sandboxed Play integration | Not applicable to lenOS's current app stack; revisit only if a Play-compat layer is ever adopted |
@@ -995,12 +995,12 @@ All are GrapheneOS ports unless marked otherwise; each is independently shippabl
 
 ---
 
-## 18. Deviations audit: the 51 lenOS patches vs GrapheneOS
+## 18. Deviations audit: the 53 lenOS patches vs GrapheneOS
 
 Method: all rows read directly from `vendor/lenos/patches/` during this audit; GrapheneOS references are
 from the branch-17 clones (`fwb-full`, `system_core`, `sepolicy`, `Settings`, `Permission`,
 `PackageInstaller`, …) plus raw
-`GrapheneOS/*` fetches. Note: this series now has **51** patches (the fidelity redos; the quick-win
+`GrapheneOS/*` fetches. Note: this series now has **53** patches (the fidelity redos; the quick-win
 batch `fwb/0009`–`0013` + `device/0007`; `system_ca-certificates/0001`, `system_extras/0001`,
 `packages_apps_CellBroadcastReceiver/0001`; the delayed-Allow pair; the clipboard pair `fwb/0015` +
 `fwb/0016` + Settings UI; the VPN leak-blocking set `system_netd/0001` +
@@ -1016,7 +1016,8 @@ lives in `fwb/0025`; and the location-indicator port `fwb/0027` + the first `ven
 release-config value set, whose enablement half is lenOS mechanism; and `packages_modules_NetworkStack/0001`,
 GrapheneOS's DHCP lease-reuse fix for per-connection MAC randomization; and `fwb/0028`, the
 lock-screen end session disable; and `packages_apps_Settings/0003`, the per-user app
-installation policy). Verdicts:
+installation policy; and the kernel-hardening pair `kernel_nothing_sm7635/0001` +
+`device_nothing_asteroids/0008`, a config-only workstream rather than a code port). Verdicts:
 **Faithful** (line-level port; deltas only environmental), **Deliberate** (lenOS choice — keep),
 **Original** (no GrapheneOS equivalent), **Plumbing** (build/device mechanics).
 
@@ -1070,11 +1071,12 @@ installation policy). Verdicts:
 | `packages_modules_NetworkStack/0001` DHCP lease reuse | GrapheneOS `platform_packages_modules_NetworkStack` `62d70edb46` "avoid reusing DHCP state for full MAC randomization" (2021-05-20): `DhcpClient` checks the connected network's `WifiConfiguration.macRandomizationSetting` when a non-expired lease comes back from `IpMemoryStore`, and transitions to `mDhcpInitState` (fresh DISCOVER) instead of `mDhcpInitRebootState` (renew) for `RANDOMIZATION_ALWAYS` (GOS still ships the hunks on branch 17, `DhcpClient.java:1309`/`:1342-1366`) | Line-level port; the only delta is a lenOS comment above the method. A16 adaptation: none needed — the `EVENT_CONFIGURATION_OBTAINED`/`IpMemoryStore` path is identical and the `NETWORK_STACK` UID passes Wi-Fi's `enforceCanAccessScanResults` bypass (checked in `WifiPermissionsUtil.java:572-577`), so the configured-network lookup works without location permission; any lookup failure returns `true` (avoid reuse), GrapheneOS's own fail-safe | **Faithful** — keep |
 | `fwb/0028` lock-screen end session | GrapheneOS `KeyguardIndicationController.updateLockScreenLogoutView()`: `if (false && mUserLogoutInteractor.isPolicyManagerLogoutEnabled().getValue())` (branch 17; the only difference from AOSP in that method — the surrounding logout wiring is unchanged) | Line-level port with the A16 accessor (`isLogoutEnabled()` instead of the A17 `isPolicyManagerLogoutEnabled()`) plus a lenOS comment. A16 keeps the power-menu End session action stock; GrapheneOS's DPM logout split is A17-only plumbing | **Faithful** — keep |
 | `packages_apps_Settings/0003` per-user app installation policy | GrapheneOS `packages/apps/Settings/src/com/android/settings/users/UserAppsInstallSettings.java` (three-way radio picker writing `DISALLOW_INSTALL_APPS` / `DISALLOW_INSTALL_UNKNOWN_SOURCES`; guests cannot select "enabled"), the `UserRestrictions` helper (restriction reads/writes with guest-default handling), the `app_installs` row in `user_details_settings.xml`, and the `UserDetailsSettings` wiring (summary + launch) | Line-level port. A16 adaptations documented in the code: `SettingsEnums.PAGE_UNKNOWN` replaces GrapheneOS's `METRICS_CATEGORY_UNKNOWN` (not defined on A16), the strings live in a new `strings_lenos_users.xml` instead of extending the lenOS ext-strings file, and the helper is trimmed to the install path — GrapheneOS's private-space restriction inheritance (`INHERITED_PRIVATE_SPACE_RESTRICTIONS`, sync/fixup) is a separate feature and is omitted. No framework patch: `PackageInstallerService`/`InstallPackageHelper` already enforce both restrictions on A16 | **Faithful** (UI deltas documented) — keep |
+| `kernel_nothing_sm7635/0001` + `device_nothing_asteroids/0008` kernel hardening (#32) | No GrapheneOS patch equivalent — their kernel hardening is a config/allocator/bionic project, not a portable diff (§17). lenOS ships the portability-safe Kconfig subset and merges it last | Additive 6.6 GKI fragment (`arch/arm64/configs/vendor/lenos_hardening.config`): `INIT_ON_FREE_DEFAULT_ON`, `RANDOM_KMALLOC_CACHES`, `RANDOMIZE_KSTACK_OFFSET_DEFAULT`, `SECURITY_DMESG_RESTRICT`, `ZERO_CALL_USED_REGS`. It disables no vendor/GKI option. `INIT_STACK_ALL_ZERO` is already the upstream 6.6 default when Clang supports auto-var-init, and `INIT_ON_ALLOC_DEFAULT_ON`, SLUB freelist hardening, page-allocator shuffling, CFI/SCS and `LIST_HARDENED` are already on. Not attempted: 48-bit VA/4-level page tables, forced module signing/lockdown, LTS point-release cadence, custom allocator canaries/MTE-for-apps (§19) | **Original** (config-only workstream) + **Plumbing** (BoardConfig merge) — keep; boot/perf validation pending |
 | `vendor_lineage/0001` strip packages | GrapheneOS edits its product app lists directly | Parameterized `LENOS_STRIP_PACKAGES` filter applied in three `vendor/lineage/config/*.mk` files | **Plumbing** — equivalent intent, cleaner mechanism |
 
 **Conclusion.** No accidental behavioral deviations were found, and the approximations surfaced by the
 redo audit have been replaced by faithful ports (auto-reboot init, QS gating, Wi-Fi privacy defaults,
-PIN scrambling). Of the 51 patches: **42 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
+PIN scrambling). Of the 53 patches: **42 are faithful GrapheneOS ports** — auto-reboot pair, QS gating,
 duress, eSIM wipe pair, Wi-Fi privacy defaults (`wifi/0001`), SystemUI PIN scramble (`fwb/0008`), the
 Settings ext-UI (`packages_apps_Settings/0001`: scramble controls + screenshot toggle + LTE/5G-only
 entries + firmware-visibility bootloader field, single-credential-domain adaptation, explicit controller
@@ -1101,8 +1103,9 @@ auto-reboot pair carries the two benign environment
 deltas listed above, the Settings port the LockDomain removal + registration mechanism; **5 are
 deliberate lenOS choices** (first-boot defaults, ExtSettings trim + PIN
 scramble default ON, Secure Paste stage 1, Wi-Fi enterprise hardening, no-2G default) — several
-stricter than anything GrapheneOS ships (enterprise Wi-Fi, SUPL/PSDS-off defaults, scramble default); **2 are
-lenOS-original** (SSAID rotation, device name); **2 are build/device plumbing**. The re-done ports are
+stricter than anything GrapheneOS ships (enterprise Wi-Fi, SUPL/PSDS-off defaults, scramble default); **3 are
+lenOS-original** (SSAID rotation, device name, kernel-hardening fragment); **3 are build/device plumbing**
+(product, package strip, kernel-config merge). The re-done ports are
 line-level faithful; earlier inventory text that called them (or the Wi-Fi privacy defaults) deviations
 is superseded by this audit.
 
@@ -1132,3 +1135,77 @@ is superseded by this audit.
    the asteroids bootloader reports (`getprop ro.boot.hwlevel`, etc.); if the real unit type lives under
    another `ro.boot.*` name, extend `PROTOTYPE_PHASE_PROPS` in the same patch (the check only fires on
    an explicit EVT/PVT/DVT marker, so unknown names stay silent — no false positives).
+
+---
+
+## 19. Kernel hardening workstream (Tier 3 #32) — started
+
+Tier 3 #32 is a workstream, not a GrapheneOS patch port: GrapheneOS's kernel
+hardening is spread across their kernel forks, bionic/ART and custom allocator
+code, none of which is a portable `git diff`. lenOS starts with the subset that
+is expressible as an additive 6.6 GKI config fragment and needs no vendor
+firmware or module re-signing:
+
+* `kernel_nothing_sm7635/0001` creates
+  `arch/arm64/configs/vendor/lenos_hardening.config`.
+* `device_nothing_asteroids/0008` appends it to `TARGET_KERNEL_CONFIG` **last**,
+  after `gki_defconfig` and the two vendor fragments, so it can only override
+  with `=y` (the fragment contains no `# CONFIG_... is not set` line).
+
+### Enabled by the fragment
+
+| Option | Effect | Expected cost |
+|---|---|---|
+| `CONFIG_INIT_ON_FREE_DEFAULT_ON` | zero page-allocator and SLUB memory when freed, not only when allocated; reduces sensitive-data lifetime and use-after-free usefulness | 3–5% typical (up to 8% synthetic); can be disabled at boot with `init_on_free=0` |
+| `CONFIG_RANDOM_KMALLOC_CACHES` | 16 randomized `kmalloc` caches; makes heap spraying harder | small memory/CPU overhead |
+| `CONFIG_RANDOMIZE_KSTACK_OFFSET_DEFAULT` | 5 bits of per-syscall kernel-stack offset randomization on by default | negligible; `randomize_kstack_offset=off` at boot |
+| `CONFIG_SECURITY_DMESG_RESTRICT` | unprivileged reads of the kernel log denied by default (Android already gates `dmesg` to root/SELinux; this is the kernel-side default) | none |
+| `CONFIG_ZERO_CALL_USED_REGS` | zero caller-used registers on function exit; reduces register-content leaks and ROP gadgets | <1% runtime; ~5% arm64 image growth |
+
+### Already on in the pinned baseline (not claimed by the fragment)
+
+`INIT_ON_ALLOC_DEFAULT_ON`, `SLAB_FREELIST_RANDOM`, `SLAB_FREELIST_HARDENED`,
+`SHUFFLE_PAGE_ALLOCATOR`, `HARDENED_USERCOPY`, `FORTIFY_SOURCE`,
+`CFI_CLANG`, `SHADOW_CALL_STACK`, `BUG_ON_DATA_CORRUPTION` (which selects
+`LIST_HARDENED`), `KFENCE`, `RANDOMIZE_BASE`, `STRICT_KERNEL_RWX`/
+`STRICT_MODULE_RWX` (arch defaults) and `VMAP_STACK` (arch default).
+`INIT_STACK_ALL_ZERO` is the upstream 6.6 choice default when the compiler
+supports `-ftrivial-auto-var-init=zero`, which the GKI Clang does, so it is
+already in effect and is not listed as a lenOS delta.
+
+### Deliberately not attempted
+
+* **48-bit VA / 4-level page tables** (`CONFIG_ARM64_VA_BITS_48`; GrapheneOS's
+  higher-entropy ASLR). 4 KB-page kernels default to 39-bit VA; changing the
+  memory map has to be validated against the vendor kernel/modules and the
+  bootloader, and a bad change can prevent boot.
+* **Forced module signing + lockdown**: the vendor DLKM/module set is prebuilt
+  and signed by Nothing/Qualcomm; lenOS cannot re-sign it, and
+  `MODULE_SIG_FORCE` would refuse to load those modules.
+* **Kernel LTS point-release cadence**: operational work (fetch/merge/test the
+  6.6 LTS stable queue), not a config patch.
+* **GrapheneOS's custom allocator canaries and MTE-for-apps**: kernel/bionic
+  work, not a Kconfig switch. The pinned `gki_defconfig`'s `KASAN_HW_TAGS` is
+  a debug/testing feature, not the production app-hardening MTE policy.
+
+### Baseline caveat
+
+The pinned `gki_defconfig` is debug-heavy (`KASAN`, `UBSAN`, `KFENCE`,
+`PAGE_OWNER`, etc.). This workstream does not change those options: it is
+additive only. Any production debug-option review (and the resulting
+performance win) is a separate decision that needs a build and on-device
+measurement.
+
+### Verification (after the first build)
+
+```bash
+adb shell 'zcat /proc/config.gz | grep -E "CONFIG_(INIT_ON_FREE_DEFAULT_ON|RANDOM_KMALLOC_CACHES|RANDOMIZE_KSTACK_OFFSET_DEFAULT|SECURITY_DMESG_RESTRICT|ZERO_CALL_USED_REGS)=y"'
+adb shell cat /proc/sys/kernel/dmesg_restrict     # 1
+adb shell dmesg | head                            # permission denied for shell
+```
+
+`CONFIG_IKCONFIG_PROC=y` in the pinned config makes `/proc/config.gz`
+available. Also record boot time, idle memory and a few real workloads before
+and after the fragment, because `init_on_free` is the only option with a
+material cost. Until this runs on the device, #32 is **source-complete**, not
+verified.
