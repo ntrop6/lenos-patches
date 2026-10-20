@@ -3,6 +3,51 @@
 One entry per working session. "Verified" = seen working on a booted device
 (see `docs/build.md` checklist); everything else is source-complete only.
 
+## 2026-10-20 (nineteenth session) — experimental repository + anti-persistence pair
+
+* **New sister repository:** [`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental).
+  It is the staging area for source-complete implementations that cannot be
+  built or device-validated while the VM is unavailable. It is deliberately
+  separate from the 1.0 patchkit: none of its patches are in this repository's
+  `series`, none are applied by `tools/lenos-patch.py`, and the main driver
+  does not copy them to the VM. The README and `docs/features.md` link to it
+  and mark it experimental.
+* **Implemented there (first batch):**
+  * **#20/#21 — system-app update verification.** New
+    `PackageVerityExt.java` (GrapheneOS port) plus two `InstallPackageHelper`
+    hooks. At boot, immutable packages are recorded before `/data` packages are
+    scanned; a `/data` update is rejected if its versionCode is the same as
+    (static shared libs) or not greater than (normal packages) the system
+    image, if any split lacks fs-verity, or if the signing certificate does not
+    have `INSTALLED_DATA`/`ROLLBACK` capability. At install time, fs-verity and
+    same-versionCode checks fail before commit. Debug-only escape properties
+    are retained for debuggable builds. Two hunks of GrapheneOS's
+    `AndroidPackageUtils` original-package exception are **not** ported (lenOS
+    ships neither Vanadium nor the GrapheneOS PDF viewer; an empty allowlist
+    would only weaken the check).
+  * **#25 — screenshot sound.** SystemUI now gates the non-forced screenshot
+    sound on `Settings.System.SOUND_EFFECTS_ENABLED`; the
+    `screenshotForceShutterSound` aconfig guard is gone, camera-availability
+    tracking is registered unconditionally, and the forced-shutter path
+    (`MediaActionSound.mustPlayShutterSound()` with the camera open) is
+    unchanged.
+* **Verification:** the experimental repo has its own copy of the strict
+  patchkit (`--check`, `--apply`, `--status`, `--reset`), a minimal project
+  map, and 18 source-level tests (Java tree-sitter parse, hook order, fs-verity
+  loop, versionCode/signature checks, debug guards, Kotlin patch scope,
+  apply/reverse). Apply → status → reset was exercised on the real
+  `frameworks/base` tree; it restored the tree and removed the created file.
+  The main series is still 53 patches; main tests are unaffected.
+* **Honest scope:** #22 (USB-C port control) needs the vendor HAL and keyguard
+  port-security path; #23 (ptrace) needs the `GosPackageState`/SELinux-flags
+  core; #27 (Seedvault) needs an app fork/update; #28 (Setup Wizard) needs a
+  product spec; #30/#31 are XL PackageManager/lock-domain ports; #33–#35 are
+  runtime, SELinux, and browser workstreams. Those are listed in the
+  experimental repo's `STATUS.md`; they are not claimed as implemented.
+* **No build, no flash.** The VM is still unreachable. The first build window
+  should apply the experimental series only after the 1.0 tree is validated,
+  and run `docs/verification.md` in the experimental repo.
+
 ## 2026-10-20 (eighteenth session) — Tier 3 starts: kernel hardening (#32)
 
 * **Tier 3 is open, with #32 first.** #30 (Storage/Contact Scopes) needs the

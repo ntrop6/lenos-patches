@@ -48,6 +48,16 @@ LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY bash vendor/lenos/tests/run-tests.sh
 Building: see `docs/build.md`. Flashing/locking rules are binding and live in
 `/home/otoka/lenos-drop/BUILD-FLASH-LOCK.md`.
 
+## Experimental companion repository
+
+Implementations that are source-complete but **cannot be built or device-validated** in the
+current environment live in
+[`ntrop6/lenos-experimental`](https://github.com/ntrop6/lenos-experimental). That repository is a
+staging area, not part of the 1.0 series: its patches are **not** listed here, are not applied by
+`tools/lenos-patch.py`, and must not be merged into this series without a build and device
+verification. It currently carries the fs-verity/system-app update hardening (#20/#21) and the
+screenshot-sound fix (#25), with `STATUS.md` and a build-time verification checklist.
+
 ## Design rules
 
 * **Identity stays stock.** Build fingerprint, `ro.product.*` and attestation
