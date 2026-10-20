@@ -98,6 +98,15 @@ One entry per working session. "Verified" = seen working on a booted device
   `tests/test_product_config.py` extended. Next is #20 (fs-verity for
   out-of-band updates), which is rated L (design work) — it waits for the VM
   to return so it can be iterated against a real build.
+* **#26 resolved by the LineageOS baseline** — no patch. LineageOS's Dialer
+  already records calls unconditionally (`call_recording_enabled=true`, no
+  region/carrier gate), plays no tone, writes to `Recordings/Call recordings`
+  through MediaStore, and holds `CAPTURE_AUDIO_OUTPUT` as a privileged app.
+  GrapheneOS's Dialer adds an auto-recording-by-contact subsystem (preference
+  store, contact modes, stale-contact cleanup jobs); that larger fork is not
+  part of 1.0. `tests/test_call_recording.py` pins the baseline (5 checks).
+* Final state this session: **337 tests green**; all 51 patches `--check`
+  clean; §18 remains a 51-patch audit (42 faithful).
 
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 

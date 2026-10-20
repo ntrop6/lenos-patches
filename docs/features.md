@@ -122,6 +122,7 @@ their content until the user explicitly allows it.
 | Minimal app set | `Gallery2` stripped via `LENOS_STRIP_PACKAGES` (`vendor_lineage/0001`), AudioFX off (`TARGET_EXCLUDES_AUDIOFX`), MP3/Music app (`Twelve`) kept for now |
 | Jelly browser | **kept** for 1.0; Cromite/WebView replacement is still under investigation (see limits) |
 | `LenosSecurity` app | ships with: auto-BFU timer (init backend), PIN-scramble switch (writes the same `Settings.Secure` key SystemUI reads), duress PIN/password UI (framework service), status card. The old global Wi-Fi hostname toggle was dropped in the GrapheneOS-faithful redo — that control is per network in Wi-Fi settings, and the app no longer needs `NETWORK_SETTINGS` |
+| Call recording | **LineageOS baseline, kept** — the in-call screen records voice calls with no region/carrier gate and no recording tone; `CallRecording` writes through MediaStore to `Recordings/Call recordings`, and the privileged Dialer's privapp allowlist grants `CAPTURE_AUDIO_OUTPUT` for the `VOICE_CALL` audio source. GrapheneOS's extra auto-recording-by-contact subsystem (preferences store, contact modes, stale-contact cleanup) is a larger Dialer fork and stays out of 1.0 |
 | Screenshot metadata | `frameworks_base/0013` + `packages_apps_Settings/0001` | SystemUI screenshot exports carry no timestamp, timezone or build-string EXIF metadata by default (GrapheneOS's `ExtSettings.SCREENSHOT_TIMESTAMP_EXIF` gate, default off; LineageOS's `TAG_SOFTWARE = "Android " + Build.DISPLAY` line removed to match GrapheneOS/AOSP). Per-user toggle: Settings → Security & privacy → More security & privacy → "Save screenshot timestamp to EXIF" |
 | User-installed apps can be disabled | `packages_apps_Settings/0002` (GrapheneOS port) | the app info screen offers "Disable" for user-installed apps, not only system apps: the app is completely prevented from running while keeping its data (strictly stronger than Force stop, which lets anything restart the app), and "Enable" brings it back. The uninstall/archive rules still apply (device-policy blocks, device provisioning package, uninstall already queued) and enabling still requires authentication. Framework support already exists (no patch): `PackageManagerService.setEnabledSettings` accepts `DISABLED_USER` for any package and Settings holds `CHANGE_COMPONENT_ENABLED_STATE`. Reaches users through the default SPA app-info screen; the legacy screen is unchanged, matching GrapheneOS |
 
@@ -272,7 +273,8 @@ End session button (the power menu still has it), a secondary user's User
 details > App installs and updates offers the three policies and "Disabled"
 makes that user's package installer refuse installs, `getprop
 apexd.config.compressed_apex` reports `false` (no compressed APEX in the
-system image), a fresh permission dialog keeps
+system image), an in-call recording is saved under
+`Recordings/Call recordings` and plays back, a fresh permission dialog keeps
 its Allow button inactive for a moment (the GrapheneOS delay), a new copy in
 one app is readable in another app with Secure paste off (the default), enabling
 "Secure paste" in More security & privacy makes a third-party app see an empty
