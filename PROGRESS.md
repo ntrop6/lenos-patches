@@ -107,6 +107,16 @@ One entry per working session. "Verified" = seen working on a booted device
   part of 1.0. `tests/test_call_recording.py` pins the baseline (5 checks).
 * Final state this session: **337 tests green**; all 51 patches `--check`
   clean; §18 remains a 51-patch audit (42 faithful).
+* Tier 2 scoping (manifest check including `snippets/lineage.xml`): Seedvault
+  and SetupWizard *are* shipped (`packages/apps/...`), but neither is a quick
+  port. GrapheneOS's Seedvault fork is a newer 16.x upstream plus a prebuilt
+  `seedvault-chunker` jar (the source is `GrapheneOS/seedvault-chunker`), so
+  #27 is an app update and a build-system decision, not a fix cherry-pick.
+  GrapheneOS's SetupWizard fork is a LineageOS wizard with no
+  bootloader/OEM-unlock code at all, so #28 needs a specification before any
+  patch. #20/#21 (fs-verity + versionCode downgrade), #22 (USB-C data-line
+  control, vendor USB HAL) and #23 (ptrace block, GrapheneOS sepolicy) remain
+  blocked on the VM/build or on hardware.
 
 ## 2026-10-20 (sixteenth session) — sensors permission (OTHER_SENSORS)
 
