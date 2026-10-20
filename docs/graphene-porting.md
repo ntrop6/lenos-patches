@@ -845,7 +845,7 @@ ExtSettings *constant* already exists in lenOS patch 0006 but nothing enforces i
 |---|---|---|---|---|
 | Wi-Fi / Bluetooth / NFC auto-off timers | fwb `services/core/java/com/android/server/ext/WifiAutoOff.java` (141), `BluetoothAutoOff.java` (125), `DelayedConditionalAction.java` (122); keys `Settings.Global.wifi_off_timeout` / `bluetooth_off_timeout` (`Settings.java:14470/:14474`), NFC via the NFC app | **done (Wi-Fi + Bluetooth):** `fwb/0020` ports all three service classes under a trimmed `SystemServerExt` hooked from `SystemServer.java`, plus a driver marker; Settings/0001 adds the two list rows in More security & privacy with the GrapheneOS `AutoOffSetting` choices (0/15 s/30 s/1 m/2 m/5 m/10 m/30 m/1 h/2 h/4 h/8 h, millisecond values). NFC variant not ported (needs the Nfc app side) | S–M | done (NFC later) |
 | USB attach attack surface | see §10 | see §10 | L | partial only |
-| Native debugging (ptrace) block for bundled apps + per-app toggles + notification | ExtSettings `ASW` switches (`android/ext/settings/app/Asw*`), `GosPackageStateFlag.BLOCK_NATIVE_DEBUGGING*` (6-8), notification helper; enforcement partially via SELinux (GrapheneOS sepolicy) | constant present in 0006; enforcement needs their sepolicy/SELinuxFlags work | M–L | port later |
+| Native debugging (ptrace) block for bundled apps + per-app toggles + notification | ExtSettings `ASW` switches (`android/ext/settings/app/Asw*`), `GosPackageStateFlag.BLOCK_NATIVE_DEBUGGING*` (6-8), notification helper; enforcement partially via SELinux (GrapheneOS sepolicy) | **Partial experimental ENF-1:** global opt-in `PR_SET_DUMPABLE` block in `frameworks_base/0005` + Settings/0005. The per-app GosPackageState/SELinux policy, denial UI and bundled-app defaults are still unported | M–L | partial (global primitive only) |
 | Dynamic code loading toggles (memory/storage/WebView) | `GosPackageStateFlag.RESTRICT_*` (9-16) + `services/.../ext/DynCodeLoadingUtils.java` (116) + notification; enforcement in bionic/seccomp | constants present; **no-op without bionic/ART/seccomp work** | XL | not feasible now (toggles alone useless) |
 | Exec spawning / hardened_malloc / MTE / BTI+PAC | bionic + `hardened_malloc` + build/ART/kernel work; toggles in ExtSettings/`GosPackageStateFlag` (17–23, 29–30) | platform-wide runtime replacement | XL+ | not feasible now (see §17) |
 | JIT disabled base OS / dynamic code blocked for base OS | ART + seccomp work | none | XL | not feasible now |
@@ -1263,6 +1263,11 @@ Current experimental batches:
   DropBox reader with bounded entries and explicit sharing; no upload path.
 * **#28 — Setup Wizard warning.** `packages_apps_SetupWizard/0001` shows a
   non-blocking warning on the welcome page when verified boot is not green.
+* **#23 partial / ENF-1 — native-debugging block.** `frameworks_base/0005` +
+  `packages_apps_Settings/0005` add an opt-in global `PR_SET_DUMPABLE` block for
+  newly started non-system, non-debuggable, non-profileable app processes. This
+  is explicitly **not** GrapheneOS's per-app `GosPackageState`/SELinux policy;
+  there is no per-app toggle or denial UI, and root remains exempt.
 * **#27 — Seedvault prefix.** `packages_apps_Seedvault/0001` ports the
   GrapheneOS internal `app.grapheneos` prefix and prebuilt chunker while
   keeping `com.stevesoltys.seedvault`; backup migration is unverified.
@@ -1280,8 +1285,8 @@ Current experimental batches:
   tracking fields from links while preserving functional query parameters and
   fragments. It never opens, resolves or uploads the links.
 
-The repository carries its own strict patchkit, 65 source-level tests,
+The repository carries its own strict patchkit, 76 source-level tests,
 provenance and a post-build verification checklist. The remaining workstreams
-(#23 ptrace, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are listed
-with their concrete blockers in the experimental `STATUS.md`; they are not
-implemented and are not claimed as shipped.
+(full per-app #23, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are
+listed with their concrete blockers in the experimental `STATUS.md`; they are
+not implemented and are not claimed as shipped.

@@ -1088,8 +1088,12 @@ unchanged and remains 53 patches / 348 tests.
   existing AOSP `OP_READ_CLIPBOARD` AppOp per user-installed app, with no framework patch or new
   permission. OPS-5 adds a text-share target that strips known tracking parameters without opening
   or resolving links. No network code; no new trust anchors.
-* Experimental repo: 11 patches, 65 source-level tests, all strict `git apply --check` clean.
+* **#23 partial / ENF-1:** `frameworks_base/0005` + `packages_apps_Settings/0005` add an opt-in
+  global native-debugging block. It clears `PR_SET_DUMPABLE` for newly started non-system,
+  non-debuggable, non-profileable app processes. It is not the per-app `GosPackageState`/SELinux
+  policy; there is no denial UI and root remains exempt. Off by default; unbuilt.
+* Experimental repo: 13 patches, 76 source-level tests, all strict `git apply --check` clean.
   `STATUS.md`, `docs/opsec.md`, provenance and verification were updated. Nothing promoted to 1.0.
-* Remaining blockers: #23 (GosPackageState/sepolicy), #30/#31 (XL PackageManager/credential-domain
-  ports), #33/#34 (runtime/SELinux workstreams), #35 (browser product decision). No flash, wipe or
-  lock was performed.
+* Remaining blockers: full per-app #23 (GosPackageState/sepolicy), #30/#31 (XL
+  PackageManager/credential-domain ports), #33/#34 (runtime/SELinux workstreams), #35 (browser
+  product decision). No flash, wipe or lock was performed.

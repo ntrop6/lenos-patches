@@ -154,6 +154,10 @@ patchkit. The current experimental batches implement:
   build;
 * **#27** — the Seedvault internal `app.grapheneos` prefix port and GrapheneOS
   prebuilt chunker, preserving `com.stevesoltys.seedvault` as the app id;
+* **#23 partial / ENF-1** — a global opt-in native-debugging block that clears
+  the kernel dumpable bit for newly started non-system, non-debuggable,
+  non-profileable app processes. It is explicitly not the per-app
+  `GosPackageState`/SELinux feature; system apps and root remain exempt;
 * **OPS-1** — a metadata-scrubbing image share target that re-encodes the
   image and shares only a randomized, metadata-free copy;
 * **OPS-2** — an Offline Quick Settings tile that turns off Wi-Fi and
@@ -169,8 +173,8 @@ patchkit. The current experimental batches implement:
 
 The experimental [`docs/opsec.md`](https://github.com/ntrop6/lenos-experimental/blob/main/docs/opsec.md)
 documents the OPSEC threat model and limits. The repository's `STATUS.md` lists
-the remaining untestable workstreams (#23, #30, #31, #33–#35) with the
-concrete blocker for each.
+the remaining untestable workstreams (full per-app #23, #30, #31, #33–#35)
+with the concrete blocker for each.
 
 ## Not in the 1.0 series
 
