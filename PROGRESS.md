@@ -1086,8 +1086,9 @@ unchanged and remains 53 patches / 348 tests.
   `frameworks_base/0004` + `packages_apps_Settings/0003` add the opt-in, per-user screen-off
   clipboard wipe (OPS-3). OPS-4 / Secure Paste stage 2 (`packages_apps_Settings/0004`) exposes the
   existing AOSP `OP_READ_CLIPBOARD` AppOp per user-installed app, with no framework patch or new
-  permission. No network code; no new trust anchors.
-* Experimental repo: 11 patches, 60 source-level tests, all strict `git apply --check` clean.
+  permission. OPS-5 adds a text-share target that strips known tracking parameters without opening
+  or resolving links. No network code; no new trust anchors.
+* Experimental repo: 11 patches, 65 source-level tests, all strict `git apply --check` clean.
   `STATUS.md`, `docs/opsec.md`, provenance and verification were updated. Nothing promoted to 1.0.
 * Remaining blockers: #23 (GosPackageState/sepolicy), #30/#31 (XL PackageManager/credential-domain
   ports), #33/#34 (runtime/SELinux workstreams), #35 (browser product decision). No flash, wipe or

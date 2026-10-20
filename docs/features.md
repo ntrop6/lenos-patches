@@ -162,7 +162,10 @@ patchkit. The current experimental batches implement:
 * **OPS-4 / #8 stage 2** — a Settings screen that sets the existing
   `OP_READ_CLIPBOARD` AppOp per user-installed app, without a new framework
   patch, permission or app-op. It composes with the global Secure Paste
-  default and excludes system apps, enabled keyboards and disabled packages.
+  default and excludes system apps, enabled keyboards and disabled packages;
+* **OPS-5** — a `text/plain` share target that strips known tracking
+  parameters from links, preserving functional query parameters and
+  fragments, without opening or resolving the links.
 
 The experimental [`docs/opsec.md`](https://github.com/ntrop6/lenos-experimental/blob/main/docs/opsec.md)
 documents the OPSEC threat model and limits. The repository's `STATUS.md` lists

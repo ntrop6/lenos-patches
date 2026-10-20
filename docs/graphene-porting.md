@@ -1275,8 +1275,12 @@ Current experimental batches:
   `packages_apps_Settings/0004` exposes the existing AOSP
   `OP_READ_CLIPBOARD` AppOp for user-installed apps. No framework patch, new
   permission or new AppOp; the global Secure Paste setting still wins.
+* **OPS-5 — tracking-parameter scrubber.**
+  `vendor_lenos/0001` adds a `text/plain` share target that removes known
+  tracking fields from links while preserving functional query parameters and
+  fragments. It never opens, resolves or uploads the links.
 
-The repository carries its own strict patchkit, 60 source-level tests,
+The repository carries its own strict patchkit, 65 source-level tests,
 provenance and a post-build verification checklist. The remaining workstreams
 (#23 ptrace, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are listed
 with their concrete blockers in the experimental `STATUS.md`; they are not
