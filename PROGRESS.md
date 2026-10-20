@@ -1092,7 +1092,7 @@ unchanged and remains 53 patches / 348 tests.
   global native-debugging block. It clears `PR_SET_DUMPABLE` for newly started non-system,
   non-debuggable, non-profileable app processes. It is not the per-app `GosPackageState`/SELinux
   policy; there is no denial UI and root remains exempt. Off by default; unbuilt.
-* Experimental repo: 13 patches, 78 source-level tests, all strict `git apply --check` clean.
+* Experimental repo: 13 patches, 79 source-level tests, all strict `git apply --check` clean.
   `STATUS.md`, `docs/opsec.md`, provenance and verification were updated. Nothing promoted to 1.0.
 * Remaining blockers: full per-app #23 (GosPackageState/sepolicy), #30/#31 (XL
   PackageManager/credential-domain ports), #33/#34 (runtime/SELinux workstreams), #35 (browser

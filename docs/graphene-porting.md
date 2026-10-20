@@ -1285,8 +1285,10 @@ Current experimental batches:
   tracking fields from links while preserving functional query parameters and
   fragments. It never opens, resolves or uploads the links.
 
-The repository carries its own strict patchkit, 78 source-level tests,
+The repository carries its own strict patchkit, 79 source-level tests,
 provenance and a post-build verification checklist. The remaining workstreams
 (full per-app #23, #30/#31 scopes/2FA, #33–#35 runtime/SELinux/browser) are
 listed with their concrete blockers in the experimental `STATUS.md`; they are
-not implemented and are not claimed as shipped.
+not implemented and are not claimed as shipped. The experimental repository also carries a
+source-level `docs/security-review.md` with the deliberate non-goals and the findings from the
+patch-order/reset audit.
