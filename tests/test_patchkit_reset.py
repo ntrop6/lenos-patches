@@ -100,7 +100,7 @@ class TestPatchkitReset(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
 
     def test_reset_then_apply_works_repeatedly(self):
-        # The VM cycle: reset -> apply must keep working, not just once.
+        # The normal cycle: reset -> apply must keep working, not just once.
         for _ in range(2):
             self.assertEqual(self.run_reset().returncode, 0)
             applied = self.apply_patch()

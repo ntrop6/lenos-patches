@@ -12,7 +12,7 @@ diff against the commit below. Original lenOS work is marked as such.
 | `packages/apps/Settings` | `72494c35b673f1b531e1218160e1e514976f6a1e` | #17, #22, #23 partial, OPS-3, OPS-4 |
 | `packages/apps/SetupWizard` | `715b772f07c52ce0fdb83b9891765f3de992ffb5` | #28 |
 | `packages/apps/Seedvault` | `29301617a99030c3ae0e14de64eadbc73bd2bd63` | #27 |
-| `vendor/lenos` (main patchkit) | current `ntrop6/lenos-patches` `lenos-1.0` | OPS-1 / OPS-2 source and opt-in product integration |
+| `vendor/lenos` (main patchkit) | this repository, `lenos-1.0` | OPS-1 / OPS-2 source and opt-in product integration |
 
 ## GrapheneOS references
 
@@ -182,4 +182,5 @@ upstream files are:
 ## License
 
 New files carry the Apache-2.0 header and credit GrapheneOS where the implementation derives from
-it and The lenOS Project. Modified AOSP files keep their original headers. See `LICENSE`.
+it and the lenOS contributors. Modified AOSP files keep their original headers. See
+[`../../LICENSE`](../../LICENSE).

@@ -46,7 +46,7 @@ while reviewing the patches at source level. A passing test is not a runtime sec
 
 1. Build every project with the experimental series applied in order.
 2. Boot `asteroids`, check SELinux denial logs and the hidden-API build check.
-3. Run the checks in `docs/verification.md`, including a same-UID ptrace attempt, USB data behavior
+3. Run the checks in `verification.md`, including a same-UID ptrace attempt, USB data behavior
    while locked, a Seedvault restore, and a Setup Wizard first boot with green and non-green
    verified-boot properties.
 4. Promote only the features that pass. ENF-1 remains experimental until the per-app policy or an

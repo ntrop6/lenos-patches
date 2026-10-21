@@ -1,4 +1,4 @@
-"""Test harness for the experimental series imported into the main repo.
+"""Test harness for the experimental series in this repository.
 
 The experimental patches are *not* standalone against a pristine AOSP tree.
 They are applied after the stable lenOS 1.0 series. ``LenosPatchTest`` builds
@@ -24,7 +24,7 @@ PATCH_ROOT = MAIN / "patches-experimental"
 STABLE_PATCH_ROOT = MAIN / "patches"
 WORKSPACE = Path(os.environ.get(
     "LENOS_WORKSPACE",
-    "/mnt/sda/AI WORKSPACE/lenos-workspace"))
+    str(Path.home() / "lineage")))
 
 sys.path.insert(0, str(MAIN / "tools"))
 from lenos_projects import alias_for, project_for  # noqa: E402

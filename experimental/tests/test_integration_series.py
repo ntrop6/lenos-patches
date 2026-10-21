@@ -1,4 +1,4 @@
-"""Integration checks for the imported experimental series.
+"""Integration checks for the experimental series.
 
 These are deliberately separate from the per-feature tests: they prove that
 each patch applies after the stable series, in series order, and independently.

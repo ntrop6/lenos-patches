@@ -1,152 +1,142 @@
-# Building lenOS (asteroids)
+# Building lenOS
 
-The binding rules for building, flashing and locking this device live in
-`/home/otoka/lenos-drop/BUILD-FLASH-LOCK.md` (plus `LENOS-1.0-BUILD-FLASH-LOCK.md`
-in this repo as historical context). Read them before touching the device.
-Summary of the rules that must never be broken:
+lenOS is a patch set, not a full source tree. You supply a LineageOS 23.2 tree,
+the normal Android build environment, and your own signing keys.
 
-* **No `repo sync`** on the pinned tree — revisions come from the device
-  manifest; sync only to fix a broken tree, then re-pin.
-* **Patches only through the patchkit** (`tools/lenos-patch.py`), never
-  `git apply` of hand-edited piles or "hardwired" file edits.
-* **No firmware `--re-sign`** — it breaks the VBMeta magic.
-* **Never flash partitions individually**; use the built zip.
-* **Do not lock the bootloader** until the freshly built zip has booted
-  unlocked and `getprop ro.boot.veritymode` reports `enforcing`.
-* **Never print, commit or upload signing keys.** Key handling stays on the
-  build machine.
+The series was developed against the `6.6/lineage-23.2` device trees in the
+[NullDebris manifest](https://github.com/NullDebris/manifest). It is not a
+general-purpose patch set for every LineageOS revision: `--check` will stop if
+the surrounding source has drifted.
 
-## 1. Local: produce a patch-applied tree
+## 1. Get a compatible tree
 
-The workspace tree is kept pristine; patches are the transport format.
+Follow the normal LineageOS build setup for your host, using the
+`lineage-23.2` branch. Add the device manifest before the first sync:
 
 ```bash
-WS="/mnt/sda/AI WORKSPACE/lenos-workspace"
-PY=/tmp/opencode/lenv/bin/python
-
-# confirm the series applies to the pinned checkouts
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --check
-
-# run the test suite (needs a pristine tree)
-LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY bash vendor/lenos/tests/run-tests.sh
-
-# apply everything
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --apply
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --status
+repo init -u https://github.com/LineageOS/android.git -b lineage-23.2
+mkdir -p .repo/local_manifests
+curl -fsSL -o .repo/local_manifests/asteroids.xml \
+  https://raw.githubusercontent.com/NullDebris/manifest/main/asteroids-6.6-lineage-23.2.xml
+repo sync -c -j"$(nproc --all)"
 ```
 
-After a build attempt, `--reset` (or `--reverse`, or `mkpatch.sh`, which
-restores the tree it diffed) returns the tree to the pinned state. `--reset`
-also removes files the series *created* — plain `git checkout` leaves those
-(untracked) behind and then `--check` can never pass again. Never leave a tree
-that is partially patched.
+This initial sync is expected. Do **not** run `repo sync` again after applying
+the patches; reset the tree first if you need to move it.
 
-## 2. Build machine (GCP "lenos-build")
+## 2. Apply the patch series
 
-The build runs on the VM with the local manifest and the lenOS signing keys.
-The VM driver `~/lenos-1.0-shizuku.sh apply` now does the whole tree
-preparation and replaces the old "hardwire" step of the previous pipeline:
+Clone the patchkit into `vendor/lenos` and apply the default series:
 
 ```bash
-# on the VM (tmux), with ~/vendor-lenos being this repo
-~/lenos-1.0-shizuku.sh apply     # reset hardening -> reset -> install build
-                                 # inputs -> patchkit --check/--apply/--status
-~/lenos-1.0-shizuku.sh build     # apply + wizard reset build + mka (8-17h)
+git clone https://github.com/ntrop6/lenos-patches.git vendor/lenos
+python3 vendor/lenos/tools/lenos-patch.py --tree . --check
+python3 vendor/lenos/tools/lenos-patch.py --tree . --apply
 ```
 
-Equivalent manual steps, if the driver is not used:
+`--check` is read-only. `--apply` writes the patches with strict `git apply`;
+a patch that does not match is a hard error, not a warning. Do not edit the
+tree by hand and do not apply the patches with plain `git apply`.
+
+To undo the series:
 
 ```bash
-SRC=~/lenos-workspace/lineage
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --reset   # pinned state
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --check   # must pass
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --apply
-python3 ~/vendor-lenos/tools/lenos-patch.py --tree "$SRC" --status
+python3 vendor/lenos/tools/lenos-patch.py --tree . --reset
 ```
 
-`apply` resets the series' projects to their pinned revisions (printing any
-tracked edits it discards), installs only the build inputs (`config/`, `app/`,
-`rro/`) into `$SRC/vendor/lenos`, and dies if any patch or marker of the
-series is missing — a half-patched tree never builds.
+`--reset` restores tracked files and deletes files the series created. It will
+discard local edits in the patched projects, so commit or save your work first.
 
-Then run the VM's normal reset/build steps (rootless + hardening profile as
-before). Keys and the avbroot step stay exactly as the driver does them.
-
-### Experimental builds (opt-in)
-
-The imported experimental series is **not** part of the default 1.0 build. It
-is applied after the stable series and is selected only with
-`LENOS_EXPERIMENTAL=1`:
+## 3. Build
 
 ```bash
-LENOS_EXPERIMENTAL=1 ~/lenos-1.0-shizuku.sh apply
-LENOS_EXPERIMENTAL=1 ~/lenos-1.0-shizuku.sh build
+source build/envsetup.sh
+lunch lenos_asteroids-user
+mka bacon
 ```
 
-The driver normalizes the flag, runs `--experimental --check/--apply`, installs
-`experimental/app/LenosOpsec` into the build tree, and exports the same flag so
-`config/lenos.mk` inherits `config/lenos-experimental.mk`. For a manual build,
-pass `LENOS_EXPERIMENTAL=1` to `mka` yourself. Without it, `LenosOpsec` is not
-in `PRODUCT_PACKAGES` and the app source is not installed.
+The build uses the signing and OTA setup configured in your tree. No signing
+keys are stored in this repository. If you use custom AVB keys or the
+rootless/avbroot packaging flow, use the same procedure you use for any other
+LineageOS build.
 
-Switching back to a stable build is automatic: the driver detects an applied
-experimental series before resetting, removes its created/renamed files, then
-resets the stable series. Do not leave a partially applied experimental tree.
-The complete flag/apply-order contract is in `docs/experimental.md`.
+## Experimental series
 
-Experimental source-level tests (each sandbox rebuilds the stable base first):
+The experimental work is a second series applied only after the default one.
+It is not part of a normal build. Read
+[`experimental.md`](experimental.md) for the full apply/reset contract.
+
+Manual apply:
 
 ```bash
-cd vendor/lenos/experimental/tests
-LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY ./run-tests.sh
+python3 vendor/lenos/tools/lenos-patch.py --tree . --experimental --check
+python3 vendor/lenos/tools/lenos-patch.py --tree . --experimental --apply
 ```
 
-No combined experimental image has been built or booted. The first build must
-be treated as a bring-up, not as validation; use
-`experimental/docs/verification.md` and the read-only helpers
-`tools/verify-build.sh` / `tools/verify-device.sh`.
-
-Transfer the driver + patchkit to the VM with:
+The experimental product fragment adds `LenosOpsec`, but its source lives
+outside the normal app directory. Copy it in before building:
 
 ```bash
-gcloud compute scp --tunnel-through-iap --recurse \
-  vendor/lenos lenos-1.0-shizuku.sh cesurmali76@lenos-build:~/
-# then on the VM: mv vendor/lenos ~/vendor-lenos   (driver looks for it there)
+cp -a vendor/lenos/experimental/app/LenosOpsec vendor/lenos/app/
+LENOS_EXPERIMENTAL=1 mka bacon
 ```
 
-## 3. Flash (only with explicit user approval)
-
-Per the rules: flash the whole zip, boot it **unlocked**, verify, and only
-then consider locking. Verify at least:
+To switch back, remove the copied app and reset the experimental series before
+resetting the default series:
 
 ```bash
-adb shell cmd overlay list --user 0 | grep -i lenos          # [x] for all three
-adb shell settings get global private_dns_mode               # hostname
-adb shell settings get global private_dns_specifier          # dns.quad9.net
-adb shell settings get global ntp_server                     # pool.ntp.org
-adb shell settings get global captive_portal_mode            # 1
-adb shell getprop ro.lenos.version                           # 1.0.0
-adb shell getprop ro.boot.veritymode                         # enforcing (before locking)
-adb logcat -d -s NetworkMonitor | grep cp.cloudflare.com     # checks use Cloudflare
-adb shell 'zcat /proc/config.gz | grep -E "CONFIG_(INIT_ON_FREE_DEFAULT_ON|RANDOM_KMALLOC_CACHES|RANDOMIZE_KSTACK_OFFSET_DEFAULT|SECURITY_DMESG_RESTRICT|ZERO_CALL_USED_REGS)=y"'  # all five
-adb shell cat /proc/sys/kernel/dmesg_restrict                # 1
+rm -rf vendor/lenos/app/LenosOpsec
+python3 vendor/lenos/tools/lenos-patch.py --tree . --experimental --reset
+python3 vendor/lenos/tools/lenos-patch.py --tree . --reset
 ```
 
-The Wi-Fi hostname toggle (lenOS security app) writes
-`Settings.Global.lenos_wifi_send_dhcp_hostname_restriction`; check with
-`adb shell settings get global lenos_wifi_send_dhcp_hostname_restriction`
-(`null` before the first change means the effective default, 3 = blocked
-everywhere).
+If the patchkit is not inside the build tree, copy `config/`, `app/`, `rro/`,
+and `release/` into `$SRC/vendor/lenos/` before building. For an experimental
+build also copy `experimental/app/LenosOpsec` into
+`$SRC/vendor/lenos/app/`.
 
-The kernel hardening fragment (`vendor/lenos_hardening.config`, Tier 3 #32)
-is merged last by `TARGET_KERNEL_CONFIG`. `init_on_free` is the only option
-with a material cost (3–5% typical); record boot time, idle memory and a few
-workload timings. The pinned GKI defconfig is debug-heavy (`KASAN`/`UBSAN`),
-so do not present those debug features as production hardening results — a
-debug-option review is a separate decision.
+## Optional helper
 
-## 4. What "verified" means for a feature
+`lenos-1.0-shizuku.sh` is a wrapper used for one local build/signing setup. It
+is not needed to build lenOS and it has extra dependencies (the LineageOS
+signing wizard, avbroot, and a key directory). If you use it, keep the patchkit
+outside the build tree:
 
-A feature counts as verified only after the checklist above passes on a
-booted device and the result is recorded in `PROGRESS.md`. Until then it is
-"source-complete", and `docs/features.md` says so.
+```bash
+git clone https://github.com/ntrop6/lenos-patches.git ~/lenos-patches
+LENOS_SOURCE=$HOME/lineage ~/lenos-patches/lenos-1.0-shizuku.sh doctor
+LENOS_SOURCE=$HOME/lineage ~/lenos-patches/lenos-1.0-shizuku.sh apply
+LENOS_SOURCE=$HOME/lineage ~/lenos-patches/lenos-1.0-shizuku.sh build
+```
+
+The wrapper replaces `$LENOS_SOURCE/vendor/lenos` with its build inputs during
+`apply`, so do not run it from a checkout that lives inside the build tree.
+Use the manual path above in that case.
+
+## Tests
+
+From the patchkit checkout, the tests expect a pristine tree and do not build
+Android:
+
+```bash
+LENOS_WORKSPACE=/path/to/lineage bash tests/run-tests.sh
+```
+
+`LENOS_PYTHON` can point at a Python with tree-sitter installed; Java syntax
+checks are skipped when tree-sitter is unavailable, never silently passed as a
+different check.
+
+## After a build
+
+Read-only helpers:
+
+```bash
+OUT=/path/to/out/target/product/asteroids tools/verify-build.sh
+ANDROID_SERIAL=... tools/verify-device.sh
+```
+
+The device checklist, including the items that cannot be checked without a
+cable or a reboot, is in
+[`experimental/docs/verification.md`](../experimental/docs/verification.md).
+Flashing and locking rules are in
+[`flash-and-lock.md`](flash-and-lock.md).

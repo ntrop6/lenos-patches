@@ -1,7 +1,8 @@
 # Verification checklist (after the first build)
 
 Nothing in this repository has been built or booted. Run these checks only in a build window that
-follows the binding `BUILD-FLASH-LOCK.md`; flashing needs explicit approval.
+follows [`../../docs/flash-and-lock.md`](../../docs/flash-and-lock.md); flashing needs explicit
+approval.
 
 ## Build-time
 
@@ -234,4 +235,4 @@ This verifies the experimental global primitive, **not** GrapheneOS's per-app fe
 
 If the build fails or the device misbehaves, use `lenos-patch.py --reset` on the source tree and
 rebuild. Do not attempt to recover a device by weakening verified boot or locking state. Follow
-`BUILD-FLASH-LOCK.md`.
+[`../../docs/flash-and-lock.md`](../../docs/flash-and-lock.md).

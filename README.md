@@ -1,103 +1,116 @@
-# vendor/lenos — lenOS 1.0.0 for the Nothing Phone (3a)/(3a) Pro
+# lenOS
 
-lenOS is a privacy/security-hardened LineageOS 23.2 distribution for the
-Nothing Phone (3a) and (3a) Pro (codename `asteroids`). This repository is the
-product: the LineageOS source tree stays a **pristine copy of the pinned
-upstream branches**, and every stable lenOS change is carried by a patch file
-in `patches/<project>/` (plus a `series` file that lists the patches in order).
-The opt-in experimental series uses the separate `patches-experimental/` root;
-its app source lives in `experimental/app/` and is never installed by a default
-build.
+A personal LineageOS 23.2 build for the Nothing Phone (3a) and (3a) Pro
+(`asteroids`).
 
-Nothing is edited into the tree by hand. The only supported way to build lenOS
-is: pin the tree → apply the series with `tools/lenos-patch.py` → build.
+This repo is not a ROM distribution. It is the patch set and small apps that
+make up the build. The LineageOS tree stays clean and every change is carried
+as an ordinary git patch, so the build can be reproduced and reviewed. If you
+have the same phone, you can build it too, or take only the changes you want.
 
-## Layout
+lenOS is not affiliated with LineageOS, Nothing, or GrapheneOS. It is a
+personal project, not a supported product.
 
-| Path | What |
-|---|---|
-| `patches/<alias>/series` | Stable 1.0 patch series per upstream project (strict `git apply`, no fuzz) |
-| `patches-experimental/<alias>/series` | Opt-in experimental series, applied only **after** `patches/` |
-| `experimental/` | Experimental app source, docs, tests and status; never built by default |
-| `tools/lenos-patch.py` | Apply/check/reverse/reset patches; `--experimental` selects the opt-in series |
-| `tools/mkpatch.sh` | Turn edits in a pinned project into a patch and restore the tree |
-| `tools/lenos_projects.py` | Project path ↔ patch directory mapping shared by the tools |
-| `tests/` | Test suite; every patch is applied in a sandbox and asserted against |
-| `config/lenos.mk` | lenOS product configuration (packages, RROs, product properties) |
-| `config/lenos-experimental.mk` | Experimental product fragment, inherited only with `LENOS_EXPERIMENTAL=1` |
-| `config/privapp-permissions-*.xml` | Privileged permission allowlist for the security app |
-| `rro/` | Input RROs: NTP fallback, SettingsProvider first-boot defaults, connectivity checks |
-| `app/LenosSecurity/` | Companion app for controls the stock Settings UI does not have |
-| `docs/features.md` | Feature matrix with status and honest limits |
-| `docs/experimental.md` | Experimental build flag, apply order, reset and verification workflow |
-| `docs/build.md` | Build/flash/verify workflow (VM rules, verification commands) |
-| `lenos-1.0-shizuku.sh` | VM driver: `apply` (patchkit) / `build` / `package` / `extract` / `flash-plan` / `lock-gates` |
-| `legacy-patches/` | Earlier 1.0.0-shizuku patches, provenance only — do not apply |
-| `integrate.sh`, `config/hardwire.py`, `config/lenos.prop`, `LENOS-1.0-BUILD-FLASH-LOCK.md` | Earlier 1.0.0-shizuku "write into the tree" pipeline; kept for reference, **not** used anymore |
+## Status
 
-## Quick start
+The default 1.0 series is source-complete and has source-level tests. No image
+has been built or booted on a device yet, so treat it as bring-up until it has
+been checked on hardware.
 
-```bash
-WS="/mnt/sda/AI WORKSPACE/lenos-workspace"                    # pinned tree
-PY=/tmp/opencode/lenv/bin/python                              # has tree-sitter
+The experimental series is optional and even less tested. A normal build never
+applies it.
 
-# all patches against the pinned tree
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --status
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --check
+## What it changes
 
-# undo an applied series (restores tracked files, deletes files it created)
-$PY vendor/lenos/tools/lenos-patch.py --tree "$WS" --reset
+- strict DNS-over-TLS, non-Google time and captive-portal endpoints
+- hardened first-boot defaults, PIN scrambling, duress wipe, and memory clearing
+  on lock
+- fewer bundled apps; no Google apps or services added
+- optional extras behind `LENOS_EXPERIMENTAL=1`
 
-# test suite (needs a pristine tree for the series test)
-LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY bash vendor/lenos/tests/run-tests.sh
+The full list, including what does not work, is in
+[`docs/features.md`](docs/features.md).
 
-# opt-in experimental series (stable first, then experimental; installs LenosOpsec)
-LENOS_EXPERIMENTAL=1 ./vendor/lenos/lenos-1.0-shizuku.sh apply
-# source-level experimental tests, with the stable base rebuilt in each sandbox
-cd vendor/lenos/experimental/tests
-LENOS_WORKSPACE="$WS" LENOS_PYTHON=$PY ./run-tests.sh
-```
+## Build
 
-Building: see `docs/build.md`. Flashing/locking rules are binding and live in
-`/home/otoka/lenos-drop/BUILD-FLASH-LOCK.md`.
+You need a LineageOS 23.2 tree for `asteroids`, a working Android build
+environment, and your own signing setup. The patches were developed against the
+`6.6/lineage-23.2` device trees in the
+[NullDebris manifest](https://github.com/NullDebris/manifest). A tree that has
+drifted may need patch updates; the patch tool is strict and stops rather than
+applies with fuzz.
 
-## Experimental series (opt-in, not 1.0)
-
-Implementations that are source-complete but **cannot be built or device-validated** in the
-current environment are imported here under `patches-experimental/` and `experimental/`. They are
-not part of the default 1.0 product: a normal `apply`/`build` never applies them, and
-`LenosOpsec` is not built. They are selected explicitly with `LENOS_EXPERIMENTAL=1`:
+Clone this repo into `vendor/lenos`, then check and apply the series:
 
 ```bash
-LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
-LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh build
-LENOS_EXPERIMENTAL=1 mka bacon        # only if applying/building manually
+git clone https://github.com/ntrop6/lenos-patches.git vendor/lenos
+python3 vendor/lenos/tools/lenos-patch.py --tree . --check
+python3 vendor/lenos/tools/lenos-patch.py --tree . --apply
 ```
 
-The experimental patches apply **after** the stable series and carry the fs-verity/system-app
-update hardening (#20/#21), the screenshot-sound fix (#25), USB-C data-line control (#22), the
-on-device crash/ANR viewer (#17), the Setup Wizard unlocked-bootloader warning (#28), the
-Seedvault GrapheneOS-prefix port (#27), a global opt-in native-debugging block (partial
-#23/ENF-1), and the original OPSEC tools (metadata-scrubbing image share target / text scrubber,
-Offline radio tile, opt-in screen-off clipboard wipe, and per-app clipboard access via the
-existing AOSP AppOp). The OPSEC app is `experimental/app/LenosOpsec`; its threat model is
-[`experimental/docs/opsec.md`](experimental/docs/opsec.md). `experimental/STATUS.md`,
-[`experimental/docs/security-review.md`](experimental/docs/security-review.md) and
-[`experimental/docs/verification.md`](experimental/docs/verification.md) record what is
-static-only. The build flag and reset semantics are in
-[`docs/experimental.md`](docs/experimental.md).
+Build with your normal LineageOS flow, for example:
 
-## Design rules
+```bash
+source build/envsetup.sh
+lunch lenos_asteroids-user
+mka bacon
+```
 
-* **Identity stays stock.** Build fingerprint, `ro.product.*` and attestation
-  behaviour are untouched; lenOS only adds `ro.lenos.*` properties.
-* **Defaults, not mandates.** Privacy hardening is applied as first-boot
-  defaults (user-changeable, never rewritten) or as documented toggles. Nothing
-  silently weakens encryption, SELinux, verified boot, emergency calling or
-  recovery.
-* **Fail closed.** Where a privacy default needs a fallback value in code
-  (e.g. the DHCP hostname restriction), the fallback is the private setting,
-  not the permissive one.
-* **No new trust anchors.** Changed endpoints (NTP, connectivity checks) must
-  not point at Google; the current choices are documented in `docs/features.md`
-  together with their costs.
+The helper script in the repo root is optional. It automates a particular
+build/signing setup and is not required to use the patches. Details are in
+[`docs/build.md`](docs/build.md).
+
+To return the tree to its pinned state:
+
+```bash
+python3 vendor/lenos/tools/lenos-patch.py --tree . --reset
+```
+
+## What is here
+
+- `patches/` — the default patch series, grouped by upstream project
+- `patches-experimental/` — optional second series, applied after the default one
+- `app/LenosSecurity/` — small settings app for controls the stock UI lacks
+- `config/`, `rro/`, `release/` — product configuration and build inputs
+- `docs/` — build notes, feature list, porting notes, flashing safety
+- `experimental/` — opt-in app source, checks, and status notes
+- `tools/` — patch application and read-only verification helpers
+- `tests/` — source-level tests for the patches
+
+The feature list and its honest limits are in
+[`docs/features.md`](docs/features.md). The long, rough porting notes are in
+[`docs/graphene-porting.md`](docs/graphene-porting.md).
+
+## Experimental work
+
+The optional series contains features that are source-complete but still need a
+build and a device to validate. It applies only after the default series and is
+selected with `LENOS_EXPERIMENTAL=1`. See
+[`docs/experimental.md`](docs/experimental.md) for the order, reset rules, and
+what remains untested.
+
+## Tests
+
+From the patchkit checkout, set `LENOS_WORKSPACE` to a pristine LineageOS tree
+and run:
+
+```bash
+LENOS_WORKSPACE=/path/to/lineage bash tests/run-tests.sh
+```
+
+The suite checks that every patch applies to the pinned sources and asserts the
+resulting code and resources. It does not build or boot Android.
+
+## Flashing
+
+Nothing here flashes, wipes, or locks a phone. Flashing is destructive and can
+brick the device. Read [`docs/flash-and-lock.md`](docs/flash-and-lock.md) before
+using any build.
+
+## License
+
+Apache-2.0. See [`LICENSE`](LICENSE). Some patches are adapted from GrapheneOS;
+the sources and deviations are recorded in
+[`docs/graphene-porting.md`](docs/graphene-porting.md),
+[`experimental/docs/provenance.md`](experimental/docs/provenance.md), and the
+per-patch notes.

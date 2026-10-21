@@ -2,14 +2,14 @@
 # lenOS 1.0.0-shizuku — product driver for Nothing Phone (3a) `asteroids`.
 #
 # This is the 1.0 entry point. It does not reimplement Soong/repo/signing.
-# The 2.8.1 wizard remains the compiler. This script:
+# The external build/signing wizard remains the compiler. This script:
 #   - never repo syncs
 #   - applies patches only through vendor/lenos/tools/lenos-patch.py (strict
 #     `git apply`, no fuzz; refuses to patch a project that is not pristine)
 #   - never flashes the phone
 #   - never locks
 #   - never re-signs firmware (abl/xbl/bluetooth VBMeta magic)
-#   - packages --rootless only (prepatched does not boot this unit)
+#   - packages --rootless only
 #
 # Subcommands: doctor | apply | build | package | extract | flash-plan | lock-gates
 # (`hardwire` is kept as an alias of `apply` for the older scripts/manuals)
@@ -59,12 +59,12 @@ usage() {
   cat <<EOF
 lenOS $LENOS_VERSION  (asteroids / Nothing Phone 3a)
 
-  $0 doctor         VM / keys / wizard / avbroot / patchkit
+  $0 doctor         build host / keys / wizard / avbroot / patchkit
   $0 apply          reset-hardening, install vendor/lenos, apply the patch series
   $0 build          apply + 8–17h  mka  --rootless --hardening full
   $0 package        avbroot OTA, OS images only, --rootless --clear-vbmeta-flags
   $0 extract        avbroot ota extract --fastboot --all + sanitize flash plan
-  $0 flash-plan     print laptop commands. does not talk to the phone
+  $0 flash-plan     print host-side commands. does not touch the phone
   $0 lock-gates     print lock checklist. always exits 1 (this script will not lock)
 
 Default build: stable 1.0 series only.
@@ -170,6 +170,9 @@ require_pristine() {
 # docs stay in $VENDOR outside the tree; nothing else is compiled.
 install_vendor_lenos() {
   local part
+  if [[ "$VENDOR" -ef "$SRC/vendor/lenos" ]]; then
+    die "the helper must run from a patchkit checkout outside \$SRC/vendor/lenos; use the manual build path in docs/build.md"
+  fi
   info "install vendor/lenos build inputs -> $SRC/vendor/lenos"
   rm -rf "$SRC/vendor/lenos"
   mkdir -p "$SRC/vendor/lenos"
@@ -606,7 +609,7 @@ cmd_package() {
     --public-key-avb "$KEYS/avb_pkmd.bin"
   sha256sum "$OUT" | tee "$OUT.sha256"
   info "packaged $OUT"
-  info "next: $0 extract   then copy zip + sha256 + avb_pkmd.bin off this VM"
+  info "next: $0 extract   then copy zip + sha256 + avb_pkmd.bin off the build host"
 }
 
 sanitize_fastboot_info() {
@@ -694,37 +697,34 @@ cmd_extract() {
   sanitize_fastboot_info "$EXTRACT_DIR/fastboot-info.txt"
   info "fastboot-info.txt (sanitized):"
   cat "$EXTRACT_DIR/fastboot-info.txt"
-  info "extract OK. copy $EXTRACT_DIR and $OUT to the laptop with gcloud --tunnel-through-iap"
+  info "extract OK. copy $EXTRACT_DIR and $OUT to the machine that will flash"
 }
 
 cmd_flash_plan() {
   cat <<'EOF'
-# Laptop flash plan — lenOS 1.0.0-shizuku ROOTLESS
-# This script will not run these. Phone is not on the VM.
+# Flash plan — lenOS 1.0.0-shizuku ROOTLESS
+# This script will not run these. It does not touch the phone.
 #
 # FORBIDDEN
 #   flash partitions one-by-one
 #   flash vbmeta before logicals
 #   invent android-info.txt
-#   flash lenos-asteroids-prepatched.zip  (does not boot this unit)
-#   flashing lock on the currently booted test-key / 0x3 image
+#   flash an unknown or prepatched zip
+#   flashing lock on a test-key image
 #   re-run a sideload that already returned status 0
-#   fastboot boot recovery  (Bad Buffer Size on this unit)
+#   fastboot boot recovery unless your device is known to support it
 #   --disable-verity --disable-verification with platform-tools 36
 #
-# 1. Copy (from laptop)
-#    gcloud compute scp --tunnel-through-iap \
-#      cesurmali76@lenos-build:~/lenos-workspace/lenos-asteroids-rootless.zip ~/lenos/
-#    gcloud compute scp --tunnel-through-iap --recurse \
-#      cesurmali76@lenos-build:~/lenos-workspace/extracted-rootless ~/lenos/
-#    gcloud compute scp --tunnel-through-iap \
-#      cesurmali76@lenos-build:~/secure-keys/asteroids/avb_pkmd.bin ~/lenos/
+# 1. Copy from the build host to the machine that will flash
+#    scp build-host:~/lenos-workspace/lenos-asteroids-rootless.zip ~/lenos/
+#    scp -r build-host:~/lenos-workspace/extracted-rootless ~/lenos/
+#    scp build-host:~/secure-keys/asteroids/avb_pkmd.bin ~/lenos/
 #
 # 2. Gates
 #    fastboot --version                 # 35+
 #    test -s ~/lenos/extracted-rootless/android-info.txt
 #    grep -i asteroid ~/lenos/extracted-rootless/android-info.txt
-#    # phone must already boot SOME OS (stock or current lenOS). From a brick, use RECOVERY-3A.md first.
+#    # phone must already boot SOME OS (stock or current lenOS). From a brick, use your recovery plan.
 #
 # 3. From a booting OS → fastbootd (userspace). Bootloader cannot write logicals.
 #    adb reboot bootloader
@@ -755,13 +755,13 @@ cmd_lock_gates() {
 # LOCK GATES — this script will not run `fastboot flashing lock`.
 #
 # Rootless has no ReSukiSU, so OEMUnlockOnBoot cannot be installed.
-# The 2.8.1 wizard `lock` command refuses rootless for that reason. Correct.
+# The helper refuses to lock a rootless build for that reason.
 # Locking without that module means: if the phone does not boot after lock,
 # OEM unlocking was wiped with /data and you may have no unlock path.
 # Slot B now has real _b partitions, which is necessary but not sufficient.
 #
 # Do not lock unless EVERY line is true:
-#   [ ] THIS zip booted UNLOCKED (not the old test-key 0x3 image)
+#   [ ] THIS zip booted UNLOCKED (not a test-key image)
 #   [ ] ro.lenos.version = 1.0.0
 #   [ ] ro.boot.veritymode = enforcing
 #   [ ] ro.boot.vbmeta.digest matches `avbroot ota verify` of THIS zip
@@ -771,7 +771,7 @@ cmd_lock_gates() {
 #   [ ] you have avb.key / ota.key in >= 2 offline places
 #   [ ] you accept that a failed boot after lock may be unrecoverable
 #
-# If all of that is true, ON THE LAPTOP, still unlocked:
+# If all of that is true, on the flashing machine, still unlocked:
 #   adb reboot bootloader
 #   fastboot getvar unlocked            # yes
 #   fastboot erase avb_custom_key

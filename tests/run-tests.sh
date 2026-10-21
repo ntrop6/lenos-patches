@@ -4,7 +4,7 @@
 #   ./run-tests.sh test_ssaid   one module
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export LENOS_WORKSPACE="${LENOS_WORKSPACE:-$(cd "$HERE/../.." && pwd)}"
+export LENOS_WORKSPACE="${LENOS_WORKSPACE:-$HOME/lineage}"
 PY="${LENOS_PYTHON:-$(command -v python3)}"
 cd "$HERE"
 if [[ $# -eq 0 ]]; then

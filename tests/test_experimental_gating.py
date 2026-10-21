@@ -1,4 +1,4 @@
-"""Build-time gate for the imported experimental lenOS work.
+"""Build-time gate for the optional experimental lenOS work.
 
 The experimental patches and OPSEC app live in this repository, but they are
 not part of the default 1.0 build. This test locks down the three independent

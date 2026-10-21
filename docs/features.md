@@ -1,9 +1,11 @@
-# lenOS 1.0.0 — feature matrix
+# Features
 
+A working list of what the default series changes, with the limits that matter.
 Base: LineageOS 23.2 (`asteroids` = Nothing Phone (3a) / (3a) Pro).
+
 All features below are **source-complete**: patches, resources and tests are in
-this repository. None of it has been verified on a running device yet — the
-first build/flash gets recorded in `../PROGRESS.md`.
+this repository. None of it has been verified on a running device yet. Until a
+build has been checked on hardware, treat every feature as bring-up.
 
 ## First-boot defaults (Settings.Global)
 
@@ -134,11 +136,11 @@ their content until the user explicitly allows it.
 
 ## Experimental series (opt-in, not 1.0)
 
-Source-complete work that cannot be built or device-validated in the current
-environment is imported under `patches-experimental/` and `experimental/`, but
-is **not** part of the default 1.0 product. It is applied only after the stable
-series and only with `LENOS_EXPERIMENTAL=1`; see `docs/experimental.md`. The
-current experimental batches implement:
+Source-complete work that still needs a build and device validation lives under
+`patches-experimental/` and `experimental/`, but is **not** part of the default
+1.0 build. It is applied only after the default series and only with
+`LENOS_EXPERIMENTAL=1`; see `docs/experimental.md`. The current experimental
+batches implement:
 
 * **#20/#21** — fs-verity enforcement for system-app updates and rejection of
   same/older `/data` updates across reboot (GrapheneOS `PackageVerityExt`);

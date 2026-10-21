@@ -31,8 +31,8 @@ from lenos_projects import alias_for  # noqa: E402
 
 WORKSPACE = Path(os.environ.get(
     "LENOS_WORKSPACE",
-    "/mnt/sda/AI WORKSPACE/lenos-workspace"))
-VENDOR = WORKSPACE / "vendor/lenos"
+    str(Path.home() / "lineage")))
+VENDOR = Path(__file__).resolve().parent.parent
 
 try:
     import tree_sitter

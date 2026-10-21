@@ -1,11 +1,12 @@
 # Experimental builds (opt-in)
 
-The experimental lenOS work is imported into this repository but is **not**
-part of the default 1.0 product. It is selected at build time with
-`LENOS_EXPERIMENTAL=1`.
+Experimental work lives in this repository but is **not** part of the default
+1.0 build. It is selected at build time with `LENOS_EXPERIMENTAL=1`.
+
+If you use the optional helper, the two modes are:
 
 ```bash
-# stable 1.0 (default)
+# default 1.0
 ./lenos-1.0-shizuku.sh apply
 ./lenos-1.0-shizuku.sh build
 
@@ -14,6 +15,7 @@ LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh build
 ```
 
+For the manual path, see [Apply-order contract](#apply-order-contract) below.
 The driver normalizes the flag to `0` or `1` and exports it to the build.
 `config/lenos.mk` inherits `config/lenos-experimental.mk` only when the value
 is `1`, `true` or `yes`. If you apply patches manually and then run `mka`, pass
@@ -24,7 +26,12 @@ LENOS_EXPERIMENTAL=1 mka bacon
 ```
 
 Without it, `LenosOpsec` is not in `PRODUCT_PACKAGES` and the experimental app
-source is not installed into `$SRC/vendor/lenos/app/`.
+source is not installed into `$WS/vendor/lenos/app/`. For a manual build, copy
+it there yourself after applying the series:
+
+```bash
+cp -a experimental/app/LenosOpsec "$WS/vendor/lenos/app/"
+```
 
 ## Layout
 
@@ -97,8 +104,8 @@ Experimental means **source-complete, not validated**:
   Seedvault restore migration, ENF-1 ptrace behavior, Setup Wizard verified-boot
   states, and every OPSEC UI flow.
 
-The binding no-flash/no-wipe/no-relock rules in
-`/home/otoka/lenos-drop/BUILD-FLASH-LOCK.md` still apply. An experimental build
+The no-flash/no-wipe/no-relock rules in
+[`flash-and-lock.md`](flash-and-lock.md) still apply. An experimental build
 must not be flashed without explicit approval and a recovery plan.
 
 ## Verification

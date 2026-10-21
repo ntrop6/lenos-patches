@@ -1,4 +1,7 @@
-# GrapheneOS → lenOS feature portability inventory
+# Porting notes: GrapheneOS → lenOS
+
+Rough notes from mapping GrapheneOS features to this build. This is not a
+support matrix or a promise that a feature will be finished.
 
 Scope: every feature on https://grapheneos.org/features, mapped to GrapheneOS branch `17` source (their
 Android 17 / QPR-era tree), with portability analysis against lenOS = LineageOS 23.2 / Android 16 on
@@ -11,18 +14,13 @@ USB-PD, charger, touch, bootloader/AVB trust root) remains closed and immutable 
 judgements below have been re-checked for SM7635 (eSIM: supported; USB-C: vendor Qualcomm USB HAL).
 
 Evidence sources:
-- GrapheneOS `platform_frameworks_base` @ branch 17 (blobless clone + full shallow clone in `/tmp/opencode/graphene-repos/fwb-full`).
+- GrapheneOS `platform_frameworks_base` @ branch 17 (blobless and full shallow clones kept
+  outside this repository).
 - GrapheneOS `system_core`, `packages_apps_Settings`, `modules_Permission`, `modules_Connectivity`,
   `opt_telephony`, `system_sepolicy`, `external_seedvault`, `providers_ContactsProvider`,
-  `platform_system_extras`, `platform_system_ca-certificates` @ 17
-  (clone dirs under `/tmp/opencode/graphene-repos/`).
-- lenOS workspace `/mnt/sda/AI WORKSPACE/lenos-workspace` (read-only): partial checkouts + **45 patches**
-  in `vendor/lenos/patches/` (5× device_nothing_asteroids, **26× frameworks_base**, system_core,
-  frameworks_opt_telephony, packages_modules_Wifi, **2× packages_apps_Settings**, vendor_lineage,
-  system_netd, **2× packages_modules_Connectivity**, **2× packages_modules_Permission**,
-  packages_apps_CellBroadcastReceiver, packages_providers_MediaProvider, system_ca-certificates,
-  system_extras, frameworks_native), documented in
-  `vendor/lenos/docs/features.md` (kept in sync). Status 2026-10: ExtSettings infrastructure
+  `platform_system_extras`, `platform_system_ca-certificates` @ 17.
+- the lenOS stable series in `patches/` (**53 patches** across 17 projects), documented in
+  `docs/features.md` (kept in sync). Status 2026-10: ExtSettings infrastructure
   (frameworks_base/0006), the init-based auto-reboot port (system_core/0001 + frameworks_base/0003), the
   GrapheneOS-design quick-tile unlock gating (frameworks_base/0004), the duress feature incl. eSIM
   wipe (frameworks_base/0005+0007, frameworks_opt_telephony/0001), the GrapheneOS-faithful Wi-Fi privacy
@@ -752,8 +750,8 @@ VPN' is on" holes:
   discovery for regular apps while a lockdown VPN is enabled. Helper:
   `frameworks/base/core/java/android/ext/ConnectivityUtil.java:41` (exported as a module-lib API
   `isRegularAppWithLockdownVpnEnabled(Context, int)` — small, easy to port).
-- Vpn app-level: GrapheneOS's `Vpn.java` diff vs LineageOS 23.2 (`/tmp/opencode/vpn_diff.txt`) is
-  mostly version drift (Android 17 refactors); the functional delta is that GrapheneOS no longer
+- Vpn app-level: a local diff of GrapheneOS's `Vpn.java` against LineageOS 23.2 is mostly version
+  drift (Android 17 refactors); the functional delta is that GrapheneOS no longer
   auto-unsets an always-on VPN whose package is currently "unsupported" (so the setting survives safe
   mode / temporary unavailability). Settings screens (`ConfigDialog`, `AppManagementFragment`,
   `VpnUtils`) are identical — the "Always-on VPN"/"Block connections without VPN" toggles are already
@@ -1227,14 +1225,13 @@ and after the fragment, because `init_on_free` is the only option with a
 material cost. Until this runs on the device, #32 is **source-complete**, not
 verified.
 
-## 20. Experimental series (opt-in, imported)
+## 20. Experimental series (opt-in)
 
-The VM is unreachable, so implementations that are source-complete but cannot
-be built or device-validated are kept out of the default 1.0 product. They are
-imported into this repository under `patches-experimental/` and
-`experimental/`, but remain a second series applied **after** the stable 1.0
-series. `tools/lenos-patch.py --experimental` selects them; the build driver
-does so only when `LENOS_EXPERIMENTAL=1`, and installs
+Implementations that are source-complete but have not been built or
+device-validated are kept out of the default 1.0 build. They live under
+`patches-experimental/` and `experimental/`, but remain a second series applied
+**after** the stable 1.0 series. `tools/lenos-patch.py --experimental` selects
+them; the build driver does so only when `LENOS_EXPERIMENTAL=1`, and installs
 `experimental/app/LenosOpsec` only in that mode. The default build never applies
 or compiles them. See `docs/experimental.md`.
 
@@ -1287,7 +1284,7 @@ Current experimental batches:
   known tracking fields from links while preserving functional query
   parameters and fragments. It never opens, resolves or uploads the links.
 
-The imported series carries 12 patches, 79 experimental source-level tests in
+The experimental series carries 12 patches, 79 source-level tests in
 `experimental/tests/` (each sandbox rebuilds the stable base first), 14 build-gate
 tests in the main suite, provenance and a post-build verification checklist. The
 remaining workstreams (full per-app #23, #30/#31 scopes/2FA, #33–#35

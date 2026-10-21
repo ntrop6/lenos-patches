@@ -10,7 +10,7 @@
 # reversible).
 set -euo pipefail
 
-WS="${WS:-/mnt/sda/AI WORKSPACE/lenos-workspace}"
+WS="${WS:-$HOME/lineage}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="${1:?project path, e.g. frameworks/base}"
 NAME="${2:?patch name, e.g. 0001-ssaid-rotate-on-reinstall}"

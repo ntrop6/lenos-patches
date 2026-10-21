@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """lenos-patch — apply lenOS feature patches to a pinned LineageOS tree.
 
-Design rules (see docs/patches.md):
+Design rules (see docs/build.md):
 
 * Patches are ordinary unified diffs produced by ``git diff`` in the pinned
   upstream project. They are applied with ``git apply`` inside the project,
