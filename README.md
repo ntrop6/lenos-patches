@@ -33,14 +33,24 @@ The full list, including what does not work, is in
 
 ## Root and verified boot
 
-The image is rootless: no `su`, ReSukiSU, KernelSU, or Magisk is included. The
-companion app has a fallback that can use an existing `su`, but adding root
-yourself is outside this build.
+The default image is rootless: no `su`, ReSukiSU, KernelSU, or Magisk is
+included. Root is an explicit post-build option:
 
-The helper packages the OTA with your AVB/OTA keys via avbroot and keeps
-verified boot in place. Bootloader locking is optional and manual, and the
-scripts never flash, wipe, or lock. The lock checklist is in
-[`docs/flash-and-lock.md`](docs/flash-and-lock.md).
+```bash
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh root-prepare
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh package
+```
+
+`resukisu` is the preferred profile and `kernelsu` is the fallback. The build
+itself stays rootless. The post-build step patches `init_boot` from the signed
+base OTA, re-signs the OS AVB partitions with your key, and keeps the root
+manager as a separate APK. It has not been boot-tested; see
+[`docs/root.md`](docs/root.md) for the exact pins and limitations.
+
+The helper re-signs the OS AVB chain with your AVB/OTA keys via avbroot.
+Bootloader locking is manual and unsupported by the helper; the scripts never
+flash, wipe, or lock. Root does not make locking supported. The lock checklist
+is in [`docs/flash-and-lock.md`](docs/flash-and-lock.md).
 
 ## Build
 
@@ -85,7 +95,8 @@ python3 vendor/lenos/tools/lenos-patch.py --tree . --reset
 - `config/`, `rro/`, `release/` — product configuration and build inputs
 - `docs/` — build notes, feature list, porting notes, flashing safety
 - `experimental/` — opt-in app source, checks, and status notes
-- `tools/` — patch application and read-only verification helpers
+- `tools/` — patch application, read-only verification helpers, and the pinned
+  opt-in root preparer
 - `tests/` — source-level tests for the patches
 
 The feature list and its honest limits are in

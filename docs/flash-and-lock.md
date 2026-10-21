@@ -35,8 +35,16 @@ sha256sum lenos-asteroids-rootless.zip
 cat lenos-asteroids-rootless.zip.sha256
 ```
 
+For a root build, use the matching name:
+
+```bash
+sha256sum lenos-asteroids-resukisu.zip     # or ...-kernelsu.zip
+cat lenos-asteroids-resukisu.zip.sha256
+```
+
 The extracted plan must contain a real `android-info.txt` and the correct
-product. Do not invent either one.
+product. Do not invent either one. A root build is still a complete OTA; never
+flash its `init_boot.img` by itself or reuse it with another build.
 
 After the first boot, still unlocked, check at least:
 
@@ -63,6 +71,11 @@ not lock unless all of these are true:
 
 Do not lock a test-key build. Do not lock a build you have not booted. Locking
 wipes `/data` and may remove the unlock path if the image then fails.
+
+A root build does not make locking supported. The OTA can carry a correctly
+re-signed AVB chain, but this repository does not install or verify
+OEMUnlockOnBoot or another boot-failure recovery guard. If root is installed,
+read [`root.md`](root.md) first and still treat locking as unsupported.
 
 If every gate passes, the sequence is:
 

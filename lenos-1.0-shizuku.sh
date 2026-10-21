@@ -9,9 +9,15 @@
 #   - never flashes the phone
 #   - never locks
 #   - never re-signs firmware (abl/xbl/bluetooth VBMeta magic)
-#   - packages --rootless only
+#   - builds and packages rootless by default
 #
-# Subcommands: doctor | apply | build | package | extract | flash-plan | lock-gates
+# Root is opt-in and post-build: LENOS_ROOT=resukisu|kernelsu. The normal
+# LineageOS build stays rootless. root-prepare patches init_boot from the
+# signed base OTA, package re-signs the whole OTA with the user's AVB/OTA keys,
+# and the root manager remains a separate userspace APK. See docs/root.md.
+#
+# Subcommands: doctor | apply | build | package | extract | flash-plan |
+#              lock-gates | root-prepare | root-status
 # (`hardwire` is kept as an alias of `apply` for the older scripts/manuals)
 #
 # Experimental mode: set LENOS_EXPERIMENTAL=1. The driver then applies
@@ -43,6 +49,10 @@ if [[ -z "$VENDOR" ]]; then
   else VENDOR="$SELF_DIR/vendor-lenos"
   fi
 fi
+ROOT_MODE="none"
+ROOT_STATE_BASE="$WS/lenos-root"
+ROOT_STATE_DIR=""
+ROOT_CACHE="${LENOS_ROOT_CACHE:-$WS/.root-cache}"
 OUT="$WS/lenos-asteroids-rootless.zip"
 EXTRACT_DIR="$WS/extracted-rootless"
 
@@ -62,16 +72,23 @@ lenOS $LENOS_VERSION  (asteroids / Nothing Phone 3a)
   $0 doctor         build host / keys / wizard / avbroot / patchkit
   $0 apply          reset-hardening, install vendor/lenos, apply the patch series
   $0 build          apply + 8–17h  mka  --rootless --hardening full
-  $0 package        avbroot OTA, OS images only, --rootless --clear-vbmeta-flags
+  $0 root-prepare   opt-in: patch init_boot from base-signed-ota.zip
+  $0 root-status    print/check the prepared root state
+  $0 package        avbroot OTA. rootless unless LENOS_ROOT is set.
   $0 extract        avbroot ota extract --fastboot --all + sanitize flash plan
   $0 flash-plan     print host-side commands. does not touch the phone
   $0 lock-gates     print lock checklist. always exits 1 (this script will not lock)
 
-Default build: stable 1.0 series only.
+Default build: stable 1.0 series, rootless.
+Root (opt-in): LENOS_ROOT=resukisu|kernelsu. Build first, then root-prepare,
+  then package. ReSukiSU is preferred; KernelSU is the fallback.
+  Example: LENOS_ROOT=resukisu $0 root-prepare
+  Root mode never changes the product or includes a manager APK in the system
+  image. It re-signs init_boot and every OS AVB partition with your keys.
 Experimental build: LENOS_EXPERIMENTAL=1 $0 apply|build
   (patches-experimental + experimental/app/LenosOpsec; never device-validated)
 
-Never: repo sync, git apply, flash, lock, firmware --re-sign, prepatched.
+Never: repo sync, git apply, flash, lock, firmware --re-sign.
 EOF
 }
 
@@ -83,6 +100,107 @@ experimental_enabled() {
     1|true|TRUE|yes|YES) return 0;;
     *) return 1;;
   esac
+}
+
+root_enabled() {
+  [[ "$ROOT_MODE" != "none" ]]
+}
+
+resolve_root_mode() {
+  local requested="${LENOS_ROOT-none}"
+  requested="${requested,,}"
+  case "$requested" in
+    none|rootless) requested="none";;
+    resukisu|kernelsu) ;;
+    *) die "invalid LENOS_ROOT='$requested' (use none, resukisu, or kernelsu)";;
+  esac
+  ROOT_MODE="$requested"
+  if root_enabled; then
+    ROOT_STATE_DIR="$ROOT_STATE_BASE/$ROOT_MODE"
+    OUT="$WS/lenos-asteroids-$ROOT_MODE.zip"
+    EXTRACT_DIR="$WS/extracted-$ROOT_MODE"
+  else
+    ROOT_STATE_DIR=""
+    OUT="$WS/lenos-asteroids-rootless.zip"
+    EXTRACT_DIR="$WS/extracted-rootless"
+  fi
+}
+
+select_base_ota() {
+  local candidate chosen=""
+  if [[ -n "${LENOS_BASE_OTA:-}" ]]; then
+    [[ -s "$LENOS_BASE_OTA" ]] \
+      || die "LENOS_BASE_OTA is set but not a file: $LENOS_BASE_OTA"
+    printf '%s\n' "$LENOS_BASE_OTA"
+    return 0
+  fi
+  if [[ -s "$WS/base-signed-ota.zip" ]]; then
+    printf '%s\n' "$WS/base-signed-ota.zip"
+    return 0
+  fi
+  for candidate in "$WS/out/target/product/asteroids"/*.zip; do
+    [[ -s "$candidate" ]] && chosen="$candidate"
+  done
+  [[ -n "$chosen" ]] || die "no input OTA. expected $WS/base-signed-ota.zip after build"
+  printf '%s\n' "$chosen"
+}
+
+# Read BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE from the pinned device tree. This
+# is the upper bound avbroot pads the final partition to; do not guess it from
+# the input image size.
+partition_limit() {
+  python3 - "$SRC/device/nothing/asteroids/BoardConfig.mk" <<'PY'
+import re, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+pattern = re.compile(
+    r"^\s*BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE\s*:?=\s*"
+    r"(0x[0-9a-fA-F]+|[0-9]+)\s*$"
+)
+for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    match = pattern.match(line)
+    if match:
+        print(int(match.group(1), 0))
+        raise SystemExit
+raise SystemExit(f"BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE not found in {path}")
+PY
+}
+
+assert_image_fits_partition() {
+  local image="$1" partition="$2" limit size
+  [[ "$partition" == init_boot ]] || return 0
+  limit="$(partition_limit)" || die "cannot determine init_boot partition size"
+  size="$(stat -c %s "$image")"
+  ((size <= limit)) \
+    || die "$partition image exceeds its partition: $size > $limit bytes"
+  info "$partition image size: $size / $limit bytes"
+}
+
+verify_ota_boot_images() {
+  local ota="$1" temp p
+  temp="$(mktemp -d "$WS/.boot-check.XXXXXX")"
+  "$AVBROOT" ota extract \
+    --input "$ota" \
+    --directory "$temp" \
+    --partition boot \
+    --partition init_boot \
+    --partition vendor_boot >/dev/null \
+    || { rm -rf "$temp"; die "could not extract boot partitions from final OTA"; }
+  for p in boot init_boot vendor_boot; do
+    [[ -s "$temp/$p.img" ]] \
+      || { rm -rf "$temp"; die "final OTA is missing $p.img"; }
+    assert_image_fits_partition "$temp/$p.img" "$p"
+  done
+  if root_enabled; then
+    python3 "$VENDOR/tools/lenos_root.py" verify-image \
+      --mode "$ROOT_MODE" \
+      --image "$temp/init_boot.img" \
+      --state-dir "$ROOT_STATE_DIR" \
+      --avbroot "$AVBROOT" >/dev/null \
+      || { rm -rf "$temp"; die "final OTA init_boot ramdisk verification failed"; }
+  fi
+  rm -rf "$temp"
+  info "boot/init_boot/vendor_boot images verified"
 }
 
 is_firmware() {
@@ -116,6 +234,16 @@ cmd_doctor() {
     info "mode:    experimental (LENOS_EXPERIMENTAL=1)"
   else
     info "mode:    stable 1.0"
+  fi
+  if root_enabled; then
+    need_file "$VENDOR/tools/lenos_root.py"
+    need_file "$VENDOR/tools/root-managers.json"
+    need_file "$VENDOR/tools/apk_signing_cert.py"
+    "$AVBROOT" boot unpack --help >/dev/null 2>&1 \
+      || die "avbroot is too old: boot unpack is unavailable"
+    info "root:    $ROOT_MODE (post-build init_boot transform)"
+  else
+    info "root:    none (rootless)"
   fi
   need_file "$KEYS/avb.key"
   need_file "$KEYS/ota.key"
@@ -513,7 +641,11 @@ cmd_build() {
   "$WIZARD" reset build
   info "compile --rootless --hardening full  (8–17h, tmux this)"
   "$WIZARD" build --rootless --hardening full
-  info "compile finished. next: $0 package"
+  if root_enabled; then
+    info "compile finished. root is post-build; next: LENOS_ROOT=$ROOT_MODE $0 root-prepare"
+  else
+    info "compile finished. next: $0 package"
+  fi
 }
 
 collect_os_resign() {
@@ -565,29 +697,96 @@ print("\n".join(out))
 PY
 }
 
+require_root_state() {
+  root_enabled || die "root mode is none; set LENOS_ROOT=resukisu or kernelsu"
+  [[ -n "$ROOT_STATE_DIR" ]] || die "root state directory is not set"
+  need_file "$ROOT_STATE_DIR/init_boot.img"
+  need_file "$ROOT_STATE_DIR/root-state.json"
+  need_file "$ROOT_STATE_DIR/manager.apk"
+}
+
+cmd_root_prepare() {
+  root_enabled || die "root is disabled; use LENOS_ROOT=resukisu or kernelsu"
+  cmd_doctor
+  local base
+  base="$(select_base_ota)" || exit 1
+  info "root mode: $ROOT_MODE"
+  info "base OTA:  $base"
+  info "state:     $ROOT_STATE_DIR"
+  python3 "$VENDOR/tools/lenos_root.py" prepare \
+    --mode "$ROOT_MODE" \
+    --base-ota "$base" \
+    --state-dir "$ROOT_STATE_DIR" \
+    --cache-dir "$ROOT_CACHE" \
+    --source "$SRC" \
+    --avbroot "$AVBROOT" \
+    || die "root-prepare failed"
+  cp -f "$ROOT_STATE_DIR/manager.apk" "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+  chmod 644 "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+  sha256sum "$WS/lenos-asteroids-$ROOT_MODE-manager.apk" \
+    | tee "$WS/lenos-asteroids-$ROOT_MODE-manager.apk.sha256"
+  info "manager APK: $WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+  info "next: LENOS_ROOT=$ROOT_MODE $0 package"
+}
+
+cmd_root_status() {
+  if ! root_enabled; then
+    info "root: none (rootless); no root state"
+    return 0
+  fi
+  require_root_state
+  python3 "$VENDOR/tools/lenos_root.py" status \
+    --mode "$ROOT_MODE" \
+    --state-dir "$ROOT_STATE_DIR" \
+    --avbroot "$AVBROOT"
+}
+
 cmd_package() {
   cmd_doctor
-  local input=""
-  for c in "$WS/base-signed-ota.zip" "$WS/out/target/product/asteroids"/*.zip; do
-    [[ -s "$c" ]] || continue
-    input="$c"
-  done
-  # Prefer the unsigned/test-key OTA the wizard just produced.
-  if [[ -s "$WS/base-signed-ota.zip" ]]; then
-    input="$WS/base-signed-ota.zip"
-  fi
-  [[ -s "$input" ]] || die "no input OTA. expected $WS/base-signed-ota.zip after build"
+  local input
+  input="$(select_base_ota)" || exit 1
   info "input OTA: $input"
 
-  mapfile -t PARTS < <(collect_os_resign) \
+  if root_enabled; then
+    require_root_state
+    python3 "$VENDOR/tools/lenos_root.py" check-source \
+      --mode "$ROOT_MODE" \
+      --state-dir "$ROOT_STATE_DIR" \
+      --base-ota "$input" \
+      --avbroot "$AVBROOT" \
+      || die "base OTA does not match the prepared root state; rerun root-prepare"
+    python3 "$VENDOR/tools/lenos_root.py" status \
+      --mode "$ROOT_MODE" \
+      --state-dir "$ROOT_STATE_DIR" \
+      --avbroot "$AVBROOT" >/dev/null \
+      || die "prepared root state failed its image/manager checks"
+    info "root state matches this base OTA: $ROOT_STATE_DIR"
+  fi
+
+  local parts_text
+  parts_text="$(collect_os_resign)" \
     || die "no OS --re-sign list (need signing-plan.json or signing_metadata.py). do not parse the whole avbroot log."
+  mapfile -t PARTS <<< "$parts_text"
+  [[ ${#PARTS[@]} -gt 0 ]] || die "empty OS --re-sign list; refusing to patch"
   info "OS re-sign (${#PARTS[@]}): ${PARTS[*]}"
+  if root_enabled; then
+    local required
+    for required in init_boot boot vendor_boot vbmeta; do
+      printf '%s\n' "${PARTS[@]}" | grep -qx "$required" \
+        || die "the signing plan does not re-sign $required; root needs a complete AVB chain"
+    done
+  fi
 
   local args=()
   local p
   for p in "${PARTS[@]}"; do
     args+=(--re-sign "$p")
   done
+  if root_enabled; then
+    args+=(--prepatched "$ROOT_STATE_DIR/init_boot.img")
+  else
+    args+=(--rootless)
+  fi
 
   rm -f "$OUT.tmp"
   "$AVBROOT" ota patch \
@@ -596,19 +795,26 @@ cmd_package() {
     --key-ota "$KEYS/ota.key" \
     --cert-ota "$KEYS/ota.crt" \
     --clear-vbmeta-flags \
-    --rootless \
     --zip-mode seekable \
     --output "$OUT.tmp" \
     "${args[@]}"
 
-  mv -f "$OUT.tmp" "$OUT"
-  chmod 644 "$OUT"
   "$AVBROOT" ota verify \
-    --input "$OUT" \
+    --input "$OUT.tmp" \
     --cert-ota "$KEYS/ota.crt" \
     --public-key-avb "$KEYS/avb_pkmd.bin"
+  verify_ota_boot_images "$OUT.tmp"
+  mv -f "$OUT.tmp" "$OUT"
+  chmod 644 "$OUT"
   sha256sum "$OUT" | tee "$OUT.sha256"
-  info "packaged $OUT"
+  if root_enabled; then
+    cp -f "$ROOT_STATE_DIR/manager.apk" "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+    chmod 644 "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+    sha256sum "$WS/lenos-asteroids-$ROOT_MODE-manager.apk" \
+      | tee "$WS/lenos-asteroids-$ROOT_MODE-manager.apk.sha256"
+    info "root manager (install after first boot): $WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+  fi
+  info "packaged $OUT ($ROOT_MODE)"
   info "next: $0 extract   then copy zip + sha256 + avb_pkmd.bin off the build host"
 }
 
@@ -681,6 +887,12 @@ PY
 cmd_extract() {
   cmd_doctor
   need_file "$OUT"
+  info "verifying $OUT before extract"
+  "$AVBROOT" ota verify \
+    --input "$OUT" \
+    --cert-ota "$KEYS/ota.crt" \
+    --public-key-avb "$KEYS/avb_pkmd.bin"
+  verify_ota_boot_images "$OUT"
   rm -rf "$EXTRACT_DIR"
   mkdir -p "$EXTRACT_DIR"
   "$AVBROOT" ota extract \
@@ -697,33 +909,48 @@ cmd_extract() {
   sanitize_fastboot_info "$EXTRACT_DIR/fastboot-info.txt"
   info "fastboot-info.txt (sanitized):"
   cat "$EXTRACT_DIR/fastboot-info.txt"
+  if root_enabled; then
+    need_file "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+    info "root manager (install after first boot): $WS/lenos-asteroids-$ROOT_MODE-manager.apk"
+  fi
   info "extract OK. copy $EXTRACT_DIR and $OUT to the machine that will flash"
 }
 
 cmd_flash_plan() {
-  cat <<'EOF'
-# Flash plan — lenOS 1.0.0-shizuku ROOTLESS
+  local extract_name title="ROOTLESS"
+  extract_name="${EXTRACT_DIR##*/}"
+  if root_enabled; then title="ROOT ($ROOT_MODE)"; fi
+  cat <<EOF
+# Flash plan — lenOS 1.0.0-shizuku $title
 # This script will not run these. It does not touch the phone.
 #
 # FORBIDDEN
 #   flash partitions one-by-one
 #   flash vbmeta before logicals
 #   invent android-info.txt
-#   flash an unknown or prepatched zip
+#   flash an unknown or unverified zip
 #   flashing lock on a test-key image
 #   re-run a sideload that already returned status 0
 #   fastboot boot recovery unless your device is known to support it
 #   --disable-verity --disable-verification with platform-tools 36
 #
 # 1. Copy from the build host to the machine that will flash
-#    scp build-host:~/lenos-workspace/lenos-asteroids-rootless.zip ~/lenos/
-#    scp -r build-host:~/lenos-workspace/extracted-rootless ~/lenos/
-#    scp build-host:~/secure-keys/asteroids/avb_pkmd.bin ~/lenos/
+#    scp "build-host:$OUT" "build-host:$OUT.sha256" ~/lenos/
+#    scp -r "build-host:$EXTRACT_DIR" ~/lenos/
+#    scp "build-host:$KEYS/avb_pkmd.bin" ~/lenos/
+EOF
+  if root_enabled; then
+    cat <<EOF
+#    scp "build-host:$WS/lenos-asteroids-$ROOT_MODE-manager.apk" ~/lenos/
+#    scp "build-host:$WS/lenos-asteroids-$ROOT_MODE-manager.apk.sha256" ~/lenos/
+EOF
+  fi
+  cat <<EOF
 #
 # 2. Gates
 #    fastboot --version                 # 35+
-#    test -s ~/lenos/extracted-rootless/android-info.txt
-#    grep -i asteroid ~/lenos/extracted-rootless/android-info.txt
+#    test -s ~/lenos/$extract_name/android-info.txt
+#    grep -i asteroid ~/lenos/$extract_name/android-info.txt
 #    # phone must already boot SOME OS (stock or current lenOS). From a brick, use your recovery plan.
 #
 # 3. From a booting OS → fastbootd (userspace). Bootloader cannot write logicals.
@@ -735,7 +962,7 @@ cmd_flash_plan() {
 #    fastboot --set-active=a
 #
 # 4. One command. Do not hand-flash.
-#    export ANDROID_PRODUCT_OUT=$HOME/lenos/extracted-rootless
+#    export ANDROID_PRODUCT_OUT=~/lenos/$extract_name
 #    fastboot flashall -w --skip-reboot
 #    # -w required when leaving Nothing OS. Skip -w only for same-OS update of this zip.
 #
@@ -748,23 +975,40 @@ cmd_flash_plan() {
 #    adb shell getprop ro.boot.vbmeta.digest     # record this
 #    # OEM unlocking ON. Live with it. Then read lock-gates.
 EOF
+  if root_enabled; then
+    cat <<EOF
+#
+# 7. Root manager (separate from the OS image; not flashed):
+#    adb install -r ~/lenos/lenos-asteroids-$ROOT_MODE-manager.apk
+#    open the root manager and grant root when prompted
+#    verify the requested root works before installing anything important
+EOF
+  fi
 }
 
 cmd_lock_gates() {
-  cat <<'EOF'
-# LOCK GATES — this script will not run `fastboot flashing lock`.
+  local root_note
+  if root_enabled; then
+    root_note="This is a $ROOT_MODE root build. The OTA re-signs init_boot and the OS AVB
+# partitions, but this helper does not install or verify a boot-failure recovery
+# guard (OEMUnlockOnBoot or equivalent). Root also increases attack surface."
+  else
+    root_note="Rootless has no root manager, so OEMUnlockOnBoot cannot be installed.
+# The helper refuses to lock a rootless build for that reason."
+  fi
+  cat <<EOF
+# LOCK GATES — this script will not run 'fastboot flashing lock'.
 #
-# Rootless has no ReSukiSU, so OEMUnlockOnBoot cannot be installed.
-# The helper refuses to lock a rootless build for that reason.
-# Locking without that module means: if the phone does not boot after lock,
-# OEM unlocking was wiped with /data and you may have no unlock path.
+# $root_note
+# Locking without a verified recovery guard means: if the phone does not boot
+# after lock, OEM unlocking was wiped with /data and you may have no unlock path.
 # Slot B now has real _b partitions, which is necessary but not sufficient.
 #
 # Do not lock unless EVERY line is true:
 #   [ ] THIS zip booted UNLOCKED (not a test-key image)
 #   [ ] ro.lenos.version = 1.0.0
 #   [ ] ro.boot.veritymode = enforcing
-#   [ ] ro.boot.vbmeta.digest matches `avbroot ota verify` of THIS zip
+#   [ ] ro.boot.vbmeta.digest matches 'avbroot ota verify' of THIS zip
 #   [ ] fastboot getvar has-slot:init_boot  / vendor_boot / vbmeta  → yes
 #   [ ] fastboot getvar slot-unbootable:b → no
 #   [ ] OEM unlocking is ON
@@ -789,13 +1033,40 @@ EOF
 }
 
 main() {
-  local cmd="${1:-}"
+  local cmd cli_root="" cli_root_set=0 args=()
+  while (($#)); do
+    case "$1" in
+      --root)
+        (($# >= 2)) || die "--root requires none, resukisu, or kernelsu"
+        cli_root="$2"
+        cli_root_set=1
+        shift 2
+        ;;
+      --root=*)
+        cli_root="${1#*=}"
+        cli_root_set=1
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  if ((cli_root_set)); then
+    LENOS_ROOT="$cli_root"
+  fi
+  resolve_root_mode
+  set -- "${args[@]}"
+  cmd="${1:-}"
   shift || true
   case "$cmd" in
     doctor)      cmd_doctor "$@";;
     apply)       cmd_apply "$@";;
     hardwire)    cmd_apply "$@";;   # legacy name, same strict path
     build)       cmd_build "$@";;
+    root-prepare) cmd_root_prepare "$@";;
+    root-status) cmd_root_status "$@";;
     package)     cmd_package "$@";;
     extract)     cmd_extract "$@";;
     flash-plan)  cmd_flash_plan "$@";;

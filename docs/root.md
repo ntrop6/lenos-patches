@@ -1,0 +1,195 @@
+# Opt-in root
+
+The default lenOS build is rootless. Root is an explicit, post-build choice:
+
+```bash
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh root-prepare
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh package
+```
+
+`LENOS_ROOT` accepts `none` (default), `resukisu`, and `kernelsu`. The CLI form
+`--root resukisu` does the same thing.
+
+This is not an official or supported root method. It changes the attack surface
+and it has not been boot-tested on hardware. Do not treat a successful
+`avbroot ota verify` as proof that the device will boot.
+
+## What this does and does not do
+
+It does:
+
+- build the normal rootless LineageOS image first;
+- extract `init_boot.img` from the exact signed base OTA;
+- use a pinned x86_64 boot-image patcher to inject a pinned root LKM and
+  `ksuinit` into the `init_boot` ramdisk;
+- verify the stock and patched ramdisk with avbroot;
+- package a new OTA with `avbroot --prepatched`, re-signing `init_boot` and the
+  other OS AVB partitions with your AVB key;
+- keep the root manager as a separate APK that you install after first boot.
+
+It does not:
+
+- add a manager APK, `su`, ReSukiSU, KernelSU, or Magisk to the system image;
+- change the kernel, SELinux, encryption, or product configuration. It patches
+  only the `init_boot` ramdisk; packaging re-signs the OS AVB tree (including
+  `boot` and `vendor_boot`) and may update OTA certs as avbroot does for any OTA;
+- flash, wipe, relock, or change any device setting;
+- install or verify OEMUnlockOnBoot or any other boot-failure recovery guard;
+- prove that the resulting image boots.
+
+## Requirements
+
+- Linux x86_64 build host.
+- avbroot 3.33.0 or newer (`boot unpack` and `cpio unpack` are required).
+- Your existing `LENOS_KEYDIR` with `avb.key`, `ota.key`, `ota.crt`, and
+  `avb_pkmd.bin`.
+- The signed `base-signed-ota.zip` produced from the same source build. You can
+  override the path with `LENOS_BASE_OTA=/path/to/ota.zip`.
+- Network access for the pinned manager and payload assets. The cache lives at
+  `$LENOS_WORKSPACE/.root-cache` by default. Override it with
+  `LENOS_ROOT_CACHE`.
+
+The source tree must still contain the `asteroids` device tree so the helper can
+read `BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE`. It does not edit the tree.
+
+## Commands
+
+```bash
+# 1. Normal rootless build
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh build
+
+# 2. Patch init_boot from base-signed-ota.zip
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh root-prepare
+
+# 3. Inspect the recorded hashes at any time
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh root-status
+
+# 4. Re-sign the complete OTA; this does not touch the phone
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh package
+
+# 5. Extract the fastboot plan
+LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh extract
+```
+
+The outputs are:
+
+- `lenos-asteroids-resukisu.zip` (or `...-kernelsu.zip`);
+- `lenos-asteroids-resukisu-manager.apk` and its `.sha256`;
+- `extracted-resukisu/` (or `extracted-kernelsu/`);
+- root state under `$LENOS_WORKSPACE/lenos-root/<mode>/`.
+
+`root-prepare` records the base OTA hash and the stock `init_boot` hash in
+`root-state.json`. `package` re-hashes both from that state before patching, and
+`extract` re-verifies the final OTA. Re-run `root-prepare` after every new build.
+
+## The two profiles
+
+### ReSukiSU (preferred)
+
+The profile pins ReSukiSU 4.1.0 build 35055, source commit
+`beaaea0eb895dc41e7b9bf5e3f39e57aa9635bab`, and KMI `android15-6.6`.
+
+The old nightly.link URL is not used. The archived release assets below are
+pinned by SHA-256:
+
+| Asset | SHA-256 |
+|---|---|
+| manager APK | `78862d9adcca1c1281e0df26680e9cb7d7cb6ebee7cb5994b2ffbde9e0ab377a` |
+| `lkm-all.zip` | `9cf2129821b17d3f56103e16f05f4de39d29bb380ace19d37433a7a160182a2b` |
+| `android15-6.6_kernelsu.ko` | `8937c94461a3da8d39bb86f968d491fb46a08602bff4132d6ab4ff8acef026cc` |
+| `ksuinit.zip` | `df3d37e6c7c04763ae353162e5f0c670c3860e4df6162a331586328f82ac5e90` |
+| `aarch64.../ksuinit` | `4d028821a04c42a9f23f7823d18c1e5b43b258db834d7a3e72208d8031f65509` |
+
+The manager APK signer certificate is also checked: 887 bytes,
+SHA-256 `d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64`.
+
+Upstream ReSukiSU now redirects to BakaSU. This profile deliberately stays on the
+last release the old flow was pinned to. Do not silently swap in a newer manager
+or LKM; update the JSON and hashes together.
+
+### KernelSU (fallback)
+
+The fallback pins KernelSU 3.3.1, source commit
+`0c0fdb960178fa12d80d6cbcfdcb6ad8be6a865d`, and KMI `android15-6.6`.
+
+| Asset | SHA-256 |
+|---|---|
+| manager APK | `b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450` |
+| `android15-6.6_kernelsu.ko` | `e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad` |
+| `ksuinit-aarch64` | `365c66e5435a9ecdb3dbb23ceda2d9253568defeee3682af95220087094eff5d` |
+
+The manager APK signer certificate is 827 bytes,
+SHA-256 `c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6`.
+
+### Why both use the KernelSU host `ksud`
+
+KernelSU publishes a static x86_64 boot-image patcher. ReSukiSU publishes an
+arm64 Android `ksud` inside its manager, which cannot run directly on the build
+host. The host patcher is only a file-level boot-image rewriter: it unpacks the
+ramdisk, adds `init.real`, installs the selected `ksuinit` as `init`, and copies
+the selected `kernelsu.ko`.
+
+The host patcher is pinned separately:
+
+| Asset | SHA-256 |
+|---|---|
+| `ksud-x86_64-unknown-linux-musl` | `29b50f946a3cc40b04aef3dd587adad227fe0f70edf9c56b02c84479f0b0e954` |
+
+In `resukisu` mode the injected LKM and `ksuinit` are ReSukiSU's pinned files;
+no KernelSU kernel module or init payload is used. In `kernelsu` mode both are
+KernelSU's pinned files.
+
+## AVB and verified boot
+
+`package` passes the patched image with `--prepatched` and re-signs the OS AVB
+partitions listed by the signing plan. For a root build the plan must include at
+least `init_boot`, `boot`, `vendor_boot`, and `vbmeta`; packaging stops if any are
+missing.
+
+After signing, the helper also:
+
+1. verifies the patched OTA with `avbroot ota verify` before moving it into
+   place;
+2. extracts `boot`, `init_boot`, and `vendor_boot` from that OTA;
+3. checks the final `init_boot` fits the pinned partition size;
+4. reopens its ramdisk and checks for executable `init`, executable
+   `init.real`, and the pinned `kernelsu.ko` with the expected hashes.
+
+`extract` repeats the OTA and boot-image checks before unpacking the fastboot
+plan. These checks catch a broken package, not a device-specific boot failure.
+The bootloader, kernel module ABI, vendor init, and Nothing's verified-boot
+behavior still need a real unlocked boot test.
+
+Locking remains unsupported. This repository does not install a recovery guard,
+and a failed boot after locking can be unrecoverable. Even with a re-signed AVB
+chain, use the lock checklist in [`flash-and-lock.md`](flash-and-lock.md) and do
+not lock.
+
+## Installing the manager
+
+The manager is deliberately not part of the OS image. After the root OTA boots:
+
+```bash
+adb install -r lenos-asteroids-resukisu-manager.apk
+```
+
+Open the manager, let it detect the installed LKM, and grant root. If it does not
+detect root, stop and capture `adb shell su --version` / the manager diagnostics
+before changing the boot image again.
+
+If the kernel rejects the LKM (for example, module loading is disabled or
+signature enforcement blocks it), this helper cannot fix that. Capture
+`adb shell dmesg` and the manager logs. Do not disable verity or SELinux to work
+around it, and do not flash a different boot image from another build.
+
+## Updating
+
+A root OTA must be built from the exact new base OTA:
+
+1. build the new rootless base;
+2. run `root-prepare` again with the same `LENOS_ROOT`;
+3. package, verify, and flash the complete new OTA;
+4. reinstall the pinned manager only if its profile changed.
+
+Do not carry an old patched `init_boot` across builds, and do not sideload an OTA
+signed with different keys.

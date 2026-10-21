@@ -113,6 +113,27 @@ The wrapper replaces `$LENOS_SOURCE/vendor/lenos` with its build inputs during
 `apply`, so do not run it from a checkout that lives inside the build tree.
 Use the manual path above in that case.
 
+## Root (optional)
+
+The default output is rootless. An opt-in root OTA is produced after the normal
+rootless build, from the exact signed base OTA:
+
+```bash
+LENOS_SOURCE=$HOME/lineage LENOS_ROOT=resukisu \
+  ~/lenos-patches/lenos-1.0-shizuku.sh root-prepare
+LENOS_SOURCE=$HOME/lineage LENOS_ROOT=resukisu \
+  ~/lenos-patches/lenos-1.0-shizuku.sh package
+```
+
+Use `LENOS_ROOT=kernelsu` for the fallback. `root-prepare` needs avbroot 3.33.0
+or newer, network access for the pinned assets, and the `asteroids` device tree.
+It does not modify the source tree or include a root manager in the system
+image. Packaging re-signs `init_boot` and the OS AVB partitions, then verifies
+the final OTA and its init_boot ramdisk.
+
+Read [`root.md`](root.md) before using it. Root has not been boot-tested, and
+locking is still not supported.
+
 ## Tests
 
 From the patchkit checkout, the tests expect a pristine tree and do not build

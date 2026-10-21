@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "kmi": "android15-6.6",
+  "arch": "aarch64",
+  "patcher": {
+    "name": "KernelSU host ksud 3.3.1 (x86_64)",
+    "file": "ksud-x86_64-unknown-linux-musl",
+    "version": "3.3.1",
+    "url": "https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-unknown-linux-musl",
+    "sha256": "29b50f946a3cc40b04aef3dd587adad227fe0f70edf9c56b02c84479f0b0e954",
+    "note": "Static x86_64 boot-image patcher. It only rewrites the init_boot ramdisk and injects the selected profile payload."
+  },
+  "profiles": {
+    "resukisu": {
+      "display_name": "ReSukiSU 4.1.0 (pinned legacy release)",
+      "source_commit": "beaaea0eb895dc41e7b9bf5e3f39e57aa9635bab",
+      "manager": {
+        "name": "ReSukiSU_v4.1.0_35055-arm64-v8a-release.apk",
+        "url": "https://github.com/cctv18/ReSukiSU_CI/releases/download/ReSukiSU_31256803207/ReSukiSU_v4.1.0_35055-arm64-v8a-release.apk",
+        "sha256": "78862d9adcca1c1281e0df26680e9cb7d7cb6ebee7cb5994b2ffbde9e0ab377a",
+        "cert_size": 887,
+        "cert_sha256": "d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64"
+      },
+      "lkm": {
+        "name": "lkm-all.zip",
+        "url": "https://github.com/cctv18/ReSukiSU_CI/releases/download/ReSukiSU_31256803207/lkm-all.zip",
+        "sha256": "9cf2129821b17d3f56103e16f05f4de39d29bb380ace19d37433a7a160182a2b",
+        "member": "android15-6.6_kernelsu.ko",
+        "member_sha256": "8937c94461a3da8d39bb86f968d491fb46a08602bff4132d6ab4ff8acef026cc"
+      },
+      "init": {
+        "name": "ksuinit.zip",
+        "url": "https://github.com/cctv18/ReSukiSU_CI/releases/download/ReSukiSU_31256803207/ksuinit.zip",
+        "sha256": "df3d37e6c7c04763ae353162e5f0c670c3860e4df6162a331586328f82ac5e90",
+        "member": "aarch64-unknown-linux-musl/release/ksuinit",
+        "member_sha256": "4d028821a04c42a9f23f7823d18c1e5b43b258db834d7a3e72208d8031f65509"
+      }
+    },
+    "kernelsu": {
+      "display_name": "KernelSU 3.3.1",
+      "source_commit": "0c0fdb960178fa12d80d6cbcfdcb6ad8be6a865d",
+      "manager": {
+        "name": "KernelSU_v3.3.1_32680-release.apk",
+        "url": "https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk",
+        "sha256": "b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450",
+        "cert_size": 827,
+        "cert_sha256": "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6"
+      },
+      "lkm": {
+        "name": "lkm-aarch64-android15-6.6_kernelsu.ko",
+        "url": "https://github.com/tiann/KernelSU/releases/download/v3.3.1/lkm-aarch64-android15-6.6_kernelsu.ko",
+        "sha256": "e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad",
+        "member": null,
+        "member_sha256": "e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad"
+      },
+      "init": {
+        "name": "ksuinit-aarch64",
+        "url": "https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksuinit-aarch64",
+        "sha256": "365c66e5435a9ecdb3dbb23ceda2d9253568defeee3682af95220087094eff5d",
+        "member": null,
+        "member_sha256": "365c66e5435a9ecdb3dbb23ceda2d9253568defeee3682af95220087094eff5d"
+      }
+    }
+  }
+}
