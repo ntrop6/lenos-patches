@@ -11,12 +11,6 @@ have the same phone, you can build it too, or take only the changes you want.
 lenOS is not affiliated with LineageOS, Nothing, or GrapheneOS. It is a
 personal project, not a supported product.
 
-## Status
-
-The default 1.0 series is source-complete and has source-level tests. No image
-has been built or booted on a device yet, so treat it as bring-up until it has
-been checked on hardware.
-
 The experimental series is optional and even less tested. A normal build never
 applies it.
 
@@ -42,9 +36,11 @@ LENOS_ROOT=resukisu ./lenos-1.0-shizuku.sh package
 ```
 
 `resukisu` is the preferred profile and `kernelsu` is the fallback. The build
-itself stays rootless. The post-build step patches `init_boot` from the signed
-base OTA, re-signs the OS AVB partitions with your key, and keeps the root
-manager as a separate APK. It has not been boot-tested; see
+itself stays rootless. The post-build step verifies the base OTA against your
+configured OTA/AVB keys, patches `init_boot`, re-signs the OS AVB partitions with
+your key, and keeps the root manager as a separate APK. The default rootless
+packaging path verifies that the final `init_boot` is stock, so a pre-rooted base
+cannot be shipped accidentally. Root has not been boot-tested; see
 [`docs/root.md`](docs/root.md) for the exact pins and limitations.
 
 The helper re-signs the OS AVB chain with your AVB/OTA keys via avbroot.
@@ -97,7 +93,7 @@ python3 vendor/lenos/tools/lenos-patch.py --tree . --reset
 - `experimental/` — opt-in app source, checks, and status notes
 - `tools/` — patch application, read-only verification helpers, and the pinned
   opt-in root preparer
-- `tests/` — source-level tests for the patches
+- `tests/` — source-level and host-side tests for the patches
 
 The feature list and its honest limits are in
 [`docs/features.md`](docs/features.md). The long, rough porting notes are in

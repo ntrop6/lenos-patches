@@ -182,9 +182,11 @@ records the source-level security review.
 ## Not in the 1.0 series
 
 Anything not listed above (safe recovery, signed OTA/updater, reproducible
-builds, custom AVB key, and the remaining kernel workstream: 48-bit VA /
-4-level page tables, forced module signing/lockdown, LTS point-release
-cadence) is **not implemented yet**.
+builds, bootloader custom-AVB-key provisioning and relocking, and the remaining
+kernel workstream: 48-bit VA / 4-level page tables, forced module
+signing/lockdown, LTS point-release cadence) is **not implemented yet**. The
+optional root helper can re-sign an OTA with your AVB key, but that is not the
+same as provisioning the bootloader key or supporting a locked bootloader.
 
 ## Honest limits
 

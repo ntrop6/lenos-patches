@@ -1,0 +1,32 @@
+# Qualcomm firmware / bootloader partitions. avbroot --re-sign of these aborts
+# with "Invalid VBMeta header magic" (bluetooth/abl/xbl), and the fastboot plan
+# must never flash them from this OTA. This file is the single source for both
+# the OS re-sign filter and the fastboot-info sanitizer; keep it in sync with
+# the device if the firmware layout changes.
+abl
+aop
+aop_config
+bluetooth
+cpucp
+cpucp_dtb
+devcfg
+dsp
+featenabler
+hyp
+imagefv
+keymaster
+modem
+multiimgoem
+multiimgqti
+qupfw
+shrm
+soccp
+tz
+uefi
+uefisecapp
+vm-bootsys
+xbl
+xbl_config
+xbl_ramdump
+xbl_sc
+xbl_ramdump_config

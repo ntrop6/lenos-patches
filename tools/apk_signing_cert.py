@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Extract and verify the first signer certificate from an APK v2 signature."""
+"""Extract the first signer certificate from an APK v2 signature and pin it.
+
+This compares the certificate bytes only. It does not verify the APK's v2
+signature or the APK contents; the full-file SHA-256 pin is the authentication
+control. The certificate pin catches a manager APK signed by a different key
+when both hashes are maintained together.
+"""
 
 from __future__ import annotations
 

@@ -99,8 +99,10 @@ build also copy `experimental/app/LenosOpsec` into
 
 `lenos-1.0-shizuku.sh` is a wrapper used for one local build/signing setup. It
 is not needed to build lenOS and it has extra dependencies (the LineageOS
-signing wizard, avbroot, and a key directory). If you use it, keep the patchkit
-outside the build tree:
+signing wizard, avbroot 3.33.0+ for packaging, and a key directory). `package`
+verifies the input OTA against your `ota.crt`/`avb_pkmd.bin`, and both the
+rootless and root paths verify the final `init_boot` ramdisk and OTA/AVB chain.
+If you use it, keep the patchkit outside the build tree:
 
 ```bash
 git clone https://github.com/ntrop6/lenos-patches.git ~/lenos-patches
@@ -127,9 +129,10 @@ LENOS_SOURCE=$HOME/lineage LENOS_ROOT=resukisu \
 
 Use `LENOS_ROOT=kernelsu` for the fallback. `root-prepare` needs avbroot 3.33.0
 or newer, network access for the pinned assets, and the `asteroids` device tree.
-It does not modify the source tree or include a root manager in the system
-image. Packaging re-signs `init_boot` and the OS AVB partitions, then verifies
-the final OTA and its init_boot ramdisk.
+It verifies the base OTA against your configured OTA/AVB keys, does not modify
+the source tree, and does not include a root manager in the system image.
+Packaging re-signs `init_boot` and the OS AVB partitions, then verifies the final
+OTA and its init_boot ramdisk.
 
 Read [`root.md`](root.md) before using it. Root has not been boot-tested, and
 locking is still not supported.

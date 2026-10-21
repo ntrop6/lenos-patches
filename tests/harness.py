@@ -160,9 +160,10 @@ class LenosPatchTest(unittest.TestCase):
 
 
 class TestPatchSeries(unittest.TestCase):
-    """The patch series must apply (and reverse) against the pinned tree."""
+    """The patch series must pass --check against the pinned tree."""
 
-    def test_series_applies_and_reverses(self):
+    def test_series_check_passes(self):
+        """--check is forward on a clean tree and reverse on an applied tree."""
         tool = VENDOR / "tools/lenos-patch.py"
         check = subprocess.run(
             [sys.executable, str(tool), "--tree", str(WORKSPACE), "--check"],

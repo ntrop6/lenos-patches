@@ -5,7 +5,9 @@ device build. If you are not already comfortable with `fastboot`, recovery, and
 verified boot, stop here.
 
 Nothing in this repository flashes, wipes, or locks a phone. The helper script
-prints a plan and a checklist; it refuses to run the final flash or lock steps.
+prints a flash plan and, for a root build, a reference-only lock gate list. It
+refuses to run the final flash or lock steps, and it never prints a lock
+sequence; for a rootless build it refuses even to print the gate list.
 
 ## Before flashing
 
@@ -56,10 +58,12 @@ adb shell getprop ro.boot.vbmeta.digest
 
 The digest must match the image you verified. If it does not, do not lock.
 
-## Locking
+## Locking (unsupported)
 
-Locking is optional and can leave the phone in a state you cannot unlock. Do
-not lock unless all of these are true:
+Locking is unsupported and can leave the phone in a state you cannot unlock.
+The steps below are a reference record for an owner who independently chooses to
+take that risk; the helper will not run them. Do not lock unless all of these
+are true:
 
 - the image you just built has booted, still unlocked;
 - `ro.boot.veritymode` reports `enforcing`;
@@ -77,9 +81,10 @@ re-signed AVB chain, but this repository does not install or verify
 OEMUnlockOnBoot or another boot-failure recovery guard. If root is installed,
 read [`root.md`](root.md) first and still treat locking as unsupported.
 
-If every gate passes, the sequence is:
+If you independently accept those risks, the reference sequence is:
 
 ```bash
+# REFERENCE ONLY — the helper does not run or support this sequence.
 adb reboot bootloader
 fastboot getvar unlocked                 # must be yes
 fastboot erase avb_custom_key

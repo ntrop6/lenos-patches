@@ -19,7 +19,9 @@ and it has not been boot-tested on hardware. Do not treat a successful
 It does:
 
 - build the normal rootless LineageOS image first;
-- extract `init_boot.img` from the exact signed base OTA;
+- verify the base OTA against your configured OTA certificate and AVB public key
+  before using it;
+- extract `init_boot.img` from that exact signed base OTA;
 - use a pinned x86_64 boot-image patcher to inject a pinned root LKM and
   `ksuinit` into the `init_boot` ramdisk;
 - verify the stock and patched ramdisk with avbroot;
@@ -44,7 +46,9 @@ It does not:
 - Your existing `LENOS_KEYDIR` with `avb.key`, `ota.key`, `ota.crt`, and
   `avb_pkmd.bin`.
 - The signed `base-signed-ota.zip` produced from the same source build. You can
-  override the path with `LENOS_BASE_OTA=/path/to/ota.zip`.
+  override the path with `LENOS_BASE_OTA=/path/to/ota.zip`. The OTA must verify
+  against your configured `ota.crt` and `avb_pkmd.bin`; a stock OTA, an unsigned
+  zip, or one signed by different keys is refused before it is patched.
 - Network access for the pinned manager and payload assets. The cache lives at
   `$LENOS_WORKSPACE/.root-cache` by default. Override it with
   `LENOS_ROOT_CACHE`.
@@ -78,9 +82,17 @@ The outputs are:
 - `extracted-resukisu/` (or `extracted-kernelsu/`);
 - root state under `$LENOS_WORKSPACE/lenos-root/<mode>/`.
 
-`root-prepare` records the base OTA hash and the stock `init_boot` hash in
-`root-state.json`. `package` re-hashes both from that state before patching, and
-`extract` re-verifies the final OTA. Re-run `root-prepare` after every new build.
+`root-prepare` records the base OTA hash, the stock `init_boot` hash, and the
+pinned payload hashes in `root-state.json`. `package` verifies the base OTA
+signature against your keys, re-hashes both the OTA and its init_boot, and checks
+the state against the pinned profile before patching. `extract` verifies the
+final OTA and re-checks the manager/state. Re-run `root-prepare` after every new
+build.
+
+The default rootless `package` path also requires avbroot 3.33.0+ and verifies
+that the final `init_boot` ramdisk is stock. Passing `--rootless` to avbroot
+only means "do not add root"; it is not a way to remove root from a pre-patched
+base OTA.
 
 ## The two profiles
 
@@ -100,8 +112,11 @@ pinned by SHA-256:
 | `ksuinit.zip` | `df3d37e6c7c04763ae353162e5f0c670c3860e4df6162a331586328f82ac5e90` |
 | `aarch64.../ksuinit` | `4d028821a04c42a9f23f7823d18c1e5b43b258db834d7a3e72208d8031f65509` |
 
-The manager APK signer certificate is also checked: 887 bytes,
+The manager APK's full-file SHA-256 is the authentication pin. The helper also
+extracts the first v2 signer certificate and compares its byte pin: 887 bytes,
 SHA-256 `d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64`.
+This is not a full APK signature verification; keep the full-file hash and the
+certificate pin together when updating the profile.
 
 Upstream ReSukiSU now redirects to BakaSU. This profile deliberately stays on the
 last release the old flow was pinned to. Do not silently swap in a newer manager
@@ -118,8 +133,10 @@ The fallback pins KernelSU 3.3.1, source commit
 | `android15-6.6_kernelsu.ko` | `e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad` |
 | `ksuinit-aarch64` | `365c66e5435a9ecdb3dbb23ceda2d9253568defeee3682af95220087094eff5d` |
 
-The manager APK signer certificate is 827 bytes,
-SHA-256 `c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6`.
+The manager APK's full-file pin is the authentication control; its first v2
+signer certificate is also pinned at 827 bytes, SHA-256
+`c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6`. The
+certificate check does not verify the whole APK signature.
 
 ### Why both use the KernelSU host `ksud`
 
@@ -162,8 +179,9 @@ behavior still need a real unlocked boot test.
 
 Locking remains unsupported. This repository does not install a recovery guard,
 and a failed boot after locking can be unrecoverable. Even with a re-signed AVB
-chain, use the lock checklist in [`flash-and-lock.md`](flash-and-lock.md) and do
-not lock.
+chain, do not lock. The checklist in [`flash-and-lock.md`](flash-and-lock.md) is
+reference-only; `lock-gates` refuses to print a lock sequence for a rootless
+build and marks the root checklist as unsupported.
 
 ## Installing the manager
 

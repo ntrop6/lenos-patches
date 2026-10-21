@@ -440,6 +440,7 @@ def load_state(path: Path, mode: str) -> dict[str, Any]:
         "ksuinit_sha256",
         "lkm_sha256",
         "manager_sha256",
+        "patcher_sha256",
         "patched_init_boot_size",
         "partition_limit",
         "kmi",
@@ -686,10 +687,16 @@ def command_check_source(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="lenos-root-source-") as temporary:
         image = extract_init_boot(avbroot, base_ota, Path(temporary) / "ota")
         actual_init = sha256_file(image)
+        stock_info = inspect_ramdisk(avbroot, image, "stock")
     if actual_init != state["source_init_boot_sha256"]:
         raise RootError(
             "base OTA init_boot changed since root-prepare: "
             f"{actual_init} != {state['source_init_boot_sha256']}"
+        )
+    if stock_info["init_sha256"] != state["stock_init_sha256"]:
+        raise RootError(
+            "base OTA stock init changed since root-prepare: "
+            f"{stock_info['init_sha256']} != {state['stock_init_sha256']}"
         )
     print(f"ok source OTA: {base_ota}")
     print(f"base_ota_sha256={actual_ota}")
@@ -723,6 +730,22 @@ def command_status(args: argparse.Namespace) -> int:
             f"root state KMI {state['kmi']!r} does not match the pinned "
             f"{profiles['kmi']!r} profile"
         )
+    pinned_payload = {
+        "lkm_sha256": require_hex(
+            profile["lkm"].get("member_sha256"), "pinned LKM member sha256"
+        ),
+        "ksuinit_sha256": require_hex(
+            profile["init"].get("member_sha256"), "pinned ksuinit member sha256"
+        ),
+        "patcher_sha256": require_hex(
+            profiles["patcher"].get("sha256"), "pinned patcher sha256"
+        ),
+    }
+    for key, expected in pinned_payload.items():
+        if state[key] != expected:
+            raise RootError(
+                f"root state {key} does not match the pinned {args.mode} profile"
+            )
     image = state_dir / "init_boot.img"
     manager = state_dir / "manager.apk"
     if not image.is_file() or sha256_file(image) != state["patched_init_boot_sha256"]:

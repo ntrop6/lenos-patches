@@ -57,13 +57,10 @@ OUT="$WS/lenos-asteroids-rootless.zip"
 EXTRACT_DIR="$WS/extracted-rootless"
 
 # Qualcomm firmware / bootloader images. avbroot --re-sign of these aborts
-# with "Invalid VBMeta header magic" (bluetooth/abl/xbl). OS AVB only.
-readonly -a FIRMWARE_DENY=(
-  abl aop aop_config bluetooth cpucp cpucp_dtb devcfg dsp featenabler
-  hyp imagefv keymaster modem multiimgoem multiimgqti qupfw shrm soccp
-  tz uefi uefisecapp vm-bootsys xbl xbl_config xbl_ramdump
-  xbl_sc xbl_ramdump_config
-)
+# with "Invalid VBMeta header magic" (bluetooth/abl/xbl). OS AVB only. The
+# list lives in tools/firmware-deny.txt so the re-sign filter and the
+# fastboot-info sanitizer cannot drift.
+readonly FIRMWARE_DENY_FILE="$VENDOR/tools/firmware-deny.txt"
 
 usage() {
   cat <<EOF
@@ -77,7 +74,7 @@ lenOS $LENOS_VERSION  (asteroids / Nothing Phone 3a)
   $0 package        avbroot OTA. rootless unless LENOS_ROOT is set.
   $0 extract        avbroot ota extract --fastboot --all + sanitize flash plan
   $0 flash-plan     print host-side commands. does not touch the phone
-  $0 lock-gates     print lock checklist. always exits 1 (this script will not lock)
+  $0 lock-gates     print lock warnings/gates. always exits 1 (this script will not lock)
 
 Default build: stable 1.0 series, rootless.
 Root (opt-in): LENOS_ROOT=resukisu|kernelsu. Build first, then root-prepare,
@@ -94,6 +91,12 @@ EOF
 
 need_file() { [[ -s "$1" ]] || die "missing $1"; }
 need_exec() { [[ -x "$1" ]] || die "missing executable $1"; }
+
+require_boot_verification_tools() {
+  "$AVBROOT" boot unpack --help >/dev/null 2>&1 \
+    && "$AVBROOT" cpio unpack --help >/dev/null 2>&1 \
+    || die "avbroot 3.33.0+ with boot unpack and cpio unpack is required to verify boot images"
+}
 
 experimental_enabled() {
   case "${LENOS_EXPERIMENTAL:-0}" in
@@ -178,6 +181,7 @@ assert_image_fits_partition() {
 
 verify_ota_boot_images() {
   local ota="$1" temp p
+  require_boot_verification_tools
   temp="$(mktemp -d "$WS/.boot-check.XXXXXX")"
   "$AVBROOT" ota extract \
     --input "$ota" \
@@ -198,20 +202,27 @@ verify_ota_boot_images() {
       --state-dir "$ROOT_STATE_DIR" \
       --avbroot "$AVBROOT" >/dev/null \
       || { rm -rf "$temp"; die "final OTA init_boot ramdisk verification failed"; }
+  else
+    # avbroot --rootless means "do not add root", not "remove an existing root".
+    # Verify the final image really has a stock ramdisk so a wrongly selected
+    # base OTA cannot be re-signed and shipped as the rootless default.
+    python3 "$VENDOR/tools/lenos_root.py" verify-image \
+      --mode stock \
+      --image "$temp/init_boot.img" \
+      --avbroot "$AVBROOT" >/dev/null \
+      || { rm -rf "$temp"; die "final OTA init_boot is not stock/rootless"; }
   fi
   rm -rf "$temp"
   info "boot/init_boot/vendor_boot images verified"
 }
 
-is_firmware() {
-  local p="$1" x
-  p="${p##*/}"
-  p="${p%%.*}"
-  p="${p%_a}"; p="${p%_b}"
-  for x in "${FIRMWARE_DENY[@]}"; do
-    [[ "$p" == "$x" ]] && return 0
-  done
-  return 1
+verify_input_ota() {
+  local ota="$1"
+  "$AVBROOT" ota verify \
+    --input "$ota" \
+    --cert-ota "$KEYS/ota.crt" \
+    --public-key-avb "$KEYS/avb_pkmd.bin" \
+    || die "input OTA is not signed by the configured OTA/AVB keys: $ota"
 }
 
 cmd_doctor() {
@@ -239,8 +250,7 @@ cmd_doctor() {
     need_file "$VENDOR/tools/lenos_root.py"
     need_file "$VENDOR/tools/root-managers.json"
     need_file "$VENDOR/tools/apk_signing_cert.py"
-    "$AVBROOT" boot unpack --help >/dev/null 2>&1 \
-      || die "avbroot is too old: boot unpack is unavailable"
+    require_boot_verification_tools
     info "root:    $ROOT_MODE (post-build init_boot transform)"
   else
     info "root:    none (rootless)"
@@ -649,15 +659,17 @@ cmd_build() {
 }
 
 collect_os_resign() {
-  python3 - "$WS" "$KEYS" <<'PY'
+  python3 - "$WS" "$KEYS" "$FIRMWARE_DENY_FILE" <<'PY'
 import glob, json, os, sys
 ws = sys.argv[1]
-deny = {
-    "abl","aop","aop_config","bluetooth","cpucp","cpucp_dtb","devcfg","dsp",
-    "featenabler","hyp","imagefv","keymaster","modem","multiimgoem","multiimgqti",
-    "qupfw","shrm","soccp","tz","uefi","uefisecapp","vm-bootsys","xbl",
-    "xbl_config","xbl_ramdump","xbl_sc","xbl_ramdump_config",
-}
+with open(sys.argv[3], encoding="utf-8") as firmware_file:
+    deny = {
+        line.strip()
+        for line in firmware_file
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+if not deny:
+    sys.exit("empty firmware denylist")
 parts = []
 plan = os.path.join(ws, "signing-plan.json")
 if os.path.isfile(plan) and os.path.getsize(plan) > 0:
@@ -713,6 +725,8 @@ cmd_root_prepare() {
   info "root mode: $ROOT_MODE"
   info "base OTA:  $base"
   info "state:     $ROOT_STATE_DIR"
+  info "verifying base OTA signature"
+  verify_input_ota "$base"
   python3 "$VENDOR/tools/lenos_root.py" prepare \
     --mode "$ROOT_MODE" \
     --base-ota "$base" \
@@ -743,9 +757,14 @@ cmd_root_status() {
 
 cmd_package() {
   cmd_doctor
+  require_boot_verification_tools
+  need_file "$FIRMWARE_DENY_FILE"
+  need_file "$VENDOR/tools/lenos_root.py"
   local input
   input="$(select_base_ota)" || exit 1
   info "input OTA: $input"
+  info "verifying input OTA signature"
+  verify_input_ota "$input"
 
   if root_enabled; then
     require_root_state
@@ -772,7 +791,7 @@ cmd_package() {
   if root_enabled; then
     local required
     for required in init_boot boot vendor_boot vbmeta; do
-      printf '%s\n' "${PARTS[@]}" | grep -qx "$required" \
+      grep -qxF -- "$required" <<< "$parts_text" \
         || die "the signing plan does not re-sign $required; root needs a complete AVB chain"
     done
   fi
@@ -819,73 +838,16 @@ cmd_package() {
 }
 
 sanitize_fastboot_info() {
-  python3 - "$1" <<'PY'
-"""Reorder avbroot fastboot-info.txt so vbmeta cannot land before logicals.
-Never invents android-info.txt. Comments firmware lines if avbroot left them live.
-"""
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-lines = p.read_text(encoding="utf-8", errors="replace").splitlines(True)
-firmware = (
-    "abl","aop","bluetooth","cpucp","devcfg","dsp","featenabler","hyp","imagefv",
-    "keymaster","modem","qupfw","shrm","tz","uefi","uefisecapp","xbl",
-    "xbl_config","xbl_ramdump",
-)
-logical = ("system","system_ext","product","vendor","vendor_dlkm","system_dlkm","odm","odm_dlkm")
-vbmeta = ("vbmeta","vbmeta_system","vbmeta_vendor")
-
-def kind(line: str) -> str:
-    s = line.strip()
-    if s.startswith("#") or not s:
-        return "c"
-    parts = s.split()
-    if not parts:
-        return "c"
-    if parts[0] == "reboot" and "fastboot" in parts:
-        return "reboot-fastboot"
-    if parts[0] in {"flash", "update-super", "wipe", "format", "erase"}:
-        name = parts[1] if len(parts) > 1 else ""
-        name = name.split(":")[-1]
-        base = name[:-2] if name.endswith("_a") or name.endswith("_b") else name
-        if base in firmware:
-            return "firmware"
-        if base in logical or parts[0] == "update-super":
-            return "logical"
-        if base in vbmeta:
-            return "vbmeta"
-        return "physical"
-    return "other"
-
-out, pending_vbmeta, saw_reboot, saw_logical = [], [], False, False
-for line in lines:
-    k = kind(line)
-    if k == "firmware":
-        if not line.lstrip().startswith("#"):
-            out.append("# lenOS: firmware not flashed from this OTA (no VBMeta magic)\n# " + line)
-        else:
-            out.append(line)
-        continue
-    if k == "vbmeta" and not saw_logical:
-        pending_vbmeta.append(line)
-        continue
-    if k == "reboot-fastboot":
-        saw_reboot = True
-    if k == "logical":
-        saw_logical = True
-    out.append(line)
-    if saw_logical and pending_vbmeta:
-        out.extend(pending_vbmeta)
-        pending_vbmeta = []
-if pending_vbmeta:
-    out.extend(pending_vbmeta)
-p.write_text("".join(out), encoding="utf-8")
-print(f"sanitized {p} reboot_fastboot={saw_reboot} logicals={saw_logical}")
-PY
+  python3 "$VENDOR/tools/sanitize_fastboot_info.py" \
+    --deny-file "$FIRMWARE_DENY_FILE" "$1"
 }
 
 cmd_extract() {
   cmd_doctor
+  require_boot_verification_tools
+  need_file "$FIRMWARE_DENY_FILE"
+  need_file "$VENDOR/tools/lenos_root.py"
+  need_file "$VENDOR/tools/sanitize_fastboot_info.py"
   need_file "$OUT"
   info "verifying $OUT before extract"
   "$AVBROOT" ota verify \
@@ -910,6 +872,12 @@ cmd_extract() {
   info "fastboot-info.txt (sanitized):"
   cat "$EXTRACT_DIR/fastboot-info.txt"
   if root_enabled; then
+    require_root_state
+    python3 "$VENDOR/tools/lenos_root.py" status \
+      --mode "$ROOT_MODE" \
+      --state-dir "$ROOT_STATE_DIR" \
+      --avbroot "$AVBROOT" >/dev/null \
+      || die "root manager/state failed verification; rerun root-status"
     need_file "$WS/lenos-asteroids-$ROOT_MODE-manager.apk"
     info "root manager (install after first boot): $WS/lenos-asteroids-$ROOT_MODE-manager.apk"
   fi
@@ -988,16 +956,20 @@ EOF
 
 cmd_lock_gates() {
   local root_note
-  if root_enabled; then
-    root_note="This is a $ROOT_MODE root build. The OTA re-signs init_boot and the OS AVB
+  if ! root_enabled; then
+    cat <<EOF
+# LOCK GATES — refusing to print a lock sequence for a rootless build.
+# Rootless has no root manager, so OEMUnlockOnBoot cannot be installed.
+# This script will not run a lock sequence, and you should not lock.
+EOF
+    return 1
+  fi
+  root_note="This is a $ROOT_MODE root build. The OTA re-signs init_boot and the OS AVB
 # partitions, but this helper does not install or verify a boot-failure recovery
 # guard (OEMUnlockOnBoot or equivalent). Root also increases attack surface."
-  else
-    root_note="Rootless has no root manager, so OEMUnlockOnBoot cannot be installed.
-# The helper refuses to lock a rootless build for that reason."
-  fi
   cat <<EOF
-# LOCK GATES — this script will not run 'fastboot flashing lock'.
+# LOCK GATES — this script will not run a lock command.
+# REFERENCE ONLY: locking is unsupported; do not run the steps below.
 #
 # $root_note
 # Locking without a verified recovery guard means: if the phone does not boot
@@ -1015,16 +987,10 @@ cmd_lock_gates() {
 #   [ ] you have avb.key / ota.key in >= 2 offline places
 #   [ ] you accept that a failed boot after lock may be unrecoverable
 #
-# If all of that is true, on the flashing machine, still unlocked:
-#   adb reboot bootloader
-#   fastboot getvar unlocked            # yes
-#   fastboot erase avb_custom_key
-#   fastboot flash avb_custom_key ~/lenos/avb_pkmd.bin
-#   # size 0 reported by Nothing fastboot is normal
-#   fastboot reboot                     # confirm it still boots, yellow/custom-key later
-#   # only then:
-#   adb reboot bootloader
-#   fastboot flashing lock              # wipes /data; confirm on device
+# Even if every line above were true, this helper still does not support
+# locking and will not print a lock sequence. The manual steps in
+# docs/flash-and-lock.md are reference-only; do not run them from this helper.
+# Locking without a recovery guard can make a failed boot unrecoverable.
 #
 # After lock: yellow custom-key warning is expected.
 # OEM unlocking ON forever. Never sideload an unpatched OTA.
