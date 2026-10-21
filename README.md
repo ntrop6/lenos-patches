@@ -31,6 +31,17 @@ applies it.
 The full list, including what does not work, is in
 [`docs/features.md`](docs/features.md).
 
+## Root and verified boot
+
+The image is rootless: no `su`, ReSukiSU, KernelSU, or Magisk is included. The
+companion app has a fallback that can use an existing `su`, but adding root
+yourself is outside this build.
+
+The helper packages the OTA with your AVB/OTA keys via avbroot and keeps
+verified boot in place. Bootloader locking is optional and manual, and the
+scripts never flash, wipe, or lock. The lock checklist is in
+[`docs/flash-and-lock.md`](docs/flash-and-lock.md).
+
 ## Build
 
 You need a LineageOS 23.2 tree for `asteroids`, a working Android build

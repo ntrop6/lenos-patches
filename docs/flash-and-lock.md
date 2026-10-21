@@ -64,6 +64,22 @@ not lock unless all of these are true:
 Do not lock a test-key build. Do not lock a build you have not booted. Locking
 wipes `/data` and may remove the unlock path if the image then fails.
 
+If every gate passes, the sequence is:
+
+```bash
+adb reboot bootloader
+fastboot getvar unlocked                 # must be yes
+fastboot erase avb_custom_key
+fastboot flash avb_custom_key /path/to/avb_pkmd.bin
+# size 0 reported by some Nothing bootloaders is normal
+fastboot reboot                          # confirm it still boots, still unlocked
+adb reboot bootloader
+fastboot flashing lock                   # confirm on device; wipes /data
+```
+
+A yellow custom-key warning after locking is expected. Keep OEM unlocking
+enabled after that. Never sideload an unpatched or differently signed OTA.
+
 ## Updates
 
 Prefer the full OTA from recovery or the normal system updater, signed with the
