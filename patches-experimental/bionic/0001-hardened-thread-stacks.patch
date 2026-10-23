@@ -21,8 +21,8 @@ index f6d7fa8..7f24b71 100644
  #include "private/bionic_tls.h"
  
 +// lenOS: opt-in hardened thread stacks. The read-only property is added by
-+// config/lenos-experimental.mk only when the build sets
-+// LENOS_HARDENED_THREAD_STACKS=1. When it is absent (the default), the pinned
++// config/lenos-experimental.mk for the experimental series
++// (LENOS_EXPERIMENTAL=1). When it is absent (the default), the pinned
 +// AOSP mapping below is used unchanged.
 +static bool __hardened_thread_stacks_enabled() {
 +  char value[PROP_VALUE_MAX] = {};

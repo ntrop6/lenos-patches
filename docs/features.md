@@ -160,10 +160,11 @@ batches implement:
   the kernel dumpable bit for newly started non-system, non-debuggable,
   non-profileable app processes. It is explicitly not the per-app
   `GosPackageState`/SELinux feature; system apps and root remain exempt;
-* **HTS-1 / #33 partial** — an opt-in bionic thread-stack layout with a random
-  `PROT_NONE` gap and a dedicated `pthread_internal_t` page. It is off even in
-  the experimental build unless `LENOS_HARDENED_THREAD_STACKS=1` is also set;
-  it is not `hardened_malloc`, MTE/BTI, exec spawning or a sandbox;
+* **HTS-1 / #33 partial** — a bionic thread-stack layout with a random
+  `PROT_NONE` gap and a dedicated `pthread_internal_t` page. It is part of the
+  experimental series (`LENOS_EXPERIMENTAL=1`); the stable/default build keeps
+  the stock mapping. It is not `hardened_malloc`, MTE/BTI, exec spawning or a
+  sandbox;
 * **OPS-1** — a metadata-scrubbing image share target that re-encodes the
   image and shares only a randomized, metadata-free copy;
 * **OPS-2** — an Offline Quick Settings tile that turns off Wi-Fi and

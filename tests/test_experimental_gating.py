@@ -121,27 +121,23 @@ class TestProductGate(unittest.TestCase):
         self.assertIn("ro.lenos.experimental=1", body)
         self.assertNotIn("LenosOpsec", (VENDOR / "config/lenos.mk").read_text())
 
-    def test_hardened_thread_stacks_are_opt_in_and_default_off(self):
+    def test_hardened_thread_stacks_are_part_of_the_experimental_series(self):
         fragment = (VENDOR / "config/lenos-experimental.mk").read_text()
-        self.assertIn(
-            "ifneq ($(filter 1 true yes,$(LENOS_HARDENED_THREAD_STACKS)),)",
-            fragment)
         self.assertIn("ro.lenos.hardened_thread_stacks=1", fragment)
-        # LENOS_EXPERIMENTAL alone must not turn on the alternate stack layout.
+        # It is part of the experimental fragment, not a second build gate.
+        self.assertNotIn("LENOS_HARDENED_THREAD_STACKS", fragment)
+        # A stable/default build has neither the property nor the bionic gate.
         stable = (VENDOR / "config/lenos.mk").read_text()
-        self.assertNotIn("LENOS_HARDENED_THREAD_STACKS", stable)
         self.assertNotIn("ro.lenos.hardened_thread_stacks", stable)
-        gate = "ifneq ($(filter 1 true yes,$(LENOS_HARDENED_THREAD_STACKS)),)"
-        self.assertNotIn("ro.lenos.hardened_thread_stacks", fragment.split(gate, 1)[0])
+        self.assertNotIn("LENOS_HARDENED_THREAD_STACKS", stable)
 
-    def test_driver_requires_experimental_for_hardened_stacks(self):
+    def test_driver_reports_hardened_stacks_without_a_second_flag(self):
         body = (VENDOR / "lenos-1.0-shizuku.sh").read_text()
+        self.assertNotIn("LENOS_HARDENED_THREAD_STACKS", body)
         for needle in (
-                "hardened_thread_stacks_enabled()",
-                'LENOS_HARDENED_THREAD_STACKS=1 requires LENOS_EXPERIMENTAL=1',
-                'export LENOS_HARDENED_THREAD_STACKS="$hardened"',
                 "__allocate_hardened_thread_mapping",
-                "ro.lenos.hardened_thread_stacks=1"):
+                "ro.lenos.hardened_thread_stacks=1",
+                "hardened thread stacks"):
             self.assertIn(needle, body)
 
     def test_experimental_app_source_is_opt_in_and_local_only(self):

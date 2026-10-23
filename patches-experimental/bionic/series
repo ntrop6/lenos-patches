@@ -1,4 +1,4 @@
 # Experimental bionic work. Applied after the stable series.
-# The feature remains runtime-disabled unless the product sets
-# ro.lenos.hardened_thread_stacks=1 (LENOS_HARDENED_THREAD_STACKS=1).
+# The feature is enabled by the experimental series
+# (ro.lenos.hardened_thread_stacks=1, set for LENOS_EXPERIMENTAL=1).
 0001-hardened-thread-stacks.patch

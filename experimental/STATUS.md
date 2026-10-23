@@ -6,8 +6,8 @@ workstream. "Implemented" means the source patch exists and the static tests in
 behaves correctly on a device.
 
 Everything below is opt-in: apply it only with `LENOS_EXPERIMENTAL=1` (or the explicit
-`--experimental` patchkit mode), and only after the stable 1.0 series. HTS-1 has an
-additional, default-off build flag (`LENOS_HARDENED_THREAD_STACKS=1`); see its section below.
+`--experimental` patchkit mode), and only after the stable 1.0 series. HTS-1 is part of that
+series; see its section below.
 
 ## Implemented in this repository
 
@@ -21,7 +21,7 @@ additional, default-off build flag (`LENOS_HARDENED_THREAD_STACKS=1`); see its s
 | #27 | Seedvault GrapheneOS app-id prefix + chunker | `packages_apps_Seedvault/0001` | Needs a full Seedvault build and a backup/restore cycle, including migration from a pre-prefix backup |
 | #28 | Setup Wizard unlocked-bootloader warning | `packages_apps_SetupWizard/0001` | Needs a Setup Wizard build and first-boot states with a green and non-green verified-boot property |
 | #23 partial / ENF-1 | Global opt-in native-debugging block | `frameworks_base/0005` + `packages_apps_Settings/0005` | Needs a framework build, a booted device and a same-UID ptrace test; per-app `GosPackageState`/SELinux policy is still absent |
-| HTS-1 / #33 partial | Opt-in hardened thread stacks: randomized guard gap, separate `pthread_internal_t` page, randomized stack top | `bionic/0001` | Needs a full bionic build, boot, thread-creation stress, app/ART compatibility and memory/performance checks; default off |
+| HTS-1 / #33 partial | Hardened thread stacks: randomized guard gap, separate `pthread_internal_t` page, randomized stack top | `bionic/0001` | Part of the experimental series; needs a full bionic build, boot, thread-creation stress, app/ART compatibility and memory/performance checks |
 | OPS-1 | Metadata-scrubbing image share target | `experimental/app/LenosOpsec` | Needs an app build and a real share flow; verify metadata removal with an external parser |
 | OPS-2 | One-tap Offline radio tile | `experimental/app/LenosOpsec` | Needs a system app build and airplane-mode/Wi-Fi/Bluetooth behavior on `asteroids` |
 | OPS-3 | Clear clipboard on screen off | `frameworks_base/0004` + `packages_apps_Settings/0003` | Needs a framework build and a screen-off cycle with text, image and URI clips |
@@ -55,7 +55,7 @@ entry names the blocker rather than pretending the work is a small patch.
 * **#30/#31** are not “partially” implemented. A Storage Scope or contact picker without the
   PackageManager state core would be security theatre; a second-factor lock screen without the
   credential-domain storage would risk locking users out.
-* **#33/#34** are program-level workstreams. HTS-1 is a narrow, default-off bionic experiment;
+* **#33/#34** are program-level workstreams. HTS-1 is a narrow experimental-series bionic experiment;
   hardened_malloc, MTE/BTI, exec spawning and SELinux tightening are still absent. The
   portability-safe kernel subset is already in the main 1.0 series (#32); the remaining
   allocator/SELinux work cannot be validated without a build and boot loop.
@@ -80,13 +80,11 @@ entry names the blocker rather than pretending the work is a small patch.
 
 ## Hardened thread stacks (HTS-1) limits
 
-* The bionic patch is present in the experimental series, but the alternate mapping is off unless
-  the build sets both `LENOS_EXPERIMENTAL=1` and `LENOS_HARDENED_THREAD_STACKS=1`. The read-only
-  property is then `ro.lenos.hardened_thread_stacks=1`; an absent value keeps the pinned AOSP
-  mapping. `LENOS_EXPERIMENTAL=1` alone does **not** enable it.
+* The bionic patch is part of the experimental series. `LENOS_EXPERIMENTAL=1` sets the read-only
+  property `ro.lenos.hardened_thread_stacks=1`; an absent value keeps the pinned AOSP mapping. The
+  stable/default build has no property and keeps the stock mapping.
 * It changes the layout of newly created pthread stacks only. The main thread, already-running
-  threads, the allocator, static TLS outside the pthread mapping, and non-pthread stacks are
-  unchanged.
+  threads, the allocator, static TLS for other mappings, and non-pthread stacks are unchanged.
 * It is not `hardened_malloc`, MTE/TBI, BTI/PAC, exec spawning, a JIT policy or a sandbox. It does
   not stop a memory-corruption exploit; it makes stack-overflow-into-thread-metadata harder.
 * The random guard gap reserves up to 50% extra virtual address space per 64-bit thread (10% on

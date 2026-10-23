@@ -25,6 +25,8 @@ class TestHardenedThreadStacks(LenosPatchTest):
         )
         self.assert_not_contains(SOURCE, "persist.lenos.hardened_thread_stacks")
         self.assert_not_contains(SOURCE, "atoi(")
+        # The experimental series is the only switch; no second build flag.
+        self.assert_not_contains(SOURCE, "LENOS_HARDENED_THREAD_STACKS")
 
     def test_stock_mapping_remains_the_fallback(self):
         self.assert_contains(

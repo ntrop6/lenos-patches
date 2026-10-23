@@ -16,11 +16,9 @@ PRODUCT_PACKAGES += \
 PRODUCT_PRODUCT_PROPERTIES += \
     ro.lenos.experimental=1
 
-# HTS-1: hardened thread-stack layout in bionic. This is deliberately off even
-# in an experimental build unless the build explicitly opts in. The bionic
-# patch reads the read-only property; an absent/false value keeps the stock
-# thread mapping. See experimental/docs/verification.md before enabling it.
-ifneq ($(filter 1 true yes,$(LENOS_HARDENED_THREAD_STACKS)),)
+# HTS-1: hardened thread-stack layout in bionic. The property belongs to the
+# experimental series, so it is present only when this fragment is inherited
+# (LENOS_EXPERIMENTAL=1). The stable/default build keeps the stock thread
+# mapping. See experimental/docs/verification.md before relying on it.
 PRODUCT_PRODUCT_PROPERTIES += \
     ro.lenos.hardened_thread_stacks=1
-endif

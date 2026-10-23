@@ -18,7 +18,7 @@ stop the default series from applying.
 | **#17** on-device crash/ANR log viewer | `packages_apps_Settings/0001-crash-log-viewer.patch` | Implemented; local-only; **not built** |
 | **#28** Setup Wizard unlocked-bootloader warning | `packages_apps_SetupWizard/0001-bootloader-unlocked-warning.patch` | Implemented; **not built** |
 | **#23 partial / ENF-1** global opt-in native-debugging block | `frameworks_base/0005-native-debugging-block.patch` + `packages_apps_Settings/0005-native-debugging-block.patch` | Implemented source-only; **not per-app** and **not built** |
-| **HTS-1 / #33 partial** hardened thread stacks | `bionic/0001-hardened-thread-stacks.patch` | Implemented source-only; **default off**, **not built or booted** |
+| **HTS-1 / #33 partial** hardened thread stacks | `bionic/0001-hardened-thread-stacks.patch` | Implemented source-only; **experimental-only**, **not built or booted** |
 | **#27** Seedvault/GrapheneOS app-id isolation | `packages_apps_Seedvault/0001-grapheneos-app-id-prefix.patch` | Implemented prefix port + GrapheneOS chunker; **restore compatibility unverified** |
 | **OPS-1** metadata-scrubbing share target | `experimental/app/LenosOpsec` | Implemented; re-encodes images; **not built** |
 | **OPS-2** one-tap Offline radio tile | `experimental/app/LenosOpsec` | Implemented; **not built** |
@@ -79,13 +79,12 @@ wipe.
   dumper) is not blocked. An app that deliberately calls
   `prctl(PR_SET_DUMPABLE, 1)` can undo its own bit. The setting is off by
   default and must be built and boot-tested before it can be trusted.
-* **HTS-1 is an opt-in bionic layout experiment, not a runtime-hardening
-  program.** It is enabled only when both `LENOS_EXPERIMENTAL=1` and
-  `LENOS_HARDENED_THREAD_STACKS=1` are set; the build then adds
-  `ro.lenos.hardened_thread_stacks=1`, and bionic uses a randomized guard gap
-  plus a separate page for `pthread_internal_t` on newly created threads.
-  Default and experimental-without-the-second-flag builds keep the stock
-  mapping. It does not change the main thread, existing threads,
+* **HTS-1 is an experimental bionic layout change, not a runtime-hardening
+  program.** It is part of the `LENOS_EXPERIMENTAL=1` series; the build then
+  adds `ro.lenos.hardened_thread_stacks=1`, and bionic uses a randomized guard
+  gap plus a separate page for `pthread_internal_t` on newly created threads.
+  The stable/default build keeps the stock mapping. It does not change the main
+  thread, existing threads,
   `hardened_malloc`, MTE/TBI, BTI/PAC, exec spawning, JIT policy or seccomp,
   and it is not a sandbox. The gap costs up to 50% extra virtual address space
   per 64-bit thread (10% on 32-bit), not committed RSS. App/ART compatibility
@@ -139,9 +138,6 @@ For a manual build, copy the experimental app and pass the flag to the build:
 ```bash
 cp -a experimental/app/LenosOpsec "$WS/vendor/lenos/app/"
 LENOS_EXPERIMENTAL=1 mka bacon
-
-# HTS-1 is a second, independent opt-in
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 mka bacon
 ```
 
 If the patchkit is outside the build tree, copy the normal build inputs first
@@ -152,10 +148,6 @@ The optional helper does the apply and app copy itself:
 ```bash
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh build
-
-# with hardened thread stacks
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 ./lenos-1.0-shizuku.sh apply
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 ./lenos-1.0-shizuku.sh build
 ```
 
 Reset the experimental series before the default series when switching back:

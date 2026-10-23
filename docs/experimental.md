@@ -13,12 +13,6 @@ If you use the optional helper, the two modes are:
 # experimental image
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh build
-
-# experimental image with the opt-in hardened thread stacks
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
-    ./lenos-1.0-shizuku.sh apply
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
-    ./lenos-1.0-shizuku.sh build
 ```
 
 For the manual path, see [Apply-order contract](#apply-order-contract) below.
@@ -29,8 +23,6 @@ the same variable yourself:
 
 ```bash
 LENOS_EXPERIMENTAL=1 mka bacon
-# or, for the additional HTS-1 opt-in:
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 mka bacon
 ```
 
 Without it, `LenosOpsec` is not in `PRODUCT_PACKAGES` and the experimental app
@@ -47,7 +39,7 @@ cp -a experimental/app/LenosOpsec "$WS/vendor/lenos/app/"
 |---|---|
 | `patches-experimental/<alias>/series` | Upstream-project patches applied **after** `patches/` |
 | `experimental/app/LenosOpsec/` | OPSEC app source, installed only for an experimental build |
-| `config/lenos-experimental.mk` | Experimental product fragment (`LenosOpsec`, `ro.lenos.experimental=1`, and the opt-in HTS-1 property) |
+| `config/lenos-experimental.mk` | Experimental product fragment (`LenosOpsec`, `ro.lenos.experimental=1`, `ro.lenos.hardened_thread_stacks=1`) |
 | `experimental/docs/` | OPSEC threat model, provenance, security review, device checklist |
 | `experimental/tests/` | Source-level tests for the experimental series and app |
 | `tools/verify-build.sh` | Read-only post-build artifact check |
@@ -119,19 +111,15 @@ must not be flashed without explicit approval and a recovery plan.
 ## Hardened thread stacks (HTS-1, experimental only)
 
 `bionic/0001-hardened-thread-stacks.patch` is a source port of the GrapheneOS
-pthread stack-layout changes. It is **off by default**, including in a normal
-`LENOS_EXPERIMENTAL=1` build. The second flag is required:
+pthread stack-layout changes. It is part of the experimental series: a normal
+`LENOS_EXPERIMENTAL=1` build applies the patch and
+`config/lenos-experimental.mk` adds `ro.lenos.hardened_thread_stacks=1`. The
+stable/default build has no property and keeps the pinned AOSP mapping.
 
-```bash
-LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 mka bacon
-```
-
-`config/lenos-experimental.mk` adds
-`ro.lenos.hardened_thread_stacks=1` only under that condition. Bionic reads the
-property for each new `pthread_create` and accepts only the exact value `1`.
-When the property is absent, the pinned AOSP mapping is used unchanged. The
-driver rejects `LENOS_HARDENED_THREAD_STACKS=1` without
-`LENOS_EXPERIMENTAL=1`, and `verify-device.sh` prints the resulting property.
+Bionic reads the property for each new `pthread_create` and accepts only the
+exact value `1`. When the property is absent, the pinned AOSP mapping is used
+unchanged. `verify-build.sh` reports the property and `verify-device.sh` prints
+it on a booted device.
 
 When enabled, a new thread mapping is laid out as:
 

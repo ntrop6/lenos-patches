@@ -53,10 +53,9 @@ are:
 * GrapheneOS enables the alternate layout unconditionally. lenOS keeps the four
   changes in one patch but selects them at runtime with
   `ro.lenos.hardened_thread_stacks`; only the exact value `1` enables the
-  hardened path. The product fragment adds the property only for a build that
-  sets both `LENOS_EXPERIMENTAL=1` and `LENOS_HARDENED_THREAD_STACKS=1`, so the
-  stock mapping remains the default and the experimental flag alone does not
-  change bionic behavior.
+  hardened path. The property is part of the experimental series
+  (`LENOS_EXPERIMENTAL=1`), so the stable/default build adds no property and
+  keeps the stock mapping.
 * The port is limited to `libc/bionic/pthread_create.cpp`; no
   `pthread_internal.h`, linker, ART or allocator change is included. The main
   thread stays on the old path because `__libc_init_main_thread.cpp` calls the

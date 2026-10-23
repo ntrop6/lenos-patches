@@ -11,16 +11,12 @@ approval.
 
    ```bash
    LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
-
-   # additionally opt in to HTS-1
-   LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
-       ./lenos-1.0-shizuku.sh apply
    ```
 
    This applies `patches/` then `patches-experimental/`, installs
-   `experimental/app/LenosOpsec` into the build tree, and exports the flags. For a manual
-   `mka` invocation, pass `LENOS_EXPERIMENTAL=1` yourself; add
-   `LENOS_HARDENED_THREAD_STACKS=1` only for the HTS-1 build.
+   `experimental/app/LenosOpsec` into the build tree, adds the HTS-1 property,
+   and exports the flag. For a manual `mka` invocation, pass
+   `LENOS_EXPERIMENTAL=1` yourself.
 2. Build the full `asteroids` product. `config/lenos-experimental.mk` adds `LenosOpsec` to
    `PRODUCT_PACKAGES` only under that flag; confirm it is in the build graph:
    ```bash
@@ -210,22 +206,24 @@ This is the highest-risk item in the batch because it depends on a vendor HAL. T
 
 ## HTS-1 — hardened thread stacks
 
-This feature is off by default even in an experimental build. Do not enable it
-on a daily driver until the boot and compatibility checks pass.
+HTS-1 is part of the experimental series (`LENOS_EXPERIMENTAL=1`). The stable
+default build keeps the stock mapping. Do not use HTS-1 on a daily driver until
+the boot and compatibility checks pass.
 
-1. Build two experimental images for comparison: one with
-   `LENOS_EXPERIMENTAL=1` alone, and one with
-   `LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1`. Confirm the first
-   has no `ro.lenos.hardened_thread_stacks` property and the second has exactly
-   `1`:
+1. Build two images for comparison. The HTS-1 image is a normal experimental
+   build. For the control, temporarily remove the
+   `ro.lenos.hardened_thread_stacks=1` line from
+   `$SRC/vendor/lenos/config/lenos-experimental.mk` in a separate tree, rebuild,
+   and restore the line afterwards. Confirm the HTS-1 image has the property set
+   to exactly `1` and the control build does not have it:
    ```bash
    adb shell getprop ro.lenos.hardened_thread_stacks
    OUT=out/target/product/asteroids LENOS_EXPECT_HARDENED_STACKS=1 \
        tools/verify-build.sh
    ```
-   `verify-build.sh` prints the property; an absent value is correct for the
-   default experimental build. Do not try to change it with `setprop`; it is a
-   read-only build property.
+   `verify-build.sh` prints the property; the control build should print
+   `<unset>`. Do not try to change it with `setprop`; it is a read-only build
+   property.
 
 2. Confirm the alternate mapping is actually used for a new thread. Pick a
    debuggable test app, start several worker threads, and inspect its VMAs:
