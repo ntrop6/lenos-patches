@@ -6,7 +6,7 @@ while reviewing the patches at source level. A passing test is not a runtime sec
 
 ## Method
 
-* Read every added framework, Settings, SetupWizard and `LenosOpsec` source file.
+* Read every added framework, Settings, SetupWizard, bionic and `LenosOpsec` source file.
 * Checked exported manifest components, signature/platform permissions and every call that writes a
   setting, system property or AppOp.
 * Checked that the OPSEC app has no `INTERNET` permission and no socket/HTTP code.
@@ -29,6 +29,8 @@ while reviewing the patches at source level. A passing test is not a runtime sec
 | OPS-1 / OPS-5 | Both are exported share targets. They process only after a user action, cap image count at 20, re-encode images, and never resolve/open links. | Intentional export; no network. |
 | OPS-2 Offline tile | Requires `NETWORK_SETTINGS`, `WRITE_SECURE_SETTINGS` and `BLUETOOTH_PRIVILEGED`; the tile service is protected by `BIND_QUICK_SETTINGS_TILE`. The app is platform-signed. | High privilege is necessary for a radio kill switch; no extra permission beyond that. |
 | OPS-3 / OPS-4 | Settings writes the secure clipboard setting and the existing `OP_READ_CLIPBOARD` AppOp. OPS-4 cannot override the global Secure Paste policy. | Acceptable; no new AppOp or permission. |
+| HTS-1 thread stacks | The bionic mapping is selected only by the exact read-only property `ro.lenos.hardened_thread_stacks=1`, added only when both build flags are set. `__allocate_thread_mapping` remains unchanged for the absent/false case. The random gap stays `PROT_NONE`; `pthread_internal_t` is in its own page. The main thread and existing threads keep their old layout. | Default-off; source-level tests pass. Full bionic build, boot, thread stress and app compatibility required. |
+| HTS-1 and MTE stack | Bionic's existing `__pthread_internal_remap_stack_with_mte` remaps the whole `mmap_base_unguarded` range for existing threads. If stack MTE is activated after hardened threads exist, that remap may make the random gap writable for those threads. HTS-1 does not enable MTE, and the target build does not claim MTE support. | Documented limitation; do not combine with stack MTE without a follow-up bionic change and validation. |
 | #32 kernel | Additive config fragment only; no vendor/GKI option is disabled. It is not a runtime validation. | Needs boot, `/proc/config.gz`, `dmesg_restrict` and performance checks. |
 
 ## Deliberate non-goals
@@ -39,6 +41,9 @@ while reviewing the patches at source level. A passing test is not a runtime sec
 * The share targets do not sanitize arbitrary file formats; unsupported images fail rather than
   silently pass through.
 * The Settings log viewer does not guarantee deletion of logs held by other system components.
+* HTS-1 is a stack-layout change, not a memory-safety proof or a sandbox. It does not stop
+  arbitrary memory corruption, replace `hardened_malloc`, enable MTE/TBI or change BTI/PAC,
+  seccomp, ART or JIT policy. Its memory/performance cost and app compatibility are unmeasured.
 * No signing key, recovery image, bootloader state or verified-boot chain is modified by these
   patches.
 
@@ -47,7 +52,8 @@ while reviewing the patches at source level. A passing test is not a runtime sec
 1. Build every project with the experimental series applied in order.
 2. Boot `asteroids`, check SELinux denial logs and the hidden-API build check.
 3. Run the checks in `verification.md`, including a same-UID ptrace attempt, USB data behavior
-   while locked, a Seedvault restore, and a Setup Wizard first boot with green and non-green
-   verified-boot properties.
+   while locked, a Seedvault restore, a Setup Wizard first boot with green and non-green
+   verified-boot properties, and HTS-1 thread-creation/app-compatibility/memory checks against a
+   control build. Do not promote HTS-1 on source-level tests alone.
 4. Promote only the features that pass. ENF-1 remains experimental until the per-app policy or an
    explicit product decision replaces it.

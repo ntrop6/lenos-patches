@@ -8,6 +8,7 @@ the directory name is a valid Python/Bash identifier-ish token.
 from __future__ import annotations
 
 PROJECT_ALIASES = {
+    "bionic": "bionic",
     "frameworks/base": "frameworks_base",
     "frameworks/native": "frameworks_native",
     "frameworks/opt/telephony": "frameworks_opt_telephony",

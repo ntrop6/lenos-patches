@@ -52,6 +52,7 @@ prop "Android release" ro.build.version.release
 prop "verified boot state" ro.boot.verifiedbootstate
 prop "bootloader locked" ro.boot.flash.locked
 prop "USB port mode" persist.security.usb_mode
+prop "hardened thread stacks" ro.lenos.hardened_thread_stacks
 
 printf '\nlenOS feature settings (read only):\n'
 setting "clipboard screen-off clear" clipboard_clear_on_screen_off

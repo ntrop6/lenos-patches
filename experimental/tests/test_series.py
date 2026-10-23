@@ -45,7 +45,8 @@ class TestExperimentalSeries(unittest.TestCase):
                 "0001-system-app-update-verity.patch",
                 "0001-crash-log-viewer.patch",
                 "0001-bootloader-unlocked-warning.patch",
-                "0001-grapheneos-app-id-prefix.patch"):
+                "0001-grapheneos-app-id-prefix.patch",
+                "0001-hardened-thread-stacks.patch"):
             self.assertEqual(list(STABLE_PATCH_ROOT.rglob(name)), [], name)
 
 

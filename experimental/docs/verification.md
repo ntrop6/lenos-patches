@@ -11,11 +11,16 @@ approval.
 
    ```bash
    LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
+
+   # additionally opt in to HTS-1
+   LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
+       ./lenos-1.0-shizuku.sh apply
    ```
 
    This applies `patches/` then `patches-experimental/`, installs
-   `experimental/app/LenosOpsec` into the build tree, and exports the flag. For a manual
-   `mka` invocation, pass `LENOS_EXPERIMENTAL=1` yourself.
+   `experimental/app/LenosOpsec` into the build tree, and exports the flags. For a manual
+   `mka` invocation, pass `LENOS_EXPERIMENTAL=1` yourself; add
+   `LENOS_HARDENED_THREAD_STACKS=1` only for the HTS-1 build.
 2. Build the full `asteroids` product. `config/lenos-experimental.mk` adds `LenosOpsec` to
    `PRODUCT_PACKAGES` only under that flag; confirm it is in the build graph:
    ```bash
@@ -202,6 +207,69 @@ This is the highest-risk item in the batch because it depends on a vendor HAL. T
 4. Use “Copy cleaned text” and compare it with the preview. Confirm the app has no network code and
    that a malformed URL is left untouched rather than crashing.
 5. Check a shortened link: the scrubber must not resolve it and the UI must not imply it is safe.
+
+## HTS-1 — hardened thread stacks
+
+This feature is off by default even in an experimental build. Do not enable it
+on a daily driver until the boot and compatibility checks pass.
+
+1. Build two experimental images for comparison: one with
+   `LENOS_EXPERIMENTAL=1` alone, and one with
+   `LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1`. Confirm the first
+   has no `ro.lenos.hardened_thread_stacks` property and the second has exactly
+   `1`:
+   ```bash
+   adb shell getprop ro.lenos.hardened_thread_stacks
+   OUT=out/target/product/asteroids LENOS_EXPECT_HARDENED_STACKS=1 \
+       tools/verify-build.sh
+   ```
+   `verify-build.sh` prints the property; an absent value is correct for the
+   default experimental build. Do not try to change it with `setprop`; it is a
+   read-only build property.
+
+2. Confirm the alternate mapping is actually used for a new thread. Pick a
+   debuggable test app, start several worker threads, and inspect its VMAs:
+   ```bash
+   PID="$(adb shell pidof <test.package>)"
+   adb shell cat "/proc/$PID/maps" | grep 'stack_and_tls'
+   ```
+   With the property set, the mapping should contain a writable stack region,
+   a `---p` (PROT_NONE) gap, and a separate writable page for
+   `pthread_internal_t`/TLS. With the property absent, use the same command on
+   the control build and record the stock layout. If SELinux denies
+   `/proc/<pid>/maps`, use a debuggable test app and `run-as`, or a native
+   test binary in `/data/local/tmp`; do not weaken SELinux to run the check.
+
+3. Stress thread creation and teardown: create and join at least 10,000
+   short-lived threads in a native test app, plus repeated app launches,
+   ART/zygote activity, WebView page loads, camera open/close, and Binder-heavy
+   flows. Watch for:
+   ```bash
+   adb logcat -b crash -b main -s libc DEBUG tombstoned
+   adb shell dmesg | grep -i -E 'oom|segfault|stack'
+   ```
+   A `pthread_create` failure with `EAGAIN` is fail-closed behavior, not a
+   reason to disable the guard; investigate the mapping arithmetic instead.
+
+4. Compare memory and launch time between the control and HTS-1 builds. The
+   random gap is virtual address space, so expect `VmSize` to rise (up to 50%
+   of thread stack size on 64-bit, 10% on 32-bit) without a matching RSS rise.
+   Record `MemAvailable`, `VmSize`, `VmRSS`, cold app-launch time, and any
+   increase in page-fault rate. Reject the feature if RSS or latency regresses
+   materially.
+
+5. Reboot, lock/unlock, make an emergency call, use the camera, and run a
+   full app-compatibility pass. HTS-1 does not touch AVB, encryption, SELinux,
+   recovery or the kernel, but the boot must still be treated as a test build
+   until this pass is complete.
+
+6. Only then consider a longer soak. Keep the control build available so a
+   regression can be bisected to the property rather than to the rest of the
+   experimental series.
+
+Known limitation: the main thread and threads created before the property is
+read keep their existing layout. This feature does not add `hardened_malloc`,
+MTE/TBI, BTI/PAC, exec spawning, JIT restrictions or seccomp changes.
 
 ## ENF-1 / #23 partial — native-debugging block
 

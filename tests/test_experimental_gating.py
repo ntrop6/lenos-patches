@@ -26,6 +26,7 @@ TOOL = VENDOR / "tools/lenos-patch.py"
 STABLE = VENDOR / "patches"
 EXPERIMENTAL = VENDOR / "patches-experimental"
 EXPECTED_PROJECTS = {
+    "bionic",
     "frameworks/base",
     "packages/apps/Settings",
     "packages/apps/SetupWizard",
@@ -79,7 +80,8 @@ class TestExperimentalLayout(unittest.TestCase):
                 "0001-system-app-update-verity.patch",
                 "0001-crash-log-viewer.patch",
                 "0001-bootloader-unlocked-warning.patch",
-                "0001-grapheneos-app-id-prefix.patch"):
+                "0001-grapheneos-app-id-prefix.patch",
+                "0001-hardened-thread-stacks.patch"):
             self.assertNotIn(unexpected, stable_files)
 
     def test_all_experimental_patches_apply_after_stable_context(self):
@@ -118,6 +120,29 @@ class TestProductGate(unittest.TestCase):
         self.assertIn("LenosOpsec", body)
         self.assertIn("ro.lenos.experimental=1", body)
         self.assertNotIn("LenosOpsec", (VENDOR / "config/lenos.mk").read_text())
+
+    def test_hardened_thread_stacks_are_opt_in_and_default_off(self):
+        fragment = (VENDOR / "config/lenos-experimental.mk").read_text()
+        self.assertIn(
+            "ifneq ($(filter 1 true yes,$(LENOS_HARDENED_THREAD_STACKS)),)",
+            fragment)
+        self.assertIn("ro.lenos.hardened_thread_stacks=1", fragment)
+        # LENOS_EXPERIMENTAL alone must not turn on the alternate stack layout.
+        stable = (VENDOR / "config/lenos.mk").read_text()
+        self.assertNotIn("LENOS_HARDENED_THREAD_STACKS", stable)
+        self.assertNotIn("ro.lenos.hardened_thread_stacks", stable)
+        gate = "ifneq ($(filter 1 true yes,$(LENOS_HARDENED_THREAD_STACKS)),)"
+        self.assertNotIn("ro.lenos.hardened_thread_stacks", fragment.split(gate, 1)[0])
+
+    def test_driver_requires_experimental_for_hardened_stacks(self):
+        body = (VENDOR / "lenos-1.0-shizuku.sh").read_text()
+        for needle in (
+                "hardened_thread_stacks_enabled()",
+                'LENOS_HARDENED_THREAD_STACKS=1 requires LENOS_EXPERIMENTAL=1',
+                'export LENOS_HARDENED_THREAD_STACKS="$hardened"',
+                "__allocate_hardened_thread_mapping",
+                "ro.lenos.hardened_thread_stacks=1"):
+            self.assertIn(needle, body)
 
     def test_experimental_app_source_is_opt_in_and_local_only(self):
         app = VENDOR / "experimental/app/LenosOpsec"
@@ -170,7 +195,8 @@ class TestPatchToolModes(unittest.TestCase):
         lines = self.run_list("--experimental")
         projects = {line.split("\t", 1)[0] for line in lines}
         self.assertEqual(projects, EXPECTED_PROJECTS)
-        self.assertEqual(len(lines), 12)
+        self.assertEqual(len(lines), 13)
+        self.assertIn("bionic\t0001-hardened-thread-stacks.patch", lines)
         self.assertIn("frameworks/base\t0001-system-app-update-verity.patch", lines)
         self.assertIn("packages/apps/Settings\t0005-native-debugging-block.patch", lines)
         self.assertFalse(any(line.startswith("vendor/lenos\t") for line in lines))

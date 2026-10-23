@@ -56,10 +56,24 @@ check_any "LenosOpsec" \
 check_file "system image" "$OUT/system.img"
 check_file "build.prop" "$OUT/system/build.prop"
 
-if [ -f "$OUT/system/build.prop" ]; then
-    printf '\nlenOS build properties:\n'
-    grep -E '^(ro\.build\.type|ro\.build\.version\.release|ro\.lenos\.)' \
-        "$OUT/system/build.prop" || true
+printf '\nlenOS build properties:\n'
+prop_files=("$OUT/system/build.prop")
+for candidate in "$OUT/product/build.prop" "$OUT/product/etc/build.prop" \
+                 "$OUT/system/product/build.prop"; do
+    [ -f "$candidate" ] && prop_files+=("$candidate")
+done
+for prop_file in "${prop_files[@]}"; do
+    [ -f "$prop_file" ] || continue
+    grep -H -E '^(ro\.build\.type|ro\.build\.version\.release|ro\.lenos\.)' \
+        "$prop_file" || true
+done
+
+hardened="$(grep -h '^ro\.lenos\.hardened_thread_stacks=' \
+    "${prop_files[@]}" 2>/dev/null | head -n 1 | cut -d= -f2-)"
+printf '%-32s %s\n' "hardened thread stacks" "${hardened:-<unset>}"
+if [ "${LENOS_EXPECT_HARDENED_STACKS:-0}" = "1" ] && [ "$hardened" != "1" ]; then
+    printf 'MISS %-28s ro.lenos.hardened_thread_stacks=1\n' "HTS-1 property"
+    fail=1
 fi
 
 printf '\n'

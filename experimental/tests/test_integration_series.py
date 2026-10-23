@@ -24,7 +24,7 @@ class TestImportedSeries(unittest.TestCase):
             sandbox = build_sandbox(project, series_for(project, PATCH_ROOT))
             self.addCleanup(shutil.rmtree, sandbox, ignore_errors=True)
         self.assertEqual(projects, {
-            "frameworks/base", "packages/apps/Settings",
+            "bionic", "frameworks/base", "packages/apps/Settings",
             "packages/apps/SetupWizard", "packages/apps/Seedvault"})
 
     def test_each_experimental_patch_applies_independently_after_stable(self):

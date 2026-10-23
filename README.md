@@ -103,7 +103,9 @@ The feature list and its honest limits are in
 
 The optional series contains features that are source-complete but still need a
 build and a device to validate. It applies only after the default series and is
-selected with `LENOS_EXPERIMENTAL=1`. See
+selected with `LENOS_EXPERIMENTAL=1`. The bionic hardened-thread-stack
+experiment is a second, default-off opt-in:
+`LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1`. See
 [`docs/experimental.md`](docs/experimental.md) for the order, reset rules, and
 what remains untested.
 

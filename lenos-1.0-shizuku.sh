@@ -84,6 +84,8 @@ Root (opt-in): LENOS_ROOT=resukisu|kernelsu. Build first, then root-prepare,
   image. It re-signs init_boot and every OS AVB partition with your keys.
 Experimental build: LENOS_EXPERIMENTAL=1 $0 apply|build
   (patches-experimental + experimental/app/LenosOpsec; never device-validated)
+Hardened thread stacks (experimental only, default off):
+  LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 $0 build
 
 Never: repo sync, git apply, flash, lock, firmware --re-sign.
 EOF
@@ -100,6 +102,13 @@ require_boot_verification_tools() {
 
 experimental_enabled() {
   case "${LENOS_EXPERIMENTAL:-0}" in
+    1|true|TRUE|yes|YES) return 0;;
+    *) return 1;;
+  esac
+}
+
+hardened_thread_stacks_enabled() {
+  case "${LENOS_HARDENED_THREAD_STACKS:-0}" in
     1|true|TRUE|yes|YES) return 0;;
     *) return 1;;
   esac
@@ -243,8 +252,16 @@ cmd_doctor() {
     [[ -d "$VENDOR/experimental/app/LenosOpsec" ]] \
       || die "experimental app source missing: $VENDOR/experimental/app/LenosOpsec"
     info "mode:    experimental (LENOS_EXPERIMENTAL=1)"
+    if hardened_thread_stacks_enabled; then
+      info "stacks:  hardened thread stacks (HTS-1, opt-in)"
+    else
+      info "stacks:  stock (set LENOS_HARDENED_THREAD_STACKS=1 to opt in)"
+    fi
   else
     info "mode:    stable 1.0"
+    if hardened_thread_stacks_enabled; then
+      die "LENOS_HARDENED_THREAD_STACKS=1 requires LENOS_EXPERIMENTAL=1"
+    fi
   fi
   if root_enabled; then
     need_file "$VENDOR/tools/lenos_root.py"
@@ -334,9 +351,15 @@ cmd_apply() {
   export LENOS_ALLOW_LOW_MEMORY="${LENOS_ALLOW_LOW_MEMORY:-1}"
   export LENOS_BUILD_JOBS="${LENOS_BUILD_JOBS:-4}"
 
-  local experimental=0 exp_was_applied=0 exp_status
+  local experimental=0 exp_was_applied=0 exp_status hardened=0
   if experimental_enabled; then experimental=1; fi
   export LENOS_EXPERIMENTAL="$experimental"
+  if hardened_thread_stacks_enabled; then
+    [[ "$experimental" -eq 1 ]] \
+      || die "LENOS_HARDENED_THREAD_STACKS=1 requires LENOS_EXPERIMENTAL=1"
+    hardened=1
+  fi
+  export LENOS_HARDENED_THREAD_STACKS="$hardened"
   if [[ "$experimental" -eq 1 ]]; then
     info "build mode: EXPERIMENTAL (patches-experimental + LenosOpsec; not device-validated)"
   else
@@ -626,6 +649,17 @@ cmd_apply() {
       || die "experimental product fragment does not include LenosOpsec"
     grep -q 'ro.lenos.experimental=1' "$SRC/vendor/lenos/config/lenos-experimental.mk" \
       || die "experimental product marker missing"
+    grep -q '__allocate_hardened_thread_mapping' \
+      "$SRC/bionic/libc/bionic/pthread_create.cpp" \
+      || die "experimental hardened thread-stack patch missing from bionic"
+    if [[ "$hardened" -eq 1 ]]; then
+      grep -q 'ro.lenos.hardened_thread_stacks=1' \
+        "$SRC/vendor/lenos/config/lenos-experimental.mk" \
+        || die "hardened thread-stack property missing from the experimental product fragment"
+      info "hardened thread stacks ENABLED (HTS-1; still requires a build and boot test)"
+    else
+      info "hardened thread stacks compiled but disabled (property absent)"
+    fi
     info "experimental markers OK - build is experimental, not device-validated"
   else
     [[ ! -e "$SRC/vendor/lenos/app/LenosOpsec" ]] \

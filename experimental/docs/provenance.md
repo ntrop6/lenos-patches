@@ -8,6 +8,7 @@ diff against the commit below. Original lenOS work is marked as such.
 
 | Project | Revision | Used by |
 |---|---|---|
+| `bionic` | `ff9fe01e7e1e81febaf32b15fa561aec480a112c` (`lineage-23.2`) | HTS-1 hardened thread stacks |
 | `frameworks/base` | `958afcc3d647d57571650cee4172afe0da619171` (`lineage-23.2`, 2026-10-15) | #20/#21, #22, #23 partial, #25, OPS-3 |
 | `packages/apps/Settings` | `72494c35b673f1b531e1218160e1e514976f6a1e` | #17, #22, #23 partial, OPS-3, OPS-4 |
 | `packages/apps/SetupWizard` | `715b772f07c52ce0fdb83b9891765f3de992ffb5` | #28 |
@@ -17,11 +18,16 @@ diff against the commit below. Original lenOS work is marked as such.
 ## GrapheneOS references
 
 The local reference tree is `graphene-repos/fwb-full` at `ef402132a` (branch `17`). The Seedvault
-reference is `GrapheneOS/platform_packages_apps_Seedvault` at `7cfffed` (branch `17`). The relevant
-upstream files are:
+reference is `GrapheneOS/platform_packages_apps_Seedvault` at `7cfffed` (branch `17`). The bionic
+reference is the GrapheneOS bionic branch `17` at `e93ce48518dc0fba69878cb4ace37a3525862cbe`; the
+hardened-thread-stack changes come from commits `4aefb578a7a0` (guard pages between static TLS and
+stack), `369305a6632d` (move `pthread_internal_t` behind a guard page), `ff25c271653a` (secondary
+stack randomization) and `b777629641e8` (missing overflow-check fixup). The relevant upstream files
+are:
 
 | lenOS patch | GrapheneOS source |
 |---|---|
+| `bionic/0001-hardened-thread-stacks.patch` | `libc/bionic/pthread_create.cpp` from the four GrapheneOS bionic commits listed above; no header change is needed |
 | `frameworks_base/0001-system-app-update-verity.patch` | `services/core/java/com/android/server/pm/PackageVerityExt.java`; hooks in `services/core/java/com/android/server/pm/InstallPackageHelper.java` (`scanPackageForInitLI`, `preparePackageLI`) |
 | `frameworks_base/0002-screenshot-sound-settings.patch` | `packages/SystemUI/src/com/android/systemui/screenshot/ScreenshotSoundController.kt` and `ScreenshotSoundPolicy.kt`; the existing `multivalentTests` for both classes |
 | `frameworks_base/0003-usb-port-security.patch` | `core/java/android/hardware/usb/UsbPortSecurity.java`, `core/java/android/ext/settings/UsbPortSecurity.java`, `services/core/java/com/android/server/policy/keyguard/UsbPortSecurityHooks.java`, `core/java/android/hardware/usb/UsbManager.java`; AOSP `UsbService.enableUsbDataInternal` / `UsbPortManager.enableUsbData` |
@@ -41,6 +47,35 @@ upstream files are:
 | `frameworks_base/0005-native-debugging-block.patch` + `packages_apps_Settings/0005-native-debugging-block.patch` | Original lenOS global approximation of GrapheneOS's native-debugging control. It uses `prctl(PR_SET_DUMPABLE, 0)` for newly bound user app processes; the GOS per-app `GosPackageState`, SELinux package domains, denial notification and per-app UI are not ported. |
 
 ## Deliberate deviations
+
+### HTS-1 — hardened thread stacks
+
+* GrapheneOS enables the alternate layout unconditionally. lenOS keeps the four
+  changes in one patch but selects them at runtime with
+  `ro.lenos.hardened_thread_stacks`; only the exact value `1` enables the
+  hardened path. The product fragment adds the property only for a build that
+  sets both `LENOS_EXPERIMENTAL=1` and `LENOS_HARDENED_THREAD_STACKS=1`, so the
+  stock mapping remains the default and the experimental flag alone does not
+  change bionic behavior.
+* The port is limited to `libc/bionic/pthread_create.cpp`; no
+  `pthread_internal.h`, linker, ART or allocator change is included. The main
+  thread stays on the old path because `__libc_init_main_thread.cpp` calls the
+  old allocator directly.
+* The hardened path keeps the GrapheneOS layout: a page-aligned stack, a random
+  `PROT_NONE` gap of at least one page (up to 50% of the stack on LP64 and 10%
+  on LP32), a dedicated page for `pthread_internal_t`, and a stack top
+  randomized within the old `pthread_internal_t` slot and aligned to 16 bytes.
+* **lenOS deviation:** the zero-size mapping used for a caller-supplied stack
+  skips the stack `mprotect` and the stack-top randomization. GrapheneOS's
+  single `mprotect` range is not zero-length there, but splitting the regions
+  in this port would otherwise call `mprotect(..., 0, ...)`. The metadata
+  region is still protected and the gap remains `PROT_NONE`.
+* **lenOS deviation:** all size additions on the hardened path use
+  `__builtin_add_overflow`; the GrapheneOS code relies on the surrounding
+  size checks. This is fail-closed: an overflow returns the empty mapping and
+  `pthread_create` fails with `EAGAIN`.
+* The existing AOSP `__allocate_thread_mapping` function is left unchanged and
+  remains the only path when the property is absent or false.
 
 ### #20/#21 — system-app update verification
 

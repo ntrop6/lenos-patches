@@ -160,6 +160,10 @@ batches implement:
   the kernel dumpable bit for newly started non-system, non-debuggable,
   non-profileable app processes. It is explicitly not the per-app
   `GosPackageState`/SELinux feature; system apps and root remain exempt;
+* **HTS-1 / #33 partial** — an opt-in bionic thread-stack layout with a random
+  `PROT_NONE` gap and a dedicated `pthread_internal_t` page. It is off even in
+  the experimental build unless `LENOS_HARDENED_THREAD_STACKS=1` is also set;
+  it is not `hardened_malloc`, MTE/BTI, exec spawning or a sandbox;
 * **OPS-1** — a metadata-scrubbing image share target that re-encodes the
   image and shares only a randomized, metadata-free copy;
 * **OPS-2** — an Offline Quick Settings tile that turns off Wi-Fi and
@@ -175,9 +179,10 @@ batches implement:
 
 The experimental [`experimental/docs/opsec.md`](../experimental/docs/opsec.md)
 documents the OPSEC threat model and limits. `experimental/STATUS.md` lists
-the remaining untestable workstreams (full per-app #23, #30, #31, #33–#35)
-with the concrete blocker for each, and `experimental/docs/security-review.md`
-records the source-level security review.
+the remaining untestable workstreams (full per-app #23, #30, #31, the rest of
+#33, #34–#35) with the concrete blocker for each, and
+`experimental/docs/security-review.md` records the source-level security
+review.
 
 ## Not in the 1.0 series
 

@@ -13,6 +13,12 @@ If you use the optional helper, the two modes are:
 # experimental image
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh apply
 LENOS_EXPERIMENTAL=1 ./lenos-1.0-shizuku.sh build
+
+# experimental image with the opt-in hardened thread stacks
+LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
+    ./lenos-1.0-shizuku.sh apply
+LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 \
+    ./lenos-1.0-shizuku.sh build
 ```
 
 For the manual path, see [Apply-order contract](#apply-order-contract) below.
@@ -23,6 +29,8 @@ the same variable yourself:
 
 ```bash
 LENOS_EXPERIMENTAL=1 mka bacon
+# or, for the additional HTS-1 opt-in:
+LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 mka bacon
 ```
 
 Without it, `LenosOpsec` is not in `PRODUCT_PACKAGES` and the experimental app
@@ -39,7 +47,7 @@ cp -a experimental/app/LenosOpsec "$WS/vendor/lenos/app/"
 |---|---|
 | `patches-experimental/<alias>/series` | Upstream-project patches applied **after** `patches/` |
 | `experimental/app/LenosOpsec/` | OPSEC app source, installed only for an experimental build |
-| `config/lenos-experimental.mk` | Experimental product fragment (`LenosOpsec`, `ro.lenos.experimental=1`) |
+| `config/lenos-experimental.mk` | Experimental product fragment (`LenosOpsec`, `ro.lenos.experimental=1`, and the opt-in HTS-1 property) |
 | `experimental/docs/` | OPSEC threat model, provenance, security review, device checklist |
 | `experimental/tests/` | Source-level tests for the experimental series and app |
 | `tools/verify-build.sh` | Read-only post-build artifact check |
@@ -102,11 +110,47 @@ Experimental means **source-complete, not validated**:
 * no image has been flashed, wiped, relocked or booted;
 * untested items include the USB HAL `enableUsbData` path, fs-verity updates,
   Seedvault restore migration, ENF-1 ptrace behavior, Setup Wizard verified-boot
-  states, and every OPSEC UI flow.
+  states, HTS-1 thread-stack behavior/compatibility, and every OPSEC UI flow.
 
 The no-flash/no-wipe/no-relock rules in
 [`flash-and-lock.md`](flash-and-lock.md) still apply. An experimental build
 must not be flashed without explicit approval and a recovery plan.
+
+## Hardened thread stacks (HTS-1, experimental only)
+
+`bionic/0001-hardened-thread-stacks.patch` is a source port of the GrapheneOS
+pthread stack-layout changes. It is **off by default**, including in a normal
+`LENOS_EXPERIMENTAL=1` build. The second flag is required:
+
+```bash
+LENOS_EXPERIMENTAL=1 LENOS_HARDENED_THREAD_STACKS=1 mka bacon
+```
+
+`config/lenos-experimental.mk` adds
+`ro.lenos.hardened_thread_stacks=1` only under that condition. Bionic reads the
+property for each new `pthread_create` and accepts only the exact value `1`.
+When the property is absent, the pinned AOSP mapping is used unchanged. The
+driver rejects `LENOS_HARDENED_THREAD_STACKS=1` without
+`LENOS_EXPERIMENTAL=1`, and `verify-device.sh` prints the resulting property.
+
+When enabled, a new thread mapping is laid out as:
+
+```
+[ stack guard ][ stack ][ random PROT_NONE gap ][ pthread_internal_t ][ static TLS ][ libgen ][ guard ]
+```
+
+The gap is at least one page and up to 50% of the stack on 64-bit (10% on
+32-bit); the stack top is randomized within the old `pthread_internal_t` slot.
+The main thread is intentionally unchanged because
+`__libc_init_main_thread.cpp` calls the old allocator directly.
+
+This is not `hardened_malloc`, MTE/TBI, BTI/PAC, exec spawning, JIT policy or a
+sandbox. It only makes a stack overflow less likely to overwrite
+`pthread_internal_t` and TLS. It has not been built or booted, and the extra
+virtual address space and app/ART compatibility are unmeasured. See
+[`../experimental/docs/verification.md`](../experimental/docs/verification.md)
+for the required boot and thread-stress checks, and
+[`../experimental/STATUS.md`](../experimental/STATUS.md) for the limits.
 
 ## Verification
 

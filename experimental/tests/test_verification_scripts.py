@@ -32,14 +32,16 @@ class TestVerificationScripts(unittest.TestCase):
     def test_device_probes_are_read_only(self):
         body = (VENDOR / "tools" / "verify-device.sh").read_text(encoding="utf-8")
         for needle in ("getprop", "settings get secure", "dumpsys usb", "pm path",
-                       "dmesg_restrict", "/proc/config.gz"):
+                       "dmesg_restrict", "/proc/config.gz",
+                       "ro.lenos.hardened_thread_stacks"):
             self.assertIn(needle, body)
         self.assertIn("made no changes", body)
 
     def test_build_script_checks_expected_artifacts(self):
         body = (VENDOR / "tools" / "verify-build.sh").read_text(encoding="utf-8")
         for needle in ("framework.jar", "Settings/Settings.apk", "LenosOpsec",
-                       "Seedvault", "system.img"):
+                       "Seedvault", "system.img",
+                       "ro.lenos.hardened_thread_stacks"):
             self.assertIn(needle, body)
 
 
